@@ -1,9 +1,9 @@
-# INTRODUCTIOn
+# Introduction
 
 This is a project just to tinker with IOT trinkets like esp32-c3 super mini or
 esp-01 to get valueable measurements of sensors and home IOT devices.
 
-# DUCO
+# DUCO Box Silent
 
 The duco/ subdir contains DUCO related projects.
 
