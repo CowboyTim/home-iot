@@ -17,7 +17,7 @@ It also has a SE95 for temperature reading/compensation in the same package.
 
 This uses the S8\_UART library that's in the Arduino Library, see
 [S8_UART](https://github.com/jcomas/S8_UART) and
-[https://www.arduino.cc/reference/en/libraries/s8_uart/](https://www.arduino.cc/reference/en/libraries/s8_uart/)
+[s8_uart](https://www.arduino.cc/reference/en/libraries/s8_uart/)
 
 To build and deploy this, using an esp32-c3 super mini board, run:
 ```
