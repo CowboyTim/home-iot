@@ -26,7 +26,7 @@
 #define TEMP_SENSOR
 #ifdef TEMP_SENSOR
 #include <Temperature_LM75_Derived.h>
-Generic_LM75 temperature;
+NXP_SE95 se95_temp_sensor;
 #endif
 
 /* DUCO CO2 Sensor uses an Sensair S8 LP sensor for CO2 */
@@ -330,7 +330,7 @@ void loop(){
   #ifdef TEMP_SENSOR
   if(millis() - last_temp > 5000){
     Serial.print("Temperature = ");
-    Serial.print(temperature.readTemperatureC());
+    Serial.print(se95_temp_sensor.readTemperatureC());
     Serial.println(" C");
     last_temp = millis();
   }
