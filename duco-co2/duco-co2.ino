@@ -9,10 +9,7 @@
 #include "SerialCommands.h"
 #include "EEPROM.h"
 #include "sntp.h"
-
-#include "s8_uart.h"
-S8_UART *sensor_S8;
-S8_sensor sensor;
+#include <Wire.h>
 
 #ifndef VERBOSE
 #define VERBOSE
@@ -20,6 +17,22 @@ S8_sensor sensor;
 #ifndef DEBUG
 #define DEBUG
 #endif
+
+#define I2C_DAT   6
+#define I2C_CLK   7
+
+/* DUCO CO2 Sensor contains a SE95 temperature on i2c, The
+   Temperature_LM75_Derived class can read that */
+#define TEMP_SENSOR
+#ifdef TEMP_SENSOR
+#include <Temperature_LM75_Derived.h>
+Generic_LM75 temperature;
+#endif
+
+/* DUCO CO2 Sensor uses an Sensair S8 LP sensor for CO2 */
+#include "s8_uart.h"
+S8_UART *sensor_S8;
+S8_sensor sensor;
 
 /* NTP server to use, can be configured later on via AT commands */
 #ifndef DEFAULT_NTP_SERVER
@@ -57,6 +70,9 @@ uint8_t ntp_is_synced         = 1;
 uint8_t logged_wifi_status    = 0;
 unsigned long last_wifi_check = 0;
 unsigned long last_co2        = 0;
+#ifdef TEMP_SENSOR
+unsigned long last_temp       = 0;
+#endif
 void(* resetFunc)(void) = 0;
 
 char* at_cmd_check(const char *cmd, const char *at_cmd, unsigned short at_len){
@@ -176,10 +192,6 @@ void setup(){
   // Serial setup, init at 115200 8N1
   Serial.begin(115200);
 
-  delay(2000);
-
-  Serial.println("STARTUP");
-
   // setup cfg
   setup_cfg();
 
@@ -280,6 +292,13 @@ void setup(){
   } else {
     Serial.println("The sensor is OK.");
   }
+
+  #ifdef TEMP_SENSOR
+  Wire.begin();
+  #ifdef ARDUINO_ARCH_ESP32 || ARDUINO_ARCH_ESP8266
+  Wire.setPins(I2C_DAT, I2C_CLK);
+  #endif
+  #endif
 }
 
 void loop(){
@@ -305,8 +324,17 @@ void loop(){
   if(millis() - last_co2 > 5000){
     sensor.co2 = sensor_S8->get_co2();
     printf("CO2 value = %d ppm\n", sensor.co2);
-	last_co2 = millis();
+    last_co2 = millis();
   }
+
+  #ifdef TEMP_SENSOR
+  if(millis() - last_temp > 5000){
+    Serial.print("Temperature = ");
+    Serial.print(temperature.readTemperatureC());
+    Serial.println(" C");
+    last_temp = millis();
+  }
+  #endif
 }
 
 void setup_cfg(){
