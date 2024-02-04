@@ -1,17 +1,15 @@
-# Introduction
-
-This is a project just to tinker with IOT trinkets like esp32-c3 super mini or
-esp-01 to get valueable measurements of sensors and home IOT devices.
-
-# DUCO Box Silent
-
-The duco/ subdir contains DUCO related projects.
-
 # DUCO CO2 sensor
 
-This is a CO2 Sensor for the DUCO Box Silent that's based on Sensair's S8
-sensor, see [Sensair S8](https://senseair.com/product/senseair-s8-residential/)
-and the datasheet [Sensair S8
+## Connector
+
+See [connector]()
+
+## Software
+
+This is a tool to read out the CO2 Sensor for the DUCO Box Silent that's based
+on Sensair's S8 sensor, see [Sensair
+S8](https://senseair.com/product/senseair-s8-residential/) and the datasheet
+[Sensair S8
 Datasheet](https://rmtplusstoragesenseair.blob.core.windows.net/docs/publicerat/PSP126.pdf).
 It also has a SE95 for temperature reading/compensation in the same package.
 
