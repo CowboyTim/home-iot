@@ -2,7 +2,7 @@
 
 ## Connector
 
-See [connector]()
+See [connector](https://github.com/CowboyTim/home-iot/blob/main/duco-co2/kicad/duco_co2.svg)
 
 ## Software
 
