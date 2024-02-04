@@ -250,7 +250,7 @@
   (symbol (lib_id "power:VCC") (at 64.77 55.88 0) (unit 1)
     (in_bom yes) (on_board yes) (fields_autoplaced)
     (uuid 38aaf2b1-3bf7-4863-b743-c3863a3a99ca)
-    (property "Reference" "5V" (id 0) (at 67.31 53.3399 0)
+    (property "Reference" "#5V0101" (id 0) (at 67.31 53.3399 0)
       (effects (font (size 1.27 1.27)) (justify left))
     )
     (property "Value" "VCC" (id 1) (at 67.31 55.8799 0)
@@ -289,7 +289,7 @@
   (symbol (lib_id "power:VCC") (at 68.58 76.2 90) (unit 1)
     (in_bom yes) (on_board yes) (fields_autoplaced)
     (uuid b67c92c8-8960-4c22-a8b2-2c01374413c2)
-    (property "Reference" "3.3V" (id 0) (at 69.85 74.9299 90)
+    (property "Reference" "#3.3V0101" (id 0) (at 69.85 74.9299 90)
       (effects (font (size 1.27 1.27)) (justify right))
     )
     (property "Value" "VCC" (id 1) (at 69.85 77.4699 90)
@@ -307,7 +307,7 @@
   (symbol (lib_id "power:GND") (at 76.2 67.31 0) (unit 1)
     (in_bom yes) (on_board yes)
     (uuid dd1b2aa3-e4a6-4e1f-ae6b-604f6f803358)
-    (property "Reference" "#PWR?" (id 0) (at 76.2 73.66 0)
+    (property "Reference" "#PWR0101" (id 0) (at 76.2 73.66 0)
       (effects (font (size 1.27 1.27)) hide)
     )
     (property "Value" "GND" (id 1) (at 80.01 68.58 0))
@@ -325,14 +325,14 @@
   )
 
   (symbol_instances
-    (path "/dd1b2aa3-e4a6-4e1f-ae6b-604f6f803358"
-      (reference "#PWR?") (unit 1) (value "GND") (footprint "")
-    )
     (path "/b67c92c8-8960-4c22-a8b2-2c01374413c2"
-      (reference "3.3V") (unit 1) (value "VCC") (footprint "")
+      (reference "#3.3V0101") (unit 1) (value "VCC") (footprint "")
     )
     (path "/38aaf2b1-3bf7-4863-b743-c3863a3a99ca"
-      (reference "5V") (unit 1) (value "VCC") (footprint "")
+      (reference "#5V0101") (unit 1) (value "VCC") (footprint "")
+    )
+    (path "/dd1b2aa3-e4a6-4e1f-ae6b-604f6f803358"
+      (reference "#PWR0101") (unit 1) (value "GND") (footprint "")
     )
     (path "/57c8f3a1-debc-47be-9fca-9386eebd5d18"
       (reference "X1") (unit 1) (value "S8B-PH-K-S 8") (footprint "")
