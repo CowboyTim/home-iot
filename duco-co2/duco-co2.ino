@@ -40,7 +40,7 @@ S8_sensor sensor;
 #endif
 
 /* ESP yield */
-#if ARDUINO_ARCH_ESP8266 || ARDUINO_ARCH_ESP32
+#if defined(ARDUINO_ARCH_ESP8266) || defined(ARDUINO_ARCH_ESP32)
  #define doYIELD yield();
 #else
  #define doYIELD
@@ -394,7 +394,7 @@ void setup(){
 
   #ifdef TEMP_SENSOR
   Wire.begin();
-  #ifdef ARDUINO_ARCH_ESP32 || ARDUINO_ARCH_ESP8266
+  #if defined(ARDUINO_ARCH_ESP32) || defined(ARDUINO_ARCH_ESP8266)
   Wire.setPins(I2C_DAT, I2C_CLK);
   #endif
   #endif
