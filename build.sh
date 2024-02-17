@@ -1,10 +1,10 @@
 #!/bin/bash
 
 MODULE=${MODULE:-duco-co2}
+DEV_PLATFORM=${DEV_PLATFORM:-esp32:esp32}
 DEV_BOARD=${DEV_BOARD:-esp32:esp32:esp32c3}
-#DEV_BOARD=${DEV_BOARD:-esp32:esp32:esp32c3m1IKit}
-#DEV_BOARD=${DEV_BOARD:-esp32:esp32:lolin_c3_mini}
 DEV_PORT=${DEV_PORT:-/dev/ttyACM0}
+DEV_BOARD_BAUDRATE=${DEV_BOARD_BAUDRATE:-460800}
 
 function do_update(){
     DEV_URLS=${DEV_URLS:-https://dl.espressif.com/dl/package_esp32_index.json}
@@ -24,7 +24,7 @@ function do_build(){
     if [ ! -z "${DEBUG}" -a "${DEBUG}" = "1" ]; then
         DEV_EXTRA_FLAGS="$DEV_EXTRA_FLAGS -DDEBUG"
     fi
-    if [ ! -z "${AT_DEBUG}" -a "${AT_DEBUG}" = "1" ]; then
+    if [ ! -z "${AT_DEBUG}" -a "${AT_DEBUG:-0}" = "1" ]; then
         DEV_EXTRA_FLAGS="$DEV_EXTRA_FLAGS -DAT_DEBUG"
     fi
     if [ ! -z "${VERBOSE}" ]; then
@@ -39,6 +39,7 @@ function do_build(){
         --output-dir dist \
         --build-property compiler.cpp.extra_flags="$DEV_EXTRA_FLAGS" \
         --build-property compiler.c.extra_flags="$DEV_EXTRA_FLAGS" \
+        --build-property build.extra_flags="$DEV_EXTRA_FLAGS" \
         --build-property build.partitions=min_spiffs \
         $MODULE \
         || exit $?
@@ -49,7 +50,7 @@ function do_upload(){
 }
 
 function do_monitor(){
-    arduino-cli -b ${DEV_BOARD} monitor -p ${DEV_PORT} -c baudrate=${DEV_BOARD_BAUDRATE:-115200}
+    arduino-cli -b ${DEV_BOARD} monitor -p ${DEV_PORT} -c baudrate=${DEV_BOARD_BAUDRATE}
 }
 
 case $1 in
@@ -70,7 +71,7 @@ case $1 in
         DEV_UPDATE=1 do_update
         ;;
     *)
-        do_update
+        DEV_UPDATE=1 do_update
         do_build
         do_upload
         do_monitor
