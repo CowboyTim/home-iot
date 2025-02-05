@@ -787,10 +787,10 @@ our $READ_HOLDING_REGISTERS  = 0x03;
 our $READ_INPUT_REGISTERS    = 0x04;
 our $WRITE_HOLDING_REGISTERS = 0x06;
 our $WRITE_PRIVATE_REGISTERS = 0x41;
+
 package MODBUS::DATATYPE::DUCO::DUCOBoxSilent;
 
-our $ModuleType = ["0", 1, "s>", 0, "", "ModuleType", "1"];
-our $Status     = ["0", 1, "s>", 0, "", "Status", "1"];
+our $ModuleType = ["0", 1, "s>", 1, undef, "ModuleType", sub {$_[0]}, $MODBUS::READ_INPUT_REGISTERS];
 
 package MODBUS::DATATYPE::Huawei::SUN2000::SDongleA;
 
