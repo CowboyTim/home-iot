@@ -396,10 +396,20 @@ sub modbus_crc {
     return pack("S<", $crc);
 }
 
+sub load_mb_datatypes {
+    my ($register_name) = @_;
+    no warnings 'redefine';
+    my $mb_product = "MODBUS::DATATYPE::".(${register_name} =~ s/^(.*)::.*?$/$1/gr);
+    eval {require $mb_product};
+    logger::log_debug("no such product class to load: $mb_product") if $@;
+    return;
+}
+
 sub modbus_request_write_msg {
     my ($register_name, $value, $function_code) = @_;
     logger::log_debug("will write ".($value//to_hex($function_code))." to $register_name");
     no strict 'refs';
+    load_mb_datatypes($register_name);
     my $register = (${"MODBUS::DATATYPE::${register_name}"})->[0] // die "No such register $register_name\n";
     my $fc       = (${"MODBUS::DATATYPE::${register_name}"})->[7];
     my $mr = pack("CS>S>", $fc // $function_code // $MODBUS::WRITE_HOLDING_REGISTERS, $register, $value);
@@ -410,6 +420,7 @@ sub modbus_request_write_msg {
 sub modbus_request_read_msg {
     my ($register_name, $function_code) = @_;
     no strict 'refs';
+    load_mb_datatypes($register_name);
     my $register = (${"MODBUS::DATATYPE::${register_name}"})->[0] // die "No such register $register_name\n";
     my $cnt      = (${"MODBUS::DATATYPE::${register_name}"})->[1] // die "No such count for $register_name\n";
     my $fc       = (${"MODBUS::DATATYPE::${register_name}"})->[7];
@@ -422,6 +433,7 @@ sub modbus_response {
     my ($register_name, $nr_bytes, $data) = @_;
     return unless length($data);
     no strict 'refs';
+    load_mb_datatypes($register_name);
     my $fmt  = (${"MODBUS::DATATYPE::${register_name}"})->[2] // die "No unpack for $register_name\n";
     my $desc = (${"MODBUS::DATATYPE::${register_name}"})->[5] // $register_name;
     my $form = (${"MODBUS::DATATYPE::${register_name}"})->[6] // sub {$_[0]};
