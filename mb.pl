@@ -24,7 +24,15 @@ $ENV{LOGGER_STDERR} //= 1;
 $ENV{SINK}          //= ">&STDOUT";
 
 {
-    my $action = cfg("CLI", "read");
+    my $do_daemon = cfg("DAEMON");
+    my $do_login  = cfg("LOGIN");
+    my $do_write  = cfg("WRITE");
+    my $do_read   = cfg("READ");
+    my $action    = $do_daemon
+        ?"daemon":$do_login
+        ?"login" :$do_write
+        ?"write" :$do_read
+        ?"read"  :"cli";
     my $what = "do_".lc($action);
     no strict "refs";
     &$what();
