@@ -602,7 +602,7 @@ sub open_uart {
     my ($dev) = @_;
     logger::log_info("opening UART $dev");
     $dev ||= "/dev/ttyUSB0";
-    `stty -F $dev 9600 cs8 -parenb -cstopb -echoe -echok -echoctl -echoke -ixon -ixoff icrnl inlcr ocrnl onlcr -noflsh -opost -isig -icanon -echo`;
+    `stty -F $dev 115200 cs8 -parenb -cstopb -echoe -echok -echoctl -echoke -ixon -ixoff icrnl inlcr ocrnl onlcr -noflsh -opost -isig -icanon -echo`;
     sysopen(my $com, $dev, O_RDWR)
          or die "Cannot open serial port $dev: $!\n";
     binmode($com);
@@ -791,7 +791,8 @@ our $WRITE_PRIVATE_REGISTERS = 0x41;
 
 package MODBUS::DATATYPE::DUCO::DUCOBoxSilent;
 
-our $ModuleType = [0x0000, 1, "s>", 1, undef, "ModuleType", sub {$_[0]}, $MODBUS::READ_INPUT_REGISTERS];
+our $Nodes0       = [0x0000, 1, "s>", 1, undef, "Nodes0", sub {$_[0]}, $MODBUS::READ_INPUT_REGISTERS];
+our $BoxModelType = [0x0100, 1, "s>", 1, undef, "BoxModelType", sub {$_[0]}, $MODBUS::READ_INPUT_REGISTERS];
 
 package MODBUS::DATATYPE::Huawei::SUN2000::SDongleA;
 
