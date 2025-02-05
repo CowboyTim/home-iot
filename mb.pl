@@ -70,12 +70,9 @@ sub do_daemon {
             my $mb_conns = {};
             foreach my $r_entry (@{$tgts}){
                 last unless $::MB_LOOP;
-                my ($tgt_modbus_peer, $unit_id, $register, $value, $sleepy) = @$r_entry;
+                my ($tgt_modbus_peer, $unit_id, $register, $mb_msg, $value, $sleepy) = @$r_entry;
                 my $mb_fh;
                 eval {
-                    # what will we request?
-                    my $msg = modbus_request_read_msg($register);
-
                     # initiate a connection (but cache it)
                     $mb_fh = $mb_conns->{$tgt_modbus_peer} //= do {
                         my $c = modbus_connect($tgt_modbus_peer);
@@ -91,7 +88,7 @@ sub do_daemon {
                     my $redo_loop = 0;
                     while($redo_loop++ < $max_attempt_cnt){
                         last unless $::MB_LOOP;
-                        wait_modbus_response($mb_conns->{$tgt_modbus_peer}, $unit_id, $register, $msg, \&modbus_data_logger);
+                        wait_modbus_response($mb_conns->{$tgt_modbus_peer}, $unit_id, $register, $mb_msg, \&modbus_data_logger);
                     }
                 };
                 if(chomp(my $err = $@)){
@@ -195,15 +192,23 @@ sub do_login {
 sub do_write {
     $0 = "modbus:write";
     my $tgts = parse_cfg();
-    my $r_entry = $tgts->[0] // die print_usage();
-    my $tgt_modbus_peer = $r_entry->[0];
-    my $unit_id         = $r_entry->[1];
-    my $register        = $r_entry->[2];
-    my $value           = $r_entry->[3] // die print_usage();
-    my $mb_fh = modbus_connect($tgt_modbus_peer);
-    my $msg = modbus_request_write_msg($register, $value);
-    wait_modbus_response($mb_fh, $unit_id, $register, $msg, undef, sub {logger::log_info("response code: 0x".sprintf("%02x", $_[0]).", value: 0x".to_hex($_[1]))});
-    modbus_close($mb_fh);
+    my $mb_conns = {};
+    foreach my $r_entry (@$tgts){
+        my ($tgt_modbus_peer, $unit_id, $register, $mb_msg, $value, $sleepy) = @$r_entry;
+        next unless defined $value;
+        my $mb_fh = $mb_conns->{$tgt_modbus_peer} //= do {
+            my $c = modbus_connect($tgt_modbus_peer);
+            if($sleepy){
+                logger::log_info("sleeping $sleepy seconds");
+                Time::HiRes::sleep($sleepy);
+            }
+            $c;
+        };
+        wait_modbus_response($mb_fh, $unit_id, $register, $mb_msg, undef, sub {
+            logger::log_info("response code: 0x".sprintf("%02x", $_[0]).", value: 0x".to_hex($_[1]))
+        });
+    }
+    modbus_close($_) for values %$mb_conns;
     return;
 }
 
@@ -337,7 +342,7 @@ sub parse_cfg {
         my $tgt = parse_register_cfg($tgt_modbus_peer_entry);
         push @tgts, $tgt if $tgt;
     }
-    logger::log_info("will read ".join(",", map {join(";", map {$_//""} @$_)} @tgts)) if @tgts;
+    logger::log_info("will read ".join(",", map {join(";", map {$_//""} @$_[0..2,4])} @tgts)) if @tgts;
     print_usage("nothing to poll") unless @tgts;
     return \@tgts;
 }
@@ -362,8 +367,15 @@ sub parse_register_cfg {
 sub parse_register {
     my ($register_cfg) = @_;
     my ($unit_id, $register, $value) = $register_cfg =~ m/^(?:(\d+):)?(.*)(?:=([^,]+))?$/;
+    my $mb_msg;
+    if(defined $value){
+        $value = hex($value);
+        $mb_msg = modbus_request_write_msg($register, $value);
+    } else {
+        $mb_msg = modbus_request_read_msg($register);
+    }
     my $sleep_after_connect = cfg("sleep_after_connect", $register_cfg =~ m/Huawei::/?2:undef);
-    return $unit_id//0, $register, $value, $sleep_after_connect;
+    return $unit_id//0, $register, $mb_msg, $value, $sleep_after_connect;
 }
 
 sub modbus_crc {
