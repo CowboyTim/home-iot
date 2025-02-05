@@ -240,6 +240,7 @@ sub wait_modbus_response {
     } elsif(-c $modbus_remote){
         # RTU ModBus over rs232/rs485 UART
         logger::log_debug("using char uart modbus");
+        $msg  = pack("Ca".length($msg), $unit_id, $msg);
         $outbuffer = $msg.modbus_crc($msg);
     }
 
@@ -790,7 +791,7 @@ our $WRITE_PRIVATE_REGISTERS = 0x41;
 
 package MODBUS::DATATYPE::DUCO::DUCOBoxSilent;
 
-our $ModuleType = ["0", 1, "s>", 1, undef, "ModuleType", sub {$_[0]}, $MODBUS::READ_INPUT_REGISTERS];
+our $ModuleType = [0x0000, 1, "s>", 1, undef, "ModuleType", sub {$_[0]}, $MODBUS::READ_INPUT_REGISTERS];
 
 package MODBUS::DATATYPE::Huawei::SUN2000::SDongleA;
 
