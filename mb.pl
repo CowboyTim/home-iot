@@ -600,9 +600,31 @@ sub modbus_close {
 
 sub open_uart {
     my ($dev) = @_;
-    logger::log_info("opening UART $dev");
+    logger::log_info("will use UART $dev");
     $dev ||= "/dev/ttyUSB0";
-    `stty -F $dev 115200 cs8 -parenb -cstopb -echoe -echok -echoctl -echoke -ixon -ixoff icrnl inlcr ocrnl onlcr -noflsh -opost -isig -icanon -echo`;
+    logger::log_error("no such device $dev")
+        unless -c $dev;
+    logger::log_info("setting UART $dev");
+    system("/usr/bin/stty", "-F", $dev, 115200, "cs8",
+            "-parenb",
+            "-cstopb",
+            "-echoe",
+            "-echok",
+            "-echoctl",
+            "-echoke",
+            "-ixon",
+            "-ixoff",
+            "icrnl", 
+            "inlcr",
+            "ocrnl",
+            "onlcr",
+            "-noflsh",
+            "-opost",
+            "-isig",
+            "-icanon",
+            "-echo") == 0
+        or die "stty failed: $!\n";
+    logger::log_info("opening UART $dev");
     sysopen(my $com, $dev, O_RDWR)
          or die "Cannot open serial port $dev: $!\n";
     binmode($com);
