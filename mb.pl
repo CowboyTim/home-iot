@@ -604,29 +604,48 @@ sub open_uart {
     $dev ||= "/dev/ttyUSB0";
     logger::log_error("no such device $dev")
         unless -c $dev;
-    logger::log_info("setting UART $dev");
-    system("/usr/bin/stty", "-F", $dev, 115200, "cs8",
-            "-parenb",
-            "-cstopb",
-            "-echoe",
-            "-echok",
-            "-echoctl",
-            "-echoke",
-            "-ixon",
-            "-ixoff",
-            "icrnl", 
-            "inlcr",
-            "ocrnl",
-            "onlcr",
-            "-noflsh",
-            "-opost",
-            "-isig",
-            "-icanon",
-            "-echo") == 0
-        or die "stty failed: $!\n";
+    require "sys/ioctl.ph";
     logger::log_info("opening UART $dev");
     sysopen(my $com, $dev, O_RDWR)
          or die "Cannot open serial port $dev: $!\n";
+    # TCGETS
+    my $sgttyb_t = "lllls";
+    my $sgttyb = pack($sgttyb_t, 0, 0, 0, 0, 0);
+    use constant TCGETS  => 0x5401;
+    use constant TCSETSW => 0x5403;
+    ioctl($com, TCGETS, $sgttyb) == 0
+        or die "ioctl failed: $!\n";
+    # TCSETS 115200, 8N1
+    use constant ICRNL     => 0x00000040;
+    use constant INLCR     => 0x00000040;
+    use constant IXON      => 0x00000200;
+    use constant IXOFF     => 0x00000400;
+    use constant OCRNL     => 0x00000010;
+    use constant ONLCR     => 0x00000002;
+    use constant PARENB    => 0x00001000;
+    use constant CSTOPB    => 0x00002000;
+    use constant NOFLSH    => 0x80000000;
+    use constant ISIG      => 0x00000080;
+    use constant ICANON    => 0x00000002;
+    use constant ECHO      => 0x00000008;
+    use constant ECHOE     => 0x00000002;
+    use constant ECHOK     => 0x00000004;
+    use constant ECHOKE    => 0x00000008;
+    use constant ECHOCTL   => 0x00000040;
+    use constant OPOST     => 0x00000001;
+    use constant CSIZE     => 0x00000060;
+    use constant CS8       => 0x00000060;
+    use constant CBAUD     => 0x00010017;
+    use constant CBAUDEX   => 0x00010000;
+    use constant B115200   => 0x00010002;
+    use constant CRTSCTS   => 0x00030000;
+    $sgttyb = pack($sgttyb_t,
+        ICRNL|INLCR & (~IXON|~IXOFF),
+        OCRNL|ONLCR & (~OPOST),
+        ((CBAUD|CBAUDEX) & B115200)|(CSIZE & CS8)|PARENB & (~CSTOPB|~CRTSCTS),
+        0 & (~NOFLSH|~ISIG|~ICANON|~ECHO|~ECHOE|~ECHOK|~ECHOKE|~ECHOCTL), 0);
+    ioctl($com, TCSETSW, $sgttyb) == 0
+        or die "ioctl failed: $!\n";
     binmode($com);
     fcntl($com, F_SETFL, O_RDWR|O_NONBLOCK)
         // die "Failed non-blocking set on $com: $!\n";
