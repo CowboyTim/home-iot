@@ -1,5 +1,10 @@
 #!/usr/bin/perl
 
+BEGIN {
+    $ENV{LC_ALL} = "C";
+    $ENV{LANG}   = "en_US.UTF-8";
+};
+
 use strict; use warnings;
 
 use FindBin;
@@ -9,6 +14,12 @@ use Socket qw(inet_ntoa SOL_SOCKET SO_KEEPALIVE TCP_NODELAY TCP_CORK SO_SNDTIMEO
 use Fcntl qw(:DEFAULT);
 use POSIX ();
 use Time::HiRes ();
+
+BEGIN {
+    # TZ set so localtime() doesn't hit /etc/localtime, keep original tzname
+    $ENV{TZ} = readlink('/etc/localtime') =~ s|/usr/share/zoneinfo/||gr;
+    POSIX::tzset();
+};
 
 # signal handler setup
 $::MB_LOOP = 1;
@@ -604,18 +615,16 @@ sub open_uart {
     $dev ||= "/dev/ttyUSB0";
     logger::log_error("no such device $dev")
         unless -c $dev;
-    require "sys/ioctl.ph";
     logger::log_info("opening UART $dev");
     sysopen(my $com, $dev, O_RDWR)
          or die "Cannot open serial port $dev: $!\n";
     # TCGETS
-    my $sgttyb_t = "lllls";
-    my $sgttyb = pack($sgttyb_t, 0, 0, 0, 0, 0);
     use constant TCGETS  => 0x5401;
     use constant TCSETSW => 0x5403;
-    ioctl($com, TCGETS, $sgttyb) == 0
+    ioctl($com, TCGETS, my $tty_flags = "") == 0
         or die "ioctl failed: $!\n";
-    # TCSETS 115200, 8N1
+    logger::log_debug("UART flags GOT: ".to_hex($tty_flags));
+    # TCSETSW 115200, 8N1
     use constant ICRNL     => 0x00000040;
     use constant INLCR     => 0x00000040;
     use constant IXON      => 0x00000200;
@@ -639,11 +648,13 @@ sub open_uart {
     use constant CBAUDEX   => 0x00010000;
     use constant B115200   => 0x00010002;
     use constant CRTSCTS   => 0x00030000;
-    $sgttyb = pack($sgttyb_t,
+    my $sgttyb_t = "llll";
+    my $sgttyb = pack($sgttyb_t,
         ICRNL|INLCR & (~IXON|~IXOFF),
         OCRNL|ONLCR & (~OPOST),
         ((CBAUD|CBAUDEX) & B115200)|(CSIZE & CS8)|PARENB & (~CSTOPB|~CRTSCTS),
         0 & (~NOFLSH|~ISIG|~ICANON|~ECHO|~ECHOE|~ECHOK|~ECHOKE|~ECHOCTL), 0);
+    logger::log_debug("UART flags SET: ".to_hex($sgttyb));
     ioctl($com, TCSETSW, $sgttyb) == 0
         or die "ioctl failed: $!\n";
     binmode($com);
@@ -766,9 +777,13 @@ sub print_usage {
     exit 1;
 }
 
+our $attempted_load;
 sub cfg {
     my ($key, $default_v) = @_;
-    eval "require utils::cfg";
+    if(!$attempted_load){
+        $attempted_load = 1;
+        eval {require utils::cfg};
+    }
     my $orig_cfg = \&utils::cfg;
     no warnings 'redefine';
     *utils::cfg = sub {
