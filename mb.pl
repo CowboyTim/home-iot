@@ -306,36 +306,53 @@ sub wait_modbus_response {
     my $win = "";
     vec($rin, $fd, 1) = 1;
     my $nr_loops = 0;
+    my $mb_abbr = "[fd=$fd,$unit_id:$remote_register]";
   REDO_READ:
-    die "Timeout reading data" if $nr_loops++ > $max_nr_loops;
+    die "Timeout reading data $mb_abbr" if $nr_loops++ > $max_nr_loops;
   SELECT_LOOP:
     while($::MB_LOOP){
         local $! = 0;
-        $win = length($outbuffer)?$rin:"";
         # stuff to do?
+        $win = length($outbuffer)?$rin:"";
         my $r = select my $rout = $rin, $win, undef, $select_timeout;
-        (!defined $r or $r == -1) and ($!{EINTR} or $!{EAGAIN} or die "select: $!\n");
+        (!defined $r or $r == -1) and ($!{EINTR} or $!{EAGAIN} or die "select problem $mb_abbr: $!\n");
         goto REDO_READ unless $r;
         logger::log_debug("FD[ROUT]: ".to_hex($rout).", FD[WOUT]: ".to_hex($rout));
+
         # write?
         if(length($outbuffer) and vec($win, $fd, 1)){
+            # modbus WRITE
             my $buf = $outbuffer;
             $outbuffer = "";
-            modbus_write($mb_fh, $buf);
+          REDO_SEND:
+            die "Timeout writing data $mb_abbr" if $nr_loops++ > $max_nr_loops;
+            logger::log_debug("will write ".to_hex($msg). " to fd=$fd");
+            my $w = syswrite($mb_fh, $msg);
+            if(!defined $w){
+                goto REDO_SEND if $!{EAGAIN};
+                die "sendto problem for $mb_abbr: $!\n";
+            } else {
+                if($w > 0 and $w != length($msg)){
+                    substr($msg, 0, $w, '');
+                    goto REDO_SEND;
+                }
+            }
         }
+
         # read?
         if(vec($rout, $fd, 1)){
+            # modbus READ, per byte
             while($::MB_LOOP){
                 # read per 1 bytes, but until EAGAIN
                 my $r = sysread($mb_fh, my $response_data, 1);
                 if(!defined $r){
                     last SELECT_LOOP if $!{EAGAIN};
-                    die "recv: $!\n";
+                    die "recv problem for $mb_abbr: $!\n";
                 }
                 if(defined $r and !$r){
                     local $! = 0;
                     if(-S $mb_fh or -p $mb_fh){
-                        logger::log_debug("EOF on read from TCP fd=$fd, $!");
+                        logger::log_debug("EOF on read from TCP $mb_abbr, $!");
                         modbus_close($mb_fh);
                         $mb_fh = undef;
                         $$mb_fh_ref = undef;
@@ -345,7 +362,7 @@ sub wait_modbus_response {
                             logger::log_debug("UART read empty on read (EOF)");
                             last SELECT_LOOP;
                         } else {
-                            die "EOF on read from TTY fd=$fd, $!\n";
+                            die "EOF on read from TTY $mb_abbr, $!\n";
                         }
                     }
                 }
@@ -616,24 +633,6 @@ sub modbus_open_tcp {
         die $err;
     }
     return $s;
-}
-
-sub modbus_write {
-    my ($fh, $msg) = @_;
-    REDO_SEND:
-    my $fd = fileno($fh);
-    logger::log_debug("will write ".to_hex($msg). " to fd=$fd");
-    my $w = syswrite($fh, $msg);
-    if(!defined $w){
-        goto REDO_SEND if $!{EAGAIN};
-        die "sendto problem for fd=$fd: $!\n";
-    } else {
-        if($w > 0 and $w != length($msg)){
-            substr($msg, 0, $w, '');
-            goto REDO_SEND;
-        }
-    }
-    return;
 }
 
 sub modbus_close {
