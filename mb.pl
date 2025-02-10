@@ -328,13 +328,21 @@ sub wait_modbus_response {
             while($::MB_LOOP){
                 # read per 1 bytes, but until EAGAIN
                 my $r = sysread($mb_fh, my $response_data, 1);
-                !defined $r and (($!{EAGAIN} and last SELECT_LOOP) or die "recv: $!\n");
+                if(!defined $r){
+                    last SELECT_LOOP if $!{EAGAIN};
+                    die "recv: $!\n";
+                }
                 if(defined $r and !$r){
-                    logger::log_debug("EOF on read");
-                    modbus_close($mb_fh);
-                    $mb_fh = undef;
-                    $$mb_fh_ref = undef;
-                    last SELECT_LOOP;
+                    if(-S $mb_fh or -p $mb_fh){
+                        logger::log_debug("EOF on read");
+                        modbus_close($mb_fh);
+                        $mb_fh = undef;
+                        $$mb_fh_ref = undef;
+                        last SELECT_LOOP;
+                    } else {
+                        logger::log_debug("UART read empty on read (EOF)");
+                        last SELECT_LOOP;
+                    }
                 }
                 $inbuffer .= $response_data;
             }
@@ -489,22 +497,27 @@ sub modbus_connect {
         # ip address can have an optional port
         $type = $tgt =~ m/^(?:(?:[0-9]{1,3}\.){3}[0-9]{1,3}|[0-9a-fA-F:]+|[\w\.\-]+|\/\w+)(?::\d+)?$/
             ?"tcp"
-            :"rtu";
-        $type = "rtu" if $tgt =~ m/^\/.*?/;
+            :"uart";
+        $type = "uart" if $tgt =~ m/^\/.*?/;
     }
     die "Invalid destination '$dest'\n"
-        if $type !~ m/^(tcp|rtu)$/;
+        if $type !~ m/^(tcp|uart)$/;
 
-    # is a uart connection
-    if($type eq "rtu"){
-        return open_uart($tgt);
+    {
+        my $what = "modbus_open_".lc($type);
+        no strict "refs";
+        return &$what($tgt);
     }
+}
+
+sub modbus_open_tcp {
+    my ($tgt) = @_;
 
     # is a tcp connection
     my ($dest_ip, $dest_port) = split m/:/, $tgt, 2;
     $dest_port ||= 6607;
     inet_aton($dest_ip)
-        or die "Invalid destination '$dest' ($dest_ip, $dest_port)\n";
+        or die "Invalid destination '$tgt' ($dest_ip, $dest_port)\n";
     logger::log_info("opening TCP $dest_ip:$dest_port");
     my $s;
     my $err;
@@ -524,7 +537,7 @@ sub modbus_connect {
     my $TCP_MD5SIG       = 14; # TCP MD5 Signature (RFC2385)
 
     eval {
-      local $SIG{ALRM} = sub {die "ALARM: Timeout connecting to $dest\n"};
+      local $SIG{ALRM} = sub {die "ALARM: Timeout connecting to $tgt\n"};
       eval {
         # create an empty stream tcp/ip socket
         socket($s, PF_INET, SOCK_STREAM, 0)
@@ -618,7 +631,7 @@ sub modbus_close {
     return;
 }
 
-sub open_uart {
+sub modbus_open_uart {
     my ($dev) = @_;
     logger::log_info("will use UART $dev");
     $dev ||= "/dev/ttyUSB0";
@@ -789,10 +802,10 @@ sub open_uart {
             or die "ioctl failed: $!\n";
     }
     binmode($com);
-    my $fl = fcntl($com, F_GETFL, 0)
-        or die "Can't get flags for the UART: $!\n";
-    fcntl($com, F_SETFL, $fl|O_RDWR|O_NONBLOCK)
-        or die "Failed non-blocking set on $com: $!\n";
+    my $s_flags = fcntl($com, F_GETFL, 0)
+        or die "Can't get flags for the com port $dev: $!\n";
+    fcntl($com, F_SETFL, $s_flags | O_NONBLOCK)
+        or die "Can't set flags for the com port $dev: $!\n";
     return $com;
 }
 
