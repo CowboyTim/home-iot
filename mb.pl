@@ -99,7 +99,7 @@ sub do_daemon {
                     my $redo_loop = 0;
                     while($redo_loop++ < $max_attempt_cnt){
                         last unless $::MB_LOOP;
-                        wait_modbus_response($mb_conns->{$tgt_modbus_peer}, $unit_id, $register, $mb_msg, \&modbus_data_logger);
+                        wait_modbus_response(\$mb_conns->{$tgt_modbus_peer}, $unit_id, $register, $mb_msg);
                     }
                 };
                 if(chomp(my $err = $@)){
@@ -138,8 +138,8 @@ sub do_login {
     # get challenge
     my $challenge;
     my $modbus_request_get_challenge = pack("CCS>", 0x41, 0x24, 0x01);
-    wait_modbus_response($modbus_remote, 0, undef, $modbus_request_get_challenge, undef, sub {
-        my ($f_code, $content) = @_;
+    wait_modbus_response(\$modbus_remote, 0, undef, $modbus_request_get_challenge, sub {
+        my ($f_code, $r, $content) = @_;
         logger::log_info("response code: ".sprintf("%02x", $f_code).", value: 0x".to_hex($content));
         if($f_code == 0x41){
             my ($f_subcode, $c_1) = unpack("CC", substr($content, 0, 2, ''));
@@ -175,8 +175,8 @@ sub do_login {
     logger::log_info("will send response ".to_hex($modbus_request_login));
     Time::HiRes::usleep(500);
     my $challenge_response;
-    wait_modbus_response($modbus_remote, 0, undef, $modbus_request_login, undef, sub {
-        my ($f_code, $content) = @_;
+    wait_modbus_response(\$modbus_remote, 0, undef, $modbus_request_login, sub {
+        my ($f_code, $r, $content) = @_;
         logger::log_info("response code: ".sprintf("%02x", $f_code).", value: ".to_hex($content));
         if($f_code == 0x41){
             my ($f_subcode, $r_sz) = unpack("CC", substr($content, 0, 2, ''));
@@ -192,7 +192,7 @@ sub do_login {
     logger::log_info("got challenge response ".to_hex($challenge_response//""));
 
     my $msg = modbus_request_write_msg("SUN2000::Inverter::TimeZone", 60);
-    wait_modbus_response($modbus_remote, 0, undef, $msg, undef, sub {
+    wait_modbus_response(\$modbus_remote, 0, undef, $msg, sub {
         logger::log_info("response code: 0x".sprintf("%02x", $_[0]).", value: 0x".to_hex($_[1]))
     });
 
@@ -215,7 +215,7 @@ sub do_write {
             }
             $c;
         };
-        wait_modbus_response($mb_fh, $unit_id, $register, $mb_msg, undef, sub {
+        wait_modbus_response(\$mb_fh, $unit_id, $register, $mb_msg, sub {
             logger::log_info("response code: 0x".sprintf("%02x", $_[0]).", value: 0x".to_hex($_[1]))
         });
     }
@@ -233,14 +233,48 @@ sub to_hex {
     return join("",map {sprintf("%02x", ord $_)} split '', $$b//"");
 }
 
+sub default_process_response {
+    my ($f_code, $remote_register, $content) = @_;
+    my $val;
+    if($f_code == $MODBUS::READ_HOLDING_REGISTERS or $f_code == $MODBUS::READ_INPUT_REGISTERS){
+        my ($nr_bytes, $data) = unpack('Ca*', $content);
+        $val = modbus_response($remote_register, $nr_bytes, $data);
+    } elsif($f_code == 0x06){
+        my ($register_addr, $r_value, $r_crc) = unpack('S>S>S>', $content);
+        $val = modbus_response($remote_register, 2, $r_value);
+    } elsif($f_code == 0x83){
+        my ($err_code) = unpack("C", $content);
+        logger::log_error("problem read: ".sprintf("0x%02x", $err_code));
+    } elsif($f_code == 0xc1){
+        my ($err_code) = unpack("C", $content);
+        logger::log_error("problem read: ".sprintf("0x%02x", $err_code));
+    } elsif($f_code == 0x86){
+        my ($err_code) = unpack("C", $content);
+        logger::log_error("problem write: ".sprintf("0x%02x", $err_code));
+    } elsif($f_code == 0x41){
+        my ($f_subcode, $c_1) = unpack("CC", substr($content, 0, 2, ''));
+        if($f_subcode == 0x05 and $c_1 == 0x11){
+            logger::log_info("got code ".sprintf("0x%02x/0x%02x/0x%02x", $f_code, $f_subcode, $c_1).", content: ".to_hex($content));
+        } else {
+            logger::log_info("got code ".sprintf("0x%02x", $f_code));
+        }
+    } else {
+        logger::log_error("not known function code: ".sprintf("0x%02x", $f_code));
+    }
+    modbus_data_logger($val) if defined $val;
+    return
+}
+
 sub wait_modbus_response {
-    my ($modbus_remote, $unit_id, $remote_register, $msg, $data_logger, $process_response) = @_;
+    my ($mb_fh_ref, $unit_id, $remote_register, $msg, $process_response) = @_;
     return unless length($msg//"");
+
+    my $mb_fh = $$mb_fh_ref;
 
     # inbuffer/outbuffer is the message for modbus
     my ($inbuffer, $outbuffer) = ("", "");
 
-    if(-S $modbus_remote or -p $modbus_remote or cfg("modbus_tcp", 0)){
+    if(-S $mb_fh or -p $mb_fh or cfg("modbus_tcp", 0)){
         logger::log_debug("using socket modbus TCP header");
         # modbus TCP needs extra MBAP Header
         $::TRANSACTION_ID_COUNTER //= 0;
@@ -248,7 +282,7 @@ sub wait_modbus_response {
         $msg  = pack("Ca".length($msg), $unit_id, $msg);
         $msg  = pack("S>S>S>a".length($msg), $::TRANSACTION_ID_COUNTER++, 0, length($msg), $msg);
         $outbuffer = $msg;
-    } elsif(-c $modbus_remote){
+    } elsif(-c $mb_fh){
         # RTU ModBus over rs232/rs485 UART
         logger::log_debug("using char uart modbus");
         $msg  = pack("Ca".length($msg), $unit_id, $msg);
@@ -267,7 +301,7 @@ sub wait_modbus_response {
     my $do_timeout     = cfg("timeout", 15);
     my $max_nr_loops   = int($do_timeout/$select_timeout);
     $max_nr_loops      = $max_nr_loops <= 0?1:$max_nr_loops;
-    my $fd = fileno($modbus_remote);
+    my $fd = fileno($mb_fh);
     my $rin = "";
     my $win = "";
     vec($rin, $fd, 1) = 1;
@@ -287,15 +321,21 @@ sub wait_modbus_response {
         if(length($outbuffer) and vec($win, $fd, 1)){
             my $buf = $outbuffer;
             $outbuffer = "";
-            modbus_write($modbus_remote, $buf);
+            modbus_write($mb_fh, $buf);
         }
         # read?
         if(vec($rout, $fd, 1)){
             while($::MB_LOOP){
                 # read per 1 bytes, but until EAGAIN
-                my $r = sysread($modbus_remote, my $response_data, 1);
+                my $r = sysread($mb_fh, my $response_data, 1);
                 !defined $r and (($!{EAGAIN} and last SELECT_LOOP) or die "recv: $!\n");
-                defined $r and !$r and die "EOF read on FD=$fd: $!\n";
+                if(defined $r and !$r){
+                    logger::log_debug("EOF on read");
+                    modbus_close($mb_fh);
+                    $mb_fh = undef;
+                    $$mb_fh_ref = undef;
+                    last SELECT_LOOP;
+                }
                 $inbuffer .= $response_data;
             }
         }
@@ -309,39 +349,8 @@ sub wait_modbus_response {
     goto REDO_READ if length($buf) < $r_sz;
 
     # process response
-    $process_response //= sub {
-        my ($f_code, $content) = @_;
-        my $val;
-        if($f_code == $MODBUS::READ_HOLDING_REGISTERS or $f_code == $MODBUS::READ_INPUT_REGISTERS){
-            my ($nr_bytes, $data) = unpack('Ca*', $content);
-            $val = modbus_response($remote_register, $nr_bytes, $data);
-        } elsif($f_code == 0x06){
-            my ($register_addr, $r_value, $r_crc) = unpack('S>S>S>', $content);
-            $val = modbus_response($remote_register, 2, $r_value);
-        } elsif($f_code == 0x83){
-            my ($err_code) = unpack("C", $content);
-            logger::log_error("problem read: ".sprintf("0x%02x", $err_code));
-        } elsif($f_code == 0xc1){
-            my ($err_code) = unpack("C", $content);
-            logger::log_error("problem read: ".sprintf("0x%02x", $err_code));
-        } elsif($f_code == 0x86){
-            my ($err_code) = unpack("C", $content);
-            logger::log_error("problem write: ".sprintf("0x%02x", $err_code));
-        } elsif($f_code == 0x41){
-            my ($f_subcode, $c_1) = unpack("CC", substr($content, 0, 2, ''));
-            if($f_subcode == 0x05 and $c_1 == 0x11){
-                logger::log_info("got code ".sprintf("0x%02x/0x%02x/0x%02x", $f_code, $f_subcode, $c_1).", content: ".to_hex($content));
-            } else {
-                logger::log_info("got code ".sprintf("0x%02x", $f_code));
-            }
-        } else {
-            logger::log_error("not known function code: ".sprintf("0x%02x", $f_code));
-        }
-        &{$data_logger}($val) if defined $data_logger and defined $val;
-        return
-    };
     (undef, my $f) = unpack("CC", substr($buf, 0, 2, ''));
-    &{$process_response}($f, $buf);
+    &{$process_response // \&default_process_response}($f, $remote_register, $buf);
     return
 }
 
@@ -780,8 +789,10 @@ sub open_uart {
             or die "ioctl failed: $!\n";
     }
     binmode($com);
-    fcntl($com, F_SETFL, O_RDWR|O_NONBLOCK)
-        // die "Failed non-blocking set on $com: $!\n";
+    my $fl = fcntl($com, F_GETFL, 0)
+        or die "Can't get flags for the UART: $!\n";
+    fcntl($com, F_SETFL, $fl|O_RDWR|O_NONBLOCK)
+        or die "Failed non-blocking set on $com: $!\n";
     return $com;
 }
 
