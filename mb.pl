@@ -412,7 +412,7 @@ sub load_mb_datatypes {
     my ($register_name) = @_;
     no warnings 'redefine';
     my $mb_product = "MODBUS::DATATYPE::".(${register_name} =~ s/^(.*)::.*?$/$1/gr);
-    eval {require $mb_product};
+    eval "local \@INC = (); require $mb_product";
     logger::log_debug("no such product class to load: $mb_product") if $@;
     return;
 }
