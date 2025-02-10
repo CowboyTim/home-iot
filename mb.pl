@@ -333,15 +333,20 @@ sub wait_modbus_response {
                     die "recv: $!\n";
                 }
                 if(defined $r and !$r){
+                    local $! = 0;
                     if(-S $mb_fh or -p $mb_fh){
-                        logger::log_debug("EOF on read");
+                        logger::log_debug("EOF on read from TCP fd=$fd, $!");
                         modbus_close($mb_fh);
                         $mb_fh = undef;
                         $$mb_fh_ref = undef;
                         last SELECT_LOOP;
                     } else {
-                        logger::log_debug("UART read empty on read (EOF)");
-                        last SELECT_LOOP;
+                        if(-t $mb_fh){
+                            logger::log_debug("UART read empty on read (EOF)");
+                            last SELECT_LOOP;
+                        } else {
+                            die "EOF on read from TTY fd=$fd, $!\n";
+                        }
                     }
                 }
                 $inbuffer .= $response_data;
@@ -614,12 +619,20 @@ sub modbus_open_tcp {
 }
 
 sub modbus_write {
-    my ($fd, $msg) = @_;
+    my ($fh, $msg) = @_;
     REDO_SEND:
-    my $w = syswrite($fd, $msg);
-    !defined $w and (($!{EAGAIN} and goto REDO_SEND) and die "sendto: $!\n");
-    defined $w and $w != length($msg)
-        and die "not enough bytes sent: $w, wanted ".length($msg)."\n";
+    my $fd = fileno($fh);
+    logger::log_debug("will write ".to_hex($msg). " to fd=$fd");
+    my $w = syswrite($fh, $msg);
+    if(!defined $w){
+        goto REDO_SEND if $!{EAGAIN};
+        die "sendto problem for fd=$fd: $!\n";
+    } else {
+        if($w > 0 and $w != length($msg)){
+            substr($msg, 0, $w, '');
+            goto REDO_SEND;
+        }
+    }
     return;
 }
 
