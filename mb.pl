@@ -657,6 +657,29 @@ sub open_uart {
     logger::log_debug("UART flags SET: ".to_hex($sgttyb));
     ioctl($com, TCSETSW, $sgttyb) == 0
         or die "ioctl failed: $!\n";
+    if(0){
+        system("/usr/bin/stty", "-F", $dev, 115200, "cs8",
+                "-parenb",
+                "-cstopb",
+                "-echoe",
+                "-echok",
+                "-echoctl",
+                "-echoke",
+                "-ixon",
+                "-ixoff",
+                "icrnl",
+                "inlcr",
+                "ocrnl",
+                "onlcr",
+                "-noflsh",
+                "-opost",
+                "-isig",
+                "-icanon",
+                "-echo") == 0
+            or die "stty failed: $!\n";
+        ioctl($com, TCGETS, my $tty_flags = "") == 0
+            or die "ioctl failed: $!\n";
+    }
     binmode($com);
     fcntl($com, F_SETFL, O_RDWR|O_NONBLOCK)
         // die "Failed non-blocking set on $com: $!\n";
