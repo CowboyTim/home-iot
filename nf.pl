@@ -83,11 +83,39 @@ our $NLM_F_NONREC        = 0x100;
 our $NLM_F_CAPPED        = 0x40;
 our $NLM_F_ACK_TLVS      = 0x80;
 
+our $NFQA_PACKET_HDR         = 1;
+our $NFQA_VERDICT_HDR        = 2;
+our $NFQA_MARK               = 3;
+our $NFQA_TIMESTAMP          = 4;
+our $NFQA_IFINDEX_INDEV      = 5;
+our $NFQA_IFINDEX_OUTDEV     = 6;
+our $NFQA_IFINDEX_PHYSINDEV  = 7;
+our $NFQA_IFINDEX_PHYSOUTDEV = 8;
+our $NFQA_HWADDR             = 9;
+our $NFQA_PAYLOAD            = 10;
+our $NFQA_CT                 = 11;
+our $NFQA_CT_INFO            = 12;
+our $NFQA_CAP_LEN            = 13;
+our $NFQA_SKB_INFO           = 14;
+our $NFQA_EXP                = 15;
+our $NFQA_UID                = 16;
+our $NFQA_GID                = 17;
+our $NFQA_SECCTX             = 18;
+our $NFQA_VLAN               = 19;
+our $NFQA_L2HDR              = 20;
+
 
 our $NLMSG_NOOP    = 1;
 our $NLMSG_ERROR   = 2;
 our $NLMSG_DONE    = 3;
 our $NLMSG_OVERRUN = 4;
+
+our $NF_DROP   = 0;
+our $NF_ACCEPT = 1;
+our $NF_STOLEN = 2;
+our $NF_QUEUE  = 3;
+our $NF_REPEAT = 4;
+
 
 our $SOL_NETLINK = 270;
 
@@ -121,17 +149,28 @@ print "Listening for packets on queue $queue_num\n";
 M_LOOP:
 while(1){
     local $!;
+    # is there new data?
     my $rin = '';
     vec($rin, fileno($nf_fh), 1) = 1;
     select(my $rout = $rin, undef, undef, undef)
         or !($!{EINTR} or $!{EAGAIN}) and next M_LOOP or die "select: $!";
     next unless vec($rout, fileno($nf_fh), 1);
-    my $r = recv($nf_fh, my $pkt_msg, 64, 0);
-    if(!defined $r){
-        next M_LOOP if $!{EAGAIN};
-        die "recv problem for: $!\n";
+    # read data, process the netlink/netfilter/queue message
+    while(1){
+        local $!;
+        my $r = recv($nf_fh, my $pkt_msg, 64, 0);
+        if(!defined $r){
+            next M_LOOP if $!{EAGAIN};
+            die "recv problem for: $!\n";
+        }
+        my $pktids = handle_nlmsg($pkt_msg);
+        # send positive verdict
+        foreach my $pkt_id (@$pktids){
+            print "Sending verdict for packet $pkt_id\n";
+            nfqnl_send($nf_fh, $bind_addr, nfqnl_msg_verdict($queue_num, $pkt_id, $NF_ACCEPT))
+                or die "nfqnl_send: $!";
+        }
     }
-    handle_nlmsg($pkt_msg);
 }
 
 close($nf_fh);
@@ -177,13 +216,22 @@ sub nfqnl_copy_packet {
     );
 }
 
+sub nfqnl_msg_verdict {
+    my ($res_id, $pkt_id, $verdict) = @_;
+    my $m_hdr = nlmsghdr($NFNL_SUBSYS_QUEUE<<8|$NFQNL_MSG_VERDICT, $NLM_F_REQUEST);
+    my $p_hdr = genlmsghdr(AF_UNSPEC, $NFNETLINK_V0, $res_id);
+    return nlmsg($m_hdr, $p_hdr,
+        nlattr($NFQA_VERDICT_HDR, pack("L>L>", $verdict, $pkt_id)),
+    );
+}
+
 sub nlmsg {
     my ($m_hdr, $p_hdr, @nlattr) = @_;
     my $t_msg .= $m_hdr.$p_hdr;
-    $t_msg .= "\0" x (length($t_msg) % 4);
+    $t_msg .= "\0" x (length($t_msg) % 4 ?4 - length($t_msg) % 4: 0);
     foreach my $nlattr (@nlattr){
         $t_msg .= $nlattr;
-        $t_msg .= "\0" x (length($t_msg) % 4);
+        $t_msg .= "\0" x (length($t_msg) % 4 ?4 - length($t_msg) % 4: 0);
     }
     return pack("L<a*", length($t_msg)+4, $t_msg);
 }
@@ -201,7 +249,7 @@ sub genlmsghdr {
 sub nlattr {
     my ($nla_type, $data) = @_;
     my $tlv = pack("SSa*", length($data)+4, $nla_type, $data);
-    $tlv .= "\0" x (length($tlv) % 4);
+    $tlv .= "\0" x (length($tlv) % 4 ?4 - length($tlv) % 4: 0);
     return $tlv;
 }
 
@@ -224,10 +272,11 @@ sub handle_nlmsg {
         print "ACK\n";
         return;
     }
+    my $ret;
     if($type == ($NFNL_SUBSYS_QUEUE<<8|$NFQNL_MSG_PACKET)){
-        handle_nfqnl_msg_packet($data);
+        $ret = handle_nfqnl_msg_packet($data);
     }
-    return;
+    return $ret;
 }
 
 sub handle_nfqnl_msg_packet {
@@ -236,16 +285,57 @@ sub handle_nfqnl_msg_packet {
     print "gen_hdr_nf_family: $gen_hdr_nf_family\n";
     print "gen_hdr_nf_version: $gen_hdr_nf_version\n";
     print "queue_number $gen_hdr_nf_res_id\n";
+    my @pkt_ids;
     while(length($nl_attrs) > 0){
+        print " hex: ".to_hex($nl_attrs)."\n";
         my ($nla_len, $nla_type) = unpack("SS", $nl_attrs);
+        my $nr_pad = $nla_len % 4 ?4 - $nla_len % 4: 0;
         my $nla_data = substr($nl_attrs, 0, $nla_len, '');
         substr($nla_data, 0, 4, '');
+        print " nr_pad: $nr_pad\n";
         print " nla_type: $nla_type\n";
         print " nla_len: $nla_len\n";
         print " nla_data: ".to_hex($nla_data)."\n";
-        $nl_attrs =~ s/^\0*//g;
+        if($nla_type == $NFQA_PACKET_HDR){
+            my ($packet_id, $hw_protocol, $hook) = unpack("L>S>C", $nla_data);
+            print " - packet_id: $packet_id\n";
+            print " - hw_protocol: $hw_protocol\n";
+            print " - hook: $hook\n";
+            push @pkt_ids, $packet_id;
+        }
+        if($nla_type == $NFQA_HWADDR){
+            my ($hw_addrlen, $pad) = unpack("S>S", $nla_data);
+            my $hw_addr = substr($nla_data, 0, $hw_addrlen, '');
+            print " - hw_addrlen: $hw_addrlen\n";
+            print " - hw_addr: ".to_hex($hw_addr)."\n";
+        }
+        if($nla_type == $NFQA_TIMESTAMP){
+            my ($sec, $usec) = unpack("Q>Q>", $nla_data);
+            print " - sec: $sec\n";
+            print " - usec: $usec\n";
+        }
+        if($nla_type == $NFQA_IFINDEX_INDEV){
+            my $ifindex = unpack("L>", $nla_data);
+            print " - ifindex: $ifindex\n";
+        }
+        if($nla_type == $NFQA_IFINDEX_OUTDEV){
+            my $ifindex = unpack("L>", $nla_data);
+            print " - ifindex: $ifindex\n";
+        }
+        if($nla_type == $NFQA_IFINDEX_PHYSINDEV){
+            my $ifindex = unpack("L>", $nla_data);
+            print " - ifindex: $ifindex\n";
+        }
+        if($nla_type == $NFQA_IFINDEX_PHYSOUTDEV){
+            my $ifindex = unpack("L>", $nla_data);
+            print " - ifindex: $ifindex\n";
+        }
+        if($nla_type == $NFQA_PAYLOAD){
+            print " - payload: ".to_hex($nla_data)."\n";
+        }
+        substr($nl_attrs, 0, $nr_pad, '');
     }
-    return;
+    return \@pkt_ids;
 }
 
 sub to_hex {
