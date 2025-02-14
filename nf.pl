@@ -163,11 +163,11 @@ while(1){
             next M_LOOP if $!{EAGAIN};
             die "recv problem for: $!\n";
         }
-        my $pktids = handle_nlmsg($pkt_msg);
+        my ($m_seq, $m_pid, $pktids) = handle_nlmsg($pkt_msg);
         # send positive verdict
         foreach my $pkt_id (@$pktids){
             print "Sending verdict for packet $pkt_id\n";
-            nfqnl_send($nf_fh, $bind_addr, nfqnl_msg_verdict($queue_num, $pkt_id, $NF_ACCEPT))
+            nfqnl_send($nf_fh, $bind_addr, nfqnl_msg_verdict($m_seq, $m_pid, $queue_num, $pkt_id, $NF_ACCEPT))
                 or die "nfqnl_send: $!";
         }
     }
@@ -181,16 +181,6 @@ sub nfqnl_send {
     foreach my $msg (@cmds){
         send($nf_fh, $msg, 0, $tgt_addr)
             or die "send: $!";
-    }
-    C_LOOP:
-    while(1){
-        local $!;
-        my $r = recv($nf_fh, my $reply_msg, 64, 0);
-        if(!defined $r){
-            last C_LOOP if $!{EAGAIN};
-            die "recv problem for: $!\n";
-        }
-        handle_nlmsg($reply_msg);
     }
     return !$!;
 }
@@ -217,8 +207,8 @@ sub nfqnl_copy_packet {
 }
 
 sub nfqnl_msg_verdict {
-    my ($res_id, $pkt_id, $verdict) = @_;
-    my $m_hdr = nlmsghdr($NFNL_SUBSYS_QUEUE<<8|$NFQNL_MSG_VERDICT, $NLM_F_REQUEST);
+    my ($nl_seq, $nl_pid, $res_id, $pkt_id, $verdict) = @_;
+    my $m_hdr = nlmsghdr($NFNL_SUBSYS_QUEUE<<8|$NFQNL_MSG_VERDICT, $NLM_F_REQUEST, $nl_seq, $nl_pid);
     my $p_hdr = genlmsghdr(AF_UNSPEC, $NFNETLINK_V0, $res_id);
     return nlmsg($m_hdr, $p_hdr,
         nlattr($NFQA_VERDICT_HDR, pack("L>L>", $verdict, $pkt_id)),
@@ -254,11 +244,11 @@ sub nlattr {
 }
 
 sub nlmsghdr {
-    my ($nl_type, $nl_flags) = @_;
+    my ($nl_type, $nl_flags, $nl_seq, $nl_pid) = @_;
     $nl_flags //= 0;
-    $::nl_seq //= -1;
-    $::nl_seq++;
-    return pack("SSLL", $nl_type, $nl_flags, $::nl_seq, $my_id);
+    $nl_seq   //= 0;
+    $nl_pid   //= $my_id;
+    return pack("SSLL", $nl_type, $nl_flags, $nl_seq, $nl_pid);
 }
 
 sub handle_nlmsg {
@@ -276,7 +266,7 @@ sub handle_nlmsg {
     if($type == ($NFNL_SUBSYS_QUEUE<<8|$NFQNL_MSG_PACKET)){
         $ret = handle_nfqnl_msg_packet($data);
     }
-    return $ret;
+    return $seq, $pid, $ret;
 }
 
 sub handle_nfqnl_msg_packet {
