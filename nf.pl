@@ -1,5 +1,8 @@
 #!/usr/bin/perl
 
+# ip6tables -I OUTPUT 1 -d ::0/0 \
+#   -p tcp -m multiport --ports 57875 \
+#   -j NFQUEUE --queue-num 121 --queue-bypass
 use strict; use warnings;
 
 use Socket;
@@ -132,9 +135,9 @@ my $s_flags = fcntl($nf_fh, F_GETFL, 0)
     or die "Can't get flags for the socket: $!\n";
 fcntl($nf_fh, F_SETFL, $s_flags|O_NONBLOCK)
     or die "Can't set flags for the socket: $!\n";
-setsockopt($nf_fh, $SOL_NETLINK, $NETLINK_EXT_ACK, 1)
+setsockopt($nf_fh, $SOL_NETLINK, $NETLINK_EXT_ACK, 0)
     or die "setsockopt: $!";
-setsockopt($nf_fh, $SOL_NETLINK, $NETLINK_CAP_ACK, 1)
+setsockopt($nf_fh, $SOL_NETLINK, $NETLINK_CAP_ACK, 0)
     or die "setsockopt: $!";
 setsockopt($nf_fh, $SOL_NETLINK, $NETLINK_NO_ENOBUFS, 1)
     or die "setsockopt: $!";
@@ -142,7 +145,7 @@ setsockopt($nf_fh, $SOL_NETLINK, $NETLINK_NO_ENOBUFS, 1)
 # register for packets from the queue, $queue_num
 nfqnl_send($nf_fh, $bind_addr,
     nfqnl_bind(AF_INET, $queue_num),
-    nfqnl_copy_packet($queue_num)
+    nfqnl_copy_packet($queue_num, 0xffff) # full size copy
 ) or die "nfqnl_send: $!";
 
 print "Listening for packets on queue $queue_num\n";
@@ -158,7 +161,7 @@ while(1){
     # read data, process the netlink/netfilter/queue message
     while(1){
         local $!;
-        my $r = recv($nf_fh, my $pkt_msg, 64, 0);
+        my $r = recv($nf_fh, my $pkt_msg, 1_000_000, 0);
         if(!defined $r){
             next M_LOOP if $!{EAGAIN};
             die "recv problem for: $!\n";
@@ -254,6 +257,7 @@ sub nlmsghdr {
 sub handle_nlmsg {
     my ($msg) = @_;
     my ($len, $type, $flags, $seq, $pid, $data) = unpack("LSSLLa*", $msg);
+    print "MSG[".length($msg)."]: len: $len, type: $type, flags: $flags, seq: $seq, pid: $pid\n";
     if($type == $NLMSG_ERROR){
         my $err_num = unpack("La*", $data);
         die "ERROR[$err_num]\n";
@@ -265,6 +269,8 @@ sub handle_nlmsg {
     my $ret;
     if($type == ($NFNL_SUBSYS_QUEUE<<8|$NFQNL_MSG_PACKET)){
         $ret = handle_nfqnl_msg_packet($data);
+    } else {
+        print "ERROR: Unknown message type: $type\n";
     }
     return $seq, $pid, $ret;
 }
@@ -286,42 +292,79 @@ sub handle_nfqnl_msg_packet {
         print " nla_type: $nla_type\n";
         print " nla_len: $nla_len\n";
         print " nla_data: ".to_hex($nla_data)."\n";
+        print " remaining: ".length($nl_attrs)."\n";
         if($nla_type == $NFQA_PACKET_HDR){
             my ($packet_id, $hw_protocol, $hook) = unpack("L>S>C", $nla_data);
             print " - packet_id: $packet_id\n";
             print " - hw_protocol: $hw_protocol\n";
             print " - hook: $hook\n";
             push @pkt_ids, $packet_id;
-        }
-        if($nla_type == $NFQA_HWADDR){
+        } elsif($nla_type == $NFQA_HWADDR){
             my ($hw_addrlen, $pad) = unpack("S>S", $nla_data);
             my $hw_addr = substr($nla_data, 0, $hw_addrlen, '');
             print " - hw_addrlen: $hw_addrlen\n";
             print " - hw_addr: ".to_hex($hw_addr)."\n";
-        }
-        if($nla_type == $NFQA_TIMESTAMP){
+        } elsif($nla_type == $NFQA_TIMESTAMP){
             my ($sec, $usec) = unpack("Q>Q>", $nla_data);
             print " - sec: $sec\n";
             print " - usec: $usec\n";
-        }
-        if($nla_type == $NFQA_IFINDEX_INDEV){
+        } elsif($nla_type == $NFQA_IFINDEX_INDEV){
             my $ifindex = unpack("L>", $nla_data);
             print " - ifindex: $ifindex\n";
-        }
-        if($nla_type == $NFQA_IFINDEX_OUTDEV){
+        } elsif($nla_type == $NFQA_IFINDEX_OUTDEV){
             my $ifindex = unpack("L>", $nla_data);
             print " - ifindex: $ifindex\n";
-        }
-        if($nla_type == $NFQA_IFINDEX_PHYSINDEV){
+        } elsif($nla_type == $NFQA_IFINDEX_PHYSINDEV){
             my $ifindex = unpack("L>", $nla_data);
             print " - ifindex: $ifindex\n";
-        }
-        if($nla_type == $NFQA_IFINDEX_PHYSOUTDEV){
+        } elsif($nla_type == $NFQA_IFINDEX_PHYSOUTDEV){
             my $ifindex = unpack("L>", $nla_data);
             print " - ifindex: $ifindex\n";
-        }
-        if($nla_type == $NFQA_PAYLOAD){
-            print " - payload: ".to_hex($nla_data)."\n";
+        } elsif($nla_type == $NFQA_PAYLOAD){
+            print " - payload[hex]: ".to_hex($nla_data)."\n";
+            print " - payload[raw]: ".$nla_data."\n";
+            my ($iphdr, $ipv6hdr, $tcphdr, $payload) = unpack("a20a20a32a*", $nla_data);
+            print " - iphdr[hex]: ".to_hex($ipv6hdr)."\n";
+            print " - iphdr[raw]: ".$ipv6hdr."\n";
+            print " - ipv6hdr[hex]: ".to_hex($iphdr)."\n";
+            print " - ipv6hdr[raw]: ".$iphdr."\n";
+            print " - tcphdr[hex]: ".to_hex($tcphdr)."\n";
+            print " - tcphdr[raw]: ".$tcphdr."\n";
+            print " - payload[hex]: ".to_hex($payload)."\n";
+            print " - payload[raw]: ".$payload."\n";
+        } elsif($nla_type == $NFQA_CT){
+            print " - conntrack[hex]: ".to_hex($nla_data)."\n";
+            print " - conntrack[raw]: ".$nla_data."\n";
+        } elsif($nla_type == $NFQA_CT_INFO){
+            print " - conntrack_info[hex]: ".to_hex($nla_data)."\n";
+            print " - conntrack_info[raw]: ".$nla_data."\n";
+        } elsif($nla_type == $NFQA_MARK){
+            my $mark = unpack("L>", $nla_data);
+            print " - mark: $mark\n";
+        } elsif($nla_type == $NFQA_VLAN){
+            my ($vlan_tci, $vlan_proto) = unpack("S>S>", $nla_data);
+            print " - vlan_tci: $vlan_tci\n";
+            print " - vlan_proto: $vlan_proto\n";
+        } elsif($nla_type == $NFQA_L2HDR){
+            print " - l2hdr[hex]: ".to_hex($nla_data)."\n";
+            print " - l2hdr[raw]: ".$nla_data."\n";
+        } elsif($nla_type == $NFQA_EXP){
+            print " - exp[hex]: ".to_hex($nla_data)."\n";
+            print " - exp[raw]: ".$nla_data."\n";
+        } elsif($nla_type == $NFQA_UID){
+            my $uid = unpack("L>", $nla_data);
+            print " - uid: $uid\n";
+        } elsif($nla_type == $NFQA_GID){
+            my $gid = unpack("L>", $nla_data);
+            print " - gid: $gid\n";
+        } elsif($nla_type == $NFQA_SECCTX){
+            print " - secctx[hex]: ".to_hex($nla_data)."\n";
+            print " - secctx[raw]: ".$nla_data."\n";
+        } elsif($nla_type == $NFQA_SKB_INFO){
+            print " - skb_info[hex]: ".to_hex($nla_data)."\n";
+            print " - skb_info[raw]: ".$nla_data."\n";
+        } else {
+            print " - unknown $nla_type\n";
         }
         substr($nl_attrs, 0, $nr_pad, '');
     }
