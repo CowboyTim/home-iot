@@ -5,7 +5,8 @@
 #   -j NFQUEUE --queue-num 121 --queue-bypass
 use strict; use warnings;
 
-use Socket;
+use Socket qw(AF_UNSPEC AF_INET AF_INET6 SOCK_RAW SOCK_DGRAM inet_ntoa);
+use Socket6 qw(inet_ntop inet_pton);
 use POSIX ();
 use Fcntl qw(F_GETFL F_SETFL O_NONBLOCK);
 
@@ -322,22 +323,50 @@ sub handle_nfqnl_msg_packet {
             print " - ifindex: $ifindex\n";
         } elsif($nla_type == $NFQA_PAYLOAD){
             print " - payload[hex]: ".to_hex($nla_data)."\n";
-            print " - payload[raw]: ".$nla_data."\n";
-            my ($iphdr, $ipv6hdr, $tcphdr, $payload) = unpack("a20a20a32a*", $nla_data);
-            print " - iphdr[hex]: ".to_hex($ipv6hdr)."\n";
-            print " - iphdr[raw]: ".$ipv6hdr."\n";
-            print " - ipv6hdr[hex]: ".to_hex($iphdr)."\n";
-            print " - ipv6hdr[raw]: ".$iphdr."\n";
+            my $ip_version = unpack("C", $nla_data);
+            my ($iphdr, $tcphdr, $payload);
+            if(($ip_version & 0xf0) == 0x40){
+                ($iphdr, $tcphdr, $payload) = unpack("a20a32a*", $nla_data);
+                print " - iphdr[hex]: ".to_hex($iphdr)."\n";
+                # let's parse the ipv4 header
+                my ($ip_version_ihl, $ip_dscp_ecn, $ip_tot_len, $ip_id, $ip_flags_fragment_offset, $ip_ttl, $ip_protocol, $ip_check, $ip_saddr, $ip_daddr) = unpack("CCS>S>S>CCS>a4a4", $iphdr);
+                my $ip_version = $ip_version_ihl >> 4;
+                my $ip_ihl = $ip_version_ihl & 0x0f;
+                print " - ip_version: $ip_version\n";
+                print " - ip_ihl: $ip_ihl\n";
+                print " - ip_dscp_ecn: $ip_dscp_ecn\n";
+                print " - ip_tot_len: $ip_tot_len\n";
+                print " - ip_id: $ip_id\n";
+                print " - ip_flags_fragment_offset: $ip_flags_fragment_offset\n";
+                print " - ip_ttl: $ip_ttl\n";
+                print " - ip_protocol: $ip_protocol\n";
+                print " - ip_check: $ip_check\n";
+                print " - ip_saddr: ".inet_ntoa($ip_saddr)."\n";
+                print " - ip_daddr: ".inet_ntoa($ip_daddr)."\n";
+            } elsif(($ip_version & 0xf0) == 0x60){
+                ($iphdr, $tcphdr, $payload) = unpack("a40a32a*", $nla_data);
+                print " - ipv6hdr[hex]: ".to_hex($iphdr)."\n";
+                # let's parse the ipv6 header
+                my ($ip6_version, $ip6_traffic_class, $ip6_flow_label, $ip6_payload_len, $ip6_next_header, $ip6_hop_limit, $ip6_src, $ip6_dst) = unpack("CCS>S>CCa16a16", $iphdr);
+                $ip6_version &= 0xff;
+                print " - ip6_version: $ip6_version\n";
+                print " - ip6_traffic_class: $ip6_traffic_class\n";
+                print " - ip6_flow_label: $ip6_flow_label\n";
+                print " - ip6_payload_len: $ip6_payload_len\n";
+                print " - ip6_next_header: $ip6_next_header\n";
+                print " - ip6_hop_limit: $ip6_hop_limit\n";
+                print " - ip6_src: ".inet_ntop(AF_INET6, $ip6_src)."\n";
+                print " - ip6_dst: ".inet_ntop(AF_INET6, $ip6_dst)."\n";
+            } else {
+                print " - unknown ip_version: $ip_version:".($ip_version & 0xff)."\n";
+            }
             print " - tcphdr[hex]: ".to_hex($tcphdr)."\n";
-            print " - tcphdr[raw]: ".$tcphdr."\n";
             print " - payload[hex]: ".to_hex($payload)."\n";
             print " - payload[raw]: ".$payload."\n";
         } elsif($nla_type == $NFQA_CT){
             print " - conntrack[hex]: ".to_hex($nla_data)."\n";
-            print " - conntrack[raw]: ".$nla_data."\n";
         } elsif($nla_type == $NFQA_CT_INFO){
             print " - conntrack_info[hex]: ".to_hex($nla_data)."\n";
-            print " - conntrack_info[raw]: ".$nla_data."\n";
         } elsif($nla_type == $NFQA_MARK){
             my $mark = unpack("L>", $nla_data);
             print " - mark: $mark\n";
@@ -347,10 +376,8 @@ sub handle_nfqnl_msg_packet {
             print " - vlan_proto: $vlan_proto\n";
         } elsif($nla_type == $NFQA_L2HDR){
             print " - l2hdr[hex]: ".to_hex($nla_data)."\n";
-            print " - l2hdr[raw]: ".$nla_data."\n";
         } elsif($nla_type == $NFQA_EXP){
             print " - exp[hex]: ".to_hex($nla_data)."\n";
-            print " - exp[raw]: ".$nla_data."\n";
         } elsif($nla_type == $NFQA_UID){
             my $uid = unpack("L>", $nla_data);
             print " - uid: $uid\n";
@@ -359,10 +386,8 @@ sub handle_nfqnl_msg_packet {
             print " - gid: $gid\n";
         } elsif($nla_type == $NFQA_SECCTX){
             print " - secctx[hex]: ".to_hex($nla_data)."\n";
-            print " - secctx[raw]: ".$nla_data."\n";
         } elsif($nla_type == $NFQA_SKB_INFO){
             print " - skb_info[hex]: ".to_hex($nla_data)."\n";
-            print " - skb_info[raw]: ".$nla_data."\n";
         } else {
             print " - unknown $nla_type\n";
         }
