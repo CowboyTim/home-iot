@@ -123,6 +123,50 @@ our $NF_REPEAT = 4;
 
 our $SOL_NETLINK = 270;
 
+if(-f $ARGV[0]){
+    open(my $fh, "<", $ARGV[0])
+        or die "Can't open $ARGV[0]: $!";
+    my $data = do {local $/; <$fh>};
+    close($fh);
+    # PCAP global header
+    my $pcap_hdr = substr($data, 0, 24, '');
+    while(length($data) > 0){
+        my $pkt_hdr = substr($data, 0, 16, '');
+        last unless length($pkt_hdr) == 16;
+        # PCAP record header
+        my ($ts_sec, $ts_usec, $incl_len, $orig_len) = unpack("LLLL", $pkt_hdr);
+        log_debug("ts_sec: $ts_sec");
+        log_debug("ts_usec: $ts_usec");
+        log_debug("incl_len: $incl_len");
+        log_debug("orig_len: $orig_len");
+
+        # Ethernet header
+        my $ethhdr = substr($data, 0, 14, '');
+        my ($eth_dst, $eth_src, $eth_type) = unpack("a6a6S>", $ethhdr);
+        log_debug("eth_dst: ".to_hex($eth_dst));
+        log_debug("eth_src: ".to_hex($eth_src));
+        log_debug("eth_type: ".to_hex(pack("S>", $eth_type)));
+        my $pkt = substr($data, 0, $incl_len-14, '');
+        # Ethernet type?
+        if($eth_type == 0x0800){
+            log_debug("IP");
+            my $data_payload = parse_ip_packet(\$pkt);
+            if(length($pkt) > 0){
+                log_debug("Remaining: ".length($pkt));
+                log_debug("Remaining[hex]: ".to_hex($pkt));
+            }
+            print $data_payload if length($data_payload//"");
+        } elsif($eth_type == 0x0806){
+            log_debug("ARP");
+        } else {
+            log_debug("Unknown eth_type: ".to_hex(pack("S>",$eth_type)));
+        }
+        #my $eth_check = unpack("L>", substr($data, 0, 2, ''));
+        #log_debug("eth_check: $eth_check") if $eth_check;
+    }
+    exit;
+}
+
 my $queue_num = shift @ARGV // die "Usage: $0 QUEUE_NUM";
 my $my_id = 0;#$$;
 
@@ -323,7 +367,7 @@ sub handle_nfqnl_msg_packet {
             log_debug(" - ifindex: $ifindex");
         } elsif($nla_type == $NFQA_PAYLOAD){
             log_debug(" - payload[hex]: ".to_hex($nla_data)."");
-            my $p_data = parse_ip_packet($nla_data);
+            my $p_data = parse_ip_packet(\$nla_data);
             if(defined $p_data){
                 print $p_data;
             }
@@ -379,15 +423,15 @@ sub log_debug {
 
 sub parse_ip_packet {
     my ($nla_data) = @_;
-    my $ip_version = unpack("C", $nla_data);
-    my ($iphdr, $tcphdr, $payload);
+    my $ip_version = unpack("C", $$nla_data);
+    my ($iphdr, $iplen, $ipproto);
     if(($ip_version & 0xf0) == 0x40){
-        ($iphdr, $tcphdr, $payload) = unpack("a20a32a*", $nla_data);
+        my $ip_ihl = $ip_version & 0x0f;
+        my $ip_hdr_size = $ip_ihl * 4;
+        $iphdr = unpack("a".($ip_ihl*4), substr($$nla_data, 0, $ip_hdr_size, ''));
         log_debug(" - iphdr[hex]: ".to_hex($iphdr)."");
         # let's parse the ipv4 header
-        my ($ip_version_ihl, $ip_dscp_ecn, $ip_tot_len, $ip_id, $ip_flags_fragment_offset, $ip_ttl, $ip_protocol, $ip_check, $ip_saddr, $ip_daddr) = unpack("CCS>S>S>CCS>a4a4", $iphdr);
-        my $ip_version = $ip_version_ihl >> 4;
-        my $ip_ihl = $ip_version_ihl & 0x0f;
+        my ($ip_version_ihl, $ip_dscp_ecn, $ip_tot_len, $ip_id, $ip_flags_fragment_offset, $ip_ttl, $ip_protocol, $ip_check, $ip_saddr, $ip_daddr) = unpack("CCS>S>S>CCa2a4a4", $iphdr);
         log_debug(" - ip_version: $ip_version");
         log_debug(" - ip_ihl: $ip_ihl");
         log_debug(" - ip_dscp_ecn: $ip_dscp_ecn");
@@ -396,11 +440,15 @@ sub parse_ip_packet {
         log_debug(" - ip_flags_fragment_offset: $ip_flags_fragment_offset");
         log_debug(" - ip_ttl: $ip_ttl");
         log_debug(" - ip_protocol: $ip_protocol");
-        log_debug(" - ip_check: $ip_check");
+        log_debug(" - ip_check: ".to_hex($ip_check));
         log_debug(" - ip_saddr: ".inet_ntoa($ip_saddr)."");
         log_debug(" - ip_daddr: ".inet_ntoa($ip_daddr)."");
+        my $ip_options = substr($iphdr, 20, $ip_ihl*4, '')
+            if $ip_ihl > 5;
+        $ipproto = $ip_protocol;
+        $iplen   = $ip_tot_len;
     } elsif(($ip_version & 0xf0) == 0x60){
-        ($iphdr, $tcphdr, $payload) = unpack("a40a32a*", $nla_data);
+        $iphdr = unpack("a40", substr($$nla_data, 0, 40, ''));
         log_debug(" - ipv6hdr[hex]: ".to_hex($iphdr)."");
         # let's parse the ipv6 header
         my ($ip6_version, $ip6_traffic_class, $ip6_flow_label, $ip6_payload_len, $ip6_next_header, $ip6_hop_limit, $ip6_src, $ip6_dst) = unpack("CCS>S>CCa16a16", $iphdr);
@@ -413,45 +461,88 @@ sub parse_ip_packet {
         log_debug(" - ip6_hop_limit: $ip6_hop_limit");
         log_debug(" - ip6_src: ".inet_ntop(AF_INET6, $ip6_src)."");
         log_debug(" - ip6_dst: ".inet_ntop(AF_INET6, $ip6_dst)."");
+        $ipproto = $ip6_next_header;
+        $iplen   = $ip6_payload_len;
     } else {
         log_debug(" - unknown ip_version: $ip_version:".($ip_version & 0xff)."");
+        return;
     }
-    # now we parse the tcp header
-    my ($tcp_sport, $tcp_dport, $tcp_seq, $tcp_ack_seq, $tcp_data_off_res, $tcp_flags, $tcp_window, $tcp_check, $tcp_urg_ptr) = unpack("S>S>L>L>CCS>S>S>", $tcphdr);
-    my $tcp_data_off = $tcp_data_off_res >> 4;
-    my $tcp_res = $tcp_data_off_res & 0x0f;
-    log_debug(" - tcp_sport: $tcp_sport");
-    log_debug(" - tcp_dport: $tcp_dport");
-    log_debug(" - tcp_seq: $tcp_seq");
-    log_debug(" - tcp_ack_seq: $tcp_ack_seq");
-    log_debug(" - tcp_data_off: $tcp_data_off");
-    log_debug(" - tcp_res: $tcp_res");
-    log_debug(" - tcp_flags: $tcp_flags");
-    # and parse the flags
-    my $tcp_fin = $tcp_flags & 0x01;
-    my $tcp_syn = ($tcp_flags & 0x02) >> 1;
-    my $tcp_rst = ($tcp_flags & 0x04) >> 2;
-    my $tcp_psh = ($tcp_flags & 0x08) >> 3;
-    my $tcp_ack = ($tcp_flags & 0x10) >> 4;
-    my $tcp_urg = ($tcp_flags & 0x20) >> 5;
-    my $tcp_ece = ($tcp_flags & 0x40) >> 6;
-    my $tcp_cwr = ($tcp_flags & 0x80) >> 7;
-    log_debug(" - tcp_fin: $tcp_fin");
-    log_debug(" - tcp_syn: $tcp_syn");
-    log_debug(" - tcp_rst: $tcp_rst");
-    log_debug(" - tcp_psh: $tcp_psh");
-    log_debug(" - tcp_ack: $tcp_ack");
-    log_debug(" - tcp_urg: $tcp_urg");
-    log_debug(" - tcp_ece: $tcp_ece");
-    log_debug(" - tcp_cwr: $tcp_cwr");
-    log_debug(" - tcp_window: $tcp_window");
-    log_debug(" - tcp_check: $tcp_check");
-    log_debug(" - tcp_urg_ptr: $tcp_urg_ptr");
-    log_debug(" - tcphdr[hex]: ".to_hex($tcphdr)."");
-    log_debug(" - payload[hex]: ".to_hex($payload)."");
-    log_debug(" - payload[raw]: ".$payload."");
-    if($tcp_psh){
-        return $payload;
+    if($ipproto == 6){ # TCP
+        my $tcphdr = substr($$nla_data, 0, 20, '');
+        # now we parse the tcp header
+        log_debug(" - tcphdr[hex]: ".to_hex($tcphdr)."");
+        my ($tcp_sport, $tcp_dport, $tcp_seq, $tcp_ack_seq, $tcp_data_off_res, $tcp_flags, $tcp_window, $tcp_check, $tcp_urg_ptr) = unpack("S>S>L>L>CCS>a2S>", $tcphdr);
+        my $tcp_data_off = $tcp_data_off_res >> 4;
+        my $tcp_res = $tcp_data_off_res & 0x0f;
+        log_debug(" - tcp_sport: $tcp_sport");
+        log_debug(" - tcp_dport: $tcp_dport");
+        log_debug(" - tcp_seq: $tcp_seq");
+        log_debug(" - tcp_ack_seq: $tcp_ack_seq");
+        log_debug(" - tcp_data_off: $tcp_data_off");
+        log_debug(" - tcp_res: $tcp_res");
+        log_debug(" - tcp_flags: $tcp_flags");
+        # and parse the flags
+        my $tcp_fin = $tcp_flags & 0x01;
+        my $tcp_syn = ($tcp_flags & 0x02) >> 1;
+        my $tcp_rst = ($tcp_flags & 0x04) >> 2;
+        my $tcp_psh = ($tcp_flags & 0x08) >> 3;
+        my $tcp_ack = ($tcp_flags & 0x10) >> 4;
+        my $tcp_urg = ($tcp_flags & 0x20) >> 5;
+        my $tcp_ece = ($tcp_flags & 0x40) >> 6;
+        my $tcp_cwr = ($tcp_flags & 0x80) >> 7;
+        log_debug(" - tcp_fin: $tcp_fin");
+        log_debug(" - tcp_syn: $tcp_syn");
+        log_debug(" - tcp_rst: $tcp_rst");
+        log_debug(" - tcp_psh: $tcp_psh");
+        log_debug(" - tcp_ack: $tcp_ack");
+        log_debug(" - tcp_urg: $tcp_urg");
+        log_debug(" - tcp_ece: $tcp_ece");
+        log_debug(" - tcp_cwr: $tcp_cwr");
+        log_debug(" - tcp_window: $tcp_window");
+        log_debug(" - tcp_check: ".to_hex($tcp_check));
+        log_debug(" - tcp_urg_ptr: $tcp_urg_ptr");
+        my $tcp_options = substr($$nla_data, 0, $tcp_data_off*4-20, '')
+            if $tcp_data_off > 5;
+        my $p_size = $iplen - $tcp_data_off*4 - length($iphdr);
+        if($p_size > 0){
+            my $payload = substr($$nla_data, 0, $p_size, '');
+            log_debug(" - payload_size: $p_size");
+            log_debug(" - payload[hex]: ".to_hex($payload));
+            log_debug(" - payload[raw]: ".$payload);
+            if($tcp_psh){
+                return $payload;
+            }
+        }
+    } elsif($ipproto == 1) { # ICMP
+        my $icmphdr = substr($$nla_data, 0, 8, '');
+        # now we parse the icmp header
+        log_debug(" - icmphdr[hex]: ".to_hex($icmphdr)."");
+        my ($icmp_type, $icmp_code, $icmp_check, $icmp_payload) = unpack("CCS>a4", $icmphdr);
+        log_debug(" - icmp_type: $icmp_type");
+        log_debug(" - icmp_code: $icmp_code");
+        log_debug(" - icmp_check: ".to_hex($icmp_check));
+        log_debug(" - icmp_payload[hex]: ".to_hex($icmp_payload));
+    } elsif($ipproto == 0){ # IPv6 HOPOPT
+    } elsif($ipproto == 2){ # IGMP
+    } elsif($ipproto == 17){ # UDP
+    } elsif($ipproto == 41){ # IPv6 ENCAP
+    } elsif($ipproto == 43){ # IPv6 Route
+    } elsif($ipproto == 44){ # IPv6 Frag
+    } elsif($ipproto == 50){ # ESP
+    } elsif($ipproto == 51){ # AH
+    } elsif($ipproto == 58){ # ICMPv6
+    } elsif($ipproto == 59){ # No Next Header
+    } elsif($ipproto == 60){ # Destination Options
+    } elsif($ipproto == 103){ # PIM
+    } elsif($ipproto == 132){ # SCTP
+    } elsif($ipproto == 133){ # FC
+    } elsif($ipproto == 135){ # Mobility Header
+    } elsif($ipproto == 139){ # HIP
+    } elsif($ipproto == 140){ # Shim6
+    } elsif($ipproto == 141){ # WESP
+    } elsif($ipproto == 142){ # ROHC
+    } else {
+        log_debug(" - unknown ipproto: $ipproto");
     }
     return;
 }
