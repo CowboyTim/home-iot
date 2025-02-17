@@ -130,6 +130,7 @@ if(-f $ARGV[0]){
     close($fh);
     # PCAP global header
     my $pcap_hdr = substr($data, 0, 24, '');
+    my $state;
     while(length($data) > 0){
         my $pkt_hdr = substr($data, 0, 16, '');
         last unless length($pkt_hdr) == 16;
@@ -150,12 +151,12 @@ if(-f $ARGV[0]){
         # Ethernet type?
         if($eth_type == 0x0800){
             log_debug("IP");
-            my $data_payload = parse_ip_packet(\$pkt);
+            my $parsed_pkt = parse_ip_packet(\$pkt);
             if(length($pkt) > 0){
                 log_debug("Remaining: ".length($pkt));
                 log_debug("Remaining[hex]: ".to_hex($pkt));
             }
-            print $data_payload if length($data_payload//"");
+            handle_payload(\$state, $parsed_pkt);
         } elsif($eth_type == 0x0806){
             log_debug("ARP");
         } else {
@@ -423,8 +424,10 @@ sub log_debug {
 
 sub parse_ip_packet {
     my ($nla_data) = @_;
+    my $pkt = {};
     my $ip_version = unpack("C", $$nla_data);
     my ($iphdr, $iplen, $ipproto);
+    my ($sip, $dip);
     if(($ip_version & 0xf0) == 0x40){
         my $ip_ihl = $ip_version & 0x0f;
         my $ip_hdr_size = $ip_ihl * 4;
@@ -432,17 +435,24 @@ sub parse_ip_packet {
         log_debug(" - iphdr[hex]: ".to_hex($iphdr)."");
         # let's parse the ipv4 header
         my ($ip_version_ihl, $ip_dscp_ecn, $ip_tot_len, $ip_id, $ip_flags_fragment_offset, $ip_ttl, $ip_protocol, $ip_check, $ip_saddr, $ip_daddr) = unpack("CCS>S>S>CCa2a4a4", $iphdr);
+        my $ip_fragment_offset = $ip_flags_fragment_offset & 0x1fff;
+        my $ip_flags = $ip_flags_fragment_offset >> 13;
+        my $ip_flag_df = $ip_flags & 0x02;
+        my $ip_flag_mf = $ip_flags & 0x01;
         log_debug(" - ip_version: $ip_version");
         log_debug(" - ip_ihl: $ip_ihl");
         log_debug(" - ip_dscp_ecn: $ip_dscp_ecn");
         log_debug(" - ip_tot_len: $ip_tot_len");
         log_debug(" - ip_id: $ip_id");
-        log_debug(" - ip_flags_fragment_offset: $ip_flags_fragment_offset");
+        log_debug(" - ip_flags: $ip_flags");
+        log_debug(" - ip_fragment_offset: $ip_fragment_offset");
+        log_debug(" - ip_flag_df: $ip_flag_df");
+        log_debug(" - ip_flag_mf: $ip_flag_mf");
         log_debug(" - ip_ttl: $ip_ttl");
         log_debug(" - ip_protocol: $ip_protocol");
         log_debug(" - ip_check: ".to_hex($ip_check));
-        log_debug(" - ip_saddr: ".inet_ntoa($ip_saddr)."");
-        log_debug(" - ip_daddr: ".inet_ntoa($ip_daddr)."");
+        log_debug(" - ip_saddr: ".($sip = inet_ntoa($ip_saddr)));
+        log_debug(" - ip_daddr: ".($dip = inet_ntoa($ip_daddr)));
         my $ip_options = substr($iphdr, 20, $ip_ihl*4, '')
             if $ip_ihl > 5;
         $ipproto = $ip_protocol;
@@ -459,8 +469,8 @@ sub parse_ip_packet {
         log_debug(" - ip6_payload_len: $ip6_payload_len");
         log_debug(" - ip6_next_header: $ip6_next_header");
         log_debug(" - ip6_hop_limit: $ip6_hop_limit");
-        log_debug(" - ip6_src: ".inet_ntop(AF_INET6, $ip6_src)."");
-        log_debug(" - ip6_dst: ".inet_ntop(AF_INET6, $ip6_dst)."");
+        log_debug(" - ip6_src: ".($sip = inet_ntop(AF_INET6, $ip6_src)));
+        log_debug(" - ip6_dst: ".($dip = inet_ntop(AF_INET6, $ip6_dst)));
         $ipproto = $ip6_next_header;
         $iplen   = $ip6_payload_len;
     } else {
@@ -509,10 +519,10 @@ sub parse_ip_packet {
             log_debug(" - payload_size: $p_size");
             log_debug(" - payload[hex]: ".to_hex($payload));
             log_debug(" - payload[raw]: ".$payload);
-            if($tcp_psh){
-                return $payload;
-            }
+            $pkt->{data} = $payload;
         }
+        $pkt->{conn} = join(",", $sip, $tcp_sport, $dip, $tcp_dport)
+            if $sip // $dip // $tcp_sport // $tcp_dport // 0;
     } elsif($ipproto == 1) { # ICMP
         my $icmphdr = substr($$nla_data, 0, 8, '');
         # now we parse the icmp header
@@ -544,5 +554,76 @@ sub parse_ip_packet {
     } else {
         log_debug(" - unknown ipproto: $ipproto");
     }
+    return $pkt;
+}
+
+sub handle_payload {
+    my ($state, $pkt) = @_;
+    return unless defined $pkt and defined $pkt->{conn} and length($pkt->{data}//"");;
+    my $data_payload = $pkt->{data};
+    my $st = $$state //= {conns => {$pkt->{conn} => {}}};
+    $st->{buf} .= $data_payload;
+    print STDERR "DATA:>>$st->{buf}<<\n";
+    # check/parse whether this is a HTTP request or response
+    my $req = $st->{buf} =~ s{.*?(GET|POST|PUT|DELETE|HEAD|OPTIONS|TRACE|CONNECT)\s(.*?)\sHTTP/1\.\d\r\n(.*?)\r\n\r\n}{}ms;
+    if($req){
+        log_debug("HTTP Request");
+        log_debug(" - method: $1");
+        log_debug(" - uri: $2");
+        log_debug(" - headers: $3");
+        $st->{buf}   = "";
+        $st->{state} = 1; # HTTP req sent
+    }
+    my $res = $st->{buf} =~ s{.*?HTTP/1\.\d\s(\d+)\s(.*?)\r\n(.*?)\r\n\r\n}{}ms;
+    if($res){
+        log_debug("HTTP Response");
+        log_debug(" - status: $1");
+        log_debug(" - reason: $2");
+        log_debug(" - headers: $3");
+        $st->{state} = 2; # WebSocket
+    }
+    if($st->{state} == 2){
+        # now we parse every websocket frame
+        while($st->{buf} =~ s{^(.)(.)(.*)}{}ms){
+            my ($fin, $opcode, $payload) = ($1, $2, $3);
+            log_debug(" - fin: $fin");
+            log_debug(" - opcode: $opcode");
+            log_debug(" - payload: ".to_hex($payload));
+            if($opcode eq 0x8){
+                log_debug(" - opcode: CLOSE");
+                $st->{buf} = "";
+                last;
+            }
+            if($opcode eq 0x1){
+                log_debug(" - opcode: TEXT");
+                log_debug(" - payload: $payload");
+            }
+            if($opcode eq 0x2){
+                log_debug(" - opcode: BINARY");
+                log_debug(" - payload: ".to_hex($payload));
+            }
+            if($opcode eq 0x9){
+                log_debug(" - opcode: PING");
+                log_debug(" - payload: ".to_hex($payload));
+            }
+            if($opcode eq 0xa){
+                log_debug(" - opcode: PONG");
+                log_debug(" - payload: ".to_hex($payload));
+            }
+        }
+        #my $xor_key = $ENV{XOR_KEY};
+        #my $msg;
+        #if($xor_key){
+        #$msg = xor_msg($xor_key, $st->{buf});
+        #print $msg;
+        #$st->{buf} = "";
+        #}
+    }
     return;
+}
+
+sub xor_msg {
+    my ($s_key8, $m) = @_;
+    my $fs_key8 = substr(($s_key8) x (int(length($m)/length($s_key8))+1), 0, length($m));
+    return $m ^ $fs_key8;
 }
