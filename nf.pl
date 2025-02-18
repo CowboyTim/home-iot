@@ -563,7 +563,8 @@ sub handle_payload {
     my $data_payload = $pkt->{data};
     my $st = $$state //= {conns => {$pkt->{conn} => {}}};
     $st->{buf} .= $data_payload;
-    print STDERR "DATA:>>$st->{buf}<<\n";
+    my $wsbuf = \($st->{wsbuf} //= "");
+    log_debug("DATA:>>$st->{buf}<<");
     # check/parse whether this is a HTTP request or response
     my $req = $st->{buf} =~ s{.*?(GET|POST|PUT|DELETE|HEAD|OPTIONS|TRACE|CONNECT)\s(.*?)\sHTTP/1\.\d\r\n(.*?)\r\n\r\n}{}ms;
     if($req){
@@ -581,43 +582,98 @@ sub handle_payload {
         log_debug(" - reason: $2");
         log_debug(" - headers: $3");
         $st->{state} = 2; # WebSocket
+        # let's parse the headers for Content-Length
+        my $content_length = $3 =~ m{Content-Length:\s(\d+)}m;
+        log_debug(" - content_length: $content_length");
+        my $buf = substr($st->{buf}, 0, $content_length, '') if $content_length;
     }
-    if($st->{state} == 2){
+    {
         # now we parse every websocket frame
-        while($st->{buf} =~ s{^(.)(.)(.*)}{}ms){
-            my ($fin, $opcode, $payload) = ($1, $2, $3);
+        my $buf = \$st->{buf};
+        while(length($$buf//"") > 4){
+            log_debug(" - buf: ".to_hex($$buf));
+            my $frame_st = substr($$buf, 0, 2);
+            my ($fin_opcode, $payload_len) = unpack("CC", $frame_st);
+            my $fin    = ($fin_opcode  >> 7) & 0x1;
+            my $opcode = $fin_opcode & 0x0f;
+            if($opcode == 0x01){
+                log_debug(" - text frame");
+            } elsif($opcode == 0x02){
+                log_debug(" - binary frame");
+            } elsif($opcode == 0x08){
+                log_debug(" - close frame");
+            } elsif($opcode == 0x09){
+                log_debug(" - ping frame");
+            } elsif($opcode == 0x0a){
+                log_debug(" - pong frame");
+            } else {
+                # http probably doesn't have this
+                log_debug(" - unknown opcode: $opcode");
+                return;
+            }
+            substr($$buf, 0, 2, '');
+            my $masked = ($payload_len >> 7) & 0x1;
+            $payload_len &= 0x7f;
+            if($payload_len == 126){
+                $payload_len = unpack("S>", substr($$buf, 0, 2, ''));
+            } elsif($payload_len == 127){
+                $payload_len = unpack("Q>", substr($$buf, 0, 8, ''));
+            }
             log_debug(" - fin: $fin");
             log_debug(" - opcode: $opcode");
-            log_debug(" - payload: ".to_hex($payload));
-            if($opcode eq 0x8){
-                log_debug(" - opcode: CLOSE");
-                $st->{buf} = "";
+            log_debug(" - mask: $masked");
+            log_debug(" - payload_len: $payload_len");
+            my $mask_key;
+            if($masked){
+                $mask_key = substr($$buf, 0, 4, '');
+            }
+            my $masked_data = substr($$buf, 0, $payload_len, '');
+            if($opcode == 0x08){
+                log_debug(" - close frame");
+                my $close_code = unpack("S>", substr($masked_data, 0, 2, ''));
+                log_debug(" - close_code: $close_code");
+                my $close_reason = substr($masked_data, 0, length($masked_data), '');
+                log_debug(" - close_reason: $close_reason");
+                $$wsbuf = "";
+                $st->{state} = 0; # START
                 last;
             }
-            if($opcode eq 0x1){
-                log_debug(" - opcode: TEXT");
-                log_debug(" - payload: $payload");
+            if($masked and length($mask_key) >= 4){
+                log_debug(" - mask_key: ".to_hex($mask_key));
+                log_debug(" - masked_data: ".to_hex($masked_data));
+                $masked_data ^= substr(($mask_key x (int(length($masked_data)/length($mask_key))+1)), 0, length($masked_data));
+                log_debug(" - unmask_data: ".to_hex($masked_data));
+            } else {
+                log_debug(" - unmask_data: ".to_hex($masked_data));
             }
-            if($opcode eq 0x2){
-                log_debug(" - opcode: BINARY");
-                log_debug(" - payload: ".to_hex($payload));
-            }
-            if($opcode eq 0x9){
-                log_debug(" - opcode: PING");
-                log_debug(" - payload: ".to_hex($payload));
-            }
-            if($opcode eq 0xa){
-                log_debug(" - opcode: PONG");
-                log_debug(" - payload: ".to_hex($payload));
+            if($fin == 0x01){
+                $$wsbuf .= $masked_data;
+                log_debug(" - final frame");
+                if($opcode == 0x02 or $opcode == 0x01){
+                    log_debug(" - final binary frame");
+                    my $xor_key = $ENV{XOR_KEY};
+                    if($xor_key){
+                        log_debug(" - xor_key: ".($xor_key));
+                        my $decoded_msg = xor_msg($xor_key, $$wsbuf);
+                        log_debug(" - decoded_msg: ".($decoded_msg));
+                        print $decoded_msg."\n";
+                    } else {
+                        print $$wsbuf."\n";
+                    }
+                } else {
+                    log_debug(" - final frame");
+                    print $$wsbuf."\n";
+                }
+                $$wsbuf = "";
+            } else {
+                log_debug(" - continuation frame");
+                if($opcode == 0x02 or $opcode == 0x01){
+                    log_debug(" - continuation binary frame");
+                    $$wsbuf .= $masked_data;
+                }
             }
         }
-        #my $xor_key = $ENV{XOR_KEY};
-        #my $msg;
-        #if($xor_key){
-        #$msg = xor_msg($xor_key, $st->{buf});
-        #print $msg;
-        #$st->{buf} = "";
-        #}
+
     }
     return;
 }
