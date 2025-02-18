@@ -162,6 +162,7 @@ if(-f $ARGV[0]){
         } else {
             log_debug("Unknown eth_type: ".to_hex(pack("S>",$eth_type)));
         }
+        log_debug("nr states: ".int(scalar(keys %$state)/2).", ".join(";", sort keys %$state));
         #my $eth_check = unpack("L>", substr($data, 0, 2, ''));
         #log_debug("eth_check: $eth_check") if $eth_check;
     }
@@ -492,7 +493,7 @@ sub parse_ip_packet {
         log_debug(" - tcp_res: $tcp_res");
         log_debug(" - tcp_flags: $tcp_flags");
         # and parse the flags
-        my $tcp_fin = $tcp_flags & 0x01;
+        my $tcp_fin = ($tcp_flags & 0x01);
         my $tcp_syn = ($tcp_flags & 0x02) >> 1;
         my $tcp_rst = ($tcp_flags & 0x04) >> 2;
         my $tcp_psh = ($tcp_flags & 0x08) >> 3;
@@ -521,7 +522,8 @@ sub parse_ip_packet {
             log_debug(" - payload[raw]: ".$payload);
             $pkt->{data} = $payload;
         }
-        $pkt->{conn} = join(",", $sip, $tcp_sport, $dip, $tcp_dport)
+        $pkt->{tcp_flags} = $tcp_flags;
+        $pkt->{conn} = ["$sip:$tcp_sport", "$dip:$tcp_dport"]
             if $sip // $dip // $tcp_sport // $tcp_dport // 0;
     } elsif($ipproto == 1) { # ICMP
         my $icmphdr = substr($$nla_data, 0, 8, '');
@@ -559,21 +561,49 @@ sub parse_ip_packet {
 
 sub handle_payload {
     my ($state, $pkt) = @_;
-    return unless defined $pkt and defined $pkt->{conn} and length($pkt->{data}//"");;
+    return unless defined $pkt and defined $pkt->{conn};
+    my $_st = $$state //= {};
+
+    # if we get a TCP_FIN, we should close the connection and cleanup
+    if($pkt->{tcp_flags} & 0x01){
+        log_debug("TCP_FIN for ".join(",", @{$pkt->{conn}}));
+        delete $_st->{join(",", @{$pkt->{conn}})};
+        delete $_st->{join(",", reverse @{$pkt->{conn}})};
+        %{$_st} = ();
+        return;
+    }
+    if($pkt->{tcp_flags} & 0x02 and   $pkt->{tcp_flags} & 0x10){
+        log_debug("TCP_SYN ACK for ".join(",", @{$pkt->{conn}}));
+    }
+    if($pkt->{tcp_flags} & 0x02 and !($pkt->{tcp_flags} & 0x10)){
+        log_debug("TCP_SYN for ".join(",", @{$pkt->{conn}}));
+    }
+    return unless defined $pkt and defined $pkt->{conn} and length($pkt->{data}//"");
     my $data_payload = $pkt->{data};
-    my $st = $$state //= {conns => {$pkt->{conn} => {}}};
+    my $st  =
+            $_st->{join(",", @{$pkt->{conn}})} 
+        //= $_st->{join(",", reverse @{$pkt->{conn}})}
+        //= {};
     $st->{buf} .= $data_payload;
+    my $buf   = \$st->{buf};
     my $wsbuf = \($st->{wsbuf} //= "");
-    log_debug("DATA:>>$st->{buf}<<");
-    # check/parse whether this is a HTTP request or response
-    my $req = $st->{buf} =~ s{.*?(GET|POST|PUT|DELETE|HEAD|OPTIONS|TRACE|CONNECT)\s(.*?)\sHTTP/1\.\d\r\n(.*?)\r\n\r\n}{}ms;
+    log_debug("DATA:>>$$buf<<LENGTH:".length($$buf));
+
+    # was this a HTTP request? client -> server
+    my $req = $$buf =~ s{.*?(GET|POST|PUT|DELETE|HEAD|OPTIONS|TRACE|CONNECT)\s(.*?)\sHTTP/1\.\d\r\n(.*?)\r\n\r\n}{}ms;
     if($req){
         log_debug("HTTP Request");
         log_debug(" - method: $1");
         log_debug(" - uri: $2");
         log_debug(" - headers: $3");
-        $st->{buf}   = "";
+        $$buf = "";
+        delete $_st->{join(",", @{$pkt->{conn}})};
+        delete $_st->{join(",", reverse @{$pkt->{conn}})};
+        %{$_st} = ();
+        return;
     }
+
+    # was this a HTTP response? server -> client
     my $res = $st->{buf} =~ s{.*?HTTP/1\.\d\s(\d+)\s(.*?)\r\n(.*?)\r\n\r\n}{}ms;
     if($res){
         log_debug("HTTP Response");
@@ -583,105 +613,110 @@ sub handle_payload {
         # let's parse the headers for Content-Length
         my $content_length = $3 =~ m{Content-Length:\s(\d+)}m;
         log_debug(" - content_length: $content_length");
-        my $buf = substr($st->{buf}, 0, $content_length, '') if $content_length;
+        # let's throw away the response body for now
+        substr($$buf, 0, $content_length, '') if $content_length;
+        if(length($$buf) > 0){
+            log_debug(" - remaining: ".length($$buf));
+            log_debug(" - remaining[hex]: ".to_hex($$buf));
+        }
+        delete $_st->{join(",", @{$pkt->{conn}})};
+        delete $_st->{join(",", reverse @{$pkt->{conn}})};
+        %{$_st} = ();
+        return;
     }
-    {
-        # now we parse every websocket frame
-        my $buf = \$st->{buf};
-        while(length($$buf//"") > 4){
-            log_debug(" - buf: ".to_hex($$buf));
-            my $frame_st = substr($$buf, 0, 2);
-            my ($fin_opcode, $payload_len) = unpack("CC", $frame_st);
-            my $fin    = ($fin_opcode  >> 7) & 0x1;
-            my $opcode = $fin_opcode & 0x0f;
-            if($opcode == 0x01){
-                log_debug(" - text frame");
-            } elsif($opcode == 0x02){
-                log_debug(" - binary frame");
-            } elsif($opcode == 0x08){
-                log_debug(" - close frame");
-            } elsif($opcode == 0x09){
-                log_debug(" - ping frame");
-            } elsif($opcode == 0x0a){
-                log_debug(" - pong frame");
-            } else {
-                # http probably doesn't have this
-                log_debug(" - unknown opcode: $opcode");
-                return;
-            }
-            my $masked = ($payload_len >> 7) & 0x1;
-            $payload_len &= 0x7f;
-            if($payload_len == 126){
-                $payload_len = unpack("S>", substr($$buf, 2, 2));
-                return unless defined $payload_len;
-                $frame_st = 4;
-            } elsif($payload_len == 127){
-                $payload_len = unpack("Q>", substr($$buf, 2, 8));
-                return unless defined $payload_len;
-                $frame_st = 10;
-            } else {
-                $frame_st = 2;
-            }
-            log_debug(" - fin: $fin");
-            log_debug(" - opcode: $opcode");
-            log_debug(" - mask: $masked");
-            log_debug(" - payload_len: $payload_len");
-            my $mask_key;
-            if($masked){
-                $mask_key = substr($$buf, $frame_st, 4);
-                $frame_st += 4;
-            }
-            my $masked_data = substr($$buf, $frame_st, $payload_len);
-            if(length($masked_data) < $payload_len){
-                log_debug(" - incomplete frame");
-                return;
-            }
-            substr($$buf, 0, $frame_st+$payload_len, '');
-            if($opcode == 0x08){
-                log_debug(" - close frame");
-                my $close_code = unpack("S>", substr($masked_data, 0, 2, ''));
-                log_debug(" - close_code: $close_code");
-                my $close_reason = substr($masked_data, 0, length($masked_data), '');
-                log_debug(" - close_reason: $close_reason");
-                $$wsbuf = "";
-                last;
-            }
-            if($masked and length($mask_key) >= 4){
-                log_debug(" - mask_key: ".to_hex($mask_key));
-                log_debug(" - masked_data: ".to_hex($masked_data));
-                $masked_data ^= substr(($mask_key x (int(length($masked_data)/length($mask_key))+1)), 0, length($masked_data));
-                log_debug(" - unmask_data: ".to_hex($masked_data));
-            } else {
-                log_debug(" - unmask_data: ".to_hex($masked_data));
-            }
-            if($fin == 0x01){
-                $$wsbuf .= $masked_data;
-                log_debug(" - final frame");
-                if($opcode == 0x02 or $opcode == 0x01){
-                    log_debug(" - final binary frame");
-                    my $xor_key = $ENV{XOR_KEY};
-                    if($xor_key){
-                        log_debug(" - xor_key: ".($xor_key));
-                        my $decoded_msg = xor_msg($xor_key, $$wsbuf);
-                        log_debug(" - decoded_msg: ".($decoded_msg));
-                        print $decoded_msg."\n";
-                    } else {
-                        print $$wsbuf."\n";
-                    }
+
+    # is this a websocket frame?
+    while(length($$buf//"") > 4){
+        log_debug(" - buf: ".to_hex($$buf));
+        my $frame_st = substr($$buf, 0, 2);
+        my ($fin_opcode, $payload_len) = unpack("CC", $frame_st);
+        my $fin    = ($fin_opcode  >> 7) & 0x1;
+        my $opcode = $fin_opcode & 0x0f;
+        if($opcode == 0x01){
+            log_debug(" - text frame");
+        } elsif($opcode == 0x02){
+            log_debug(" - binary frame");
+        } elsif($opcode == 0x08){
+            log_debug(" - close frame");
+        } elsif($opcode == 0x09){
+            log_debug(" - ping frame");
+        } elsif($opcode == 0x0a){
+            log_debug(" - pong frame");
+        } else {
+            # http probably doesn't have this
+            return;
+        }
+        my $masked = ($payload_len >> 7) & 0x1;
+        $payload_len &= 0x7f;
+        if($payload_len == 126){
+            $payload_len = unpack("S>", substr($$buf, 2, 2));
+            return unless defined $payload_len;
+            $frame_st = 4;
+        } elsif($payload_len == 127){
+            $payload_len = unpack("Q>", substr($$buf, 2, 8));
+            return unless defined $payload_len;
+            $frame_st = 10;
+        } else {
+            $frame_st = 2;
+        }
+        log_debug(" - fin: $fin");
+        log_debug(" - opcode: $opcode");
+        log_debug(" - mask: $masked");
+        log_debug(" - payload_len: $payload_len");
+        my $mask_key;
+        if($masked){
+            $mask_key = substr($$buf, $frame_st, 4);
+            $frame_st += 4;
+        }
+        my $masked_data = substr($$buf, $frame_st, $payload_len);
+        if(length($masked_data) < $payload_len){
+            log_debug(" - incomplete frame");
+            return;
+        }
+        substr($$buf, 0, $frame_st+$payload_len, '');
+        if($opcode == 0x08){
+            log_debug(" - close frame");
+            my $close_code = unpack("S>", substr($masked_data, 0, 2, ''));
+            log_debug(" - close_code: $close_code");
+            my $close_reason = substr($masked_data, 0, length($masked_data), '');
+            log_debug(" - close_reason: $close_reason");
+            $$wsbuf = "";
+            last;
+        }
+        if($masked and length($mask_key) >= 4){
+            log_debug(" - mask_key: ".to_hex($mask_key));
+            log_debug(" - masked_data: ".to_hex($masked_data));
+            $masked_data ^= substr(($mask_key x (int(length($masked_data)/length($mask_key))+1)), 0, length($masked_data));
+            log_debug(" - unmask_data: ".to_hex($masked_data));
+        } else {
+            log_debug(" - unmask_data: ".to_hex($masked_data));
+        }
+        if($fin == 0x01){
+            $$wsbuf .= $masked_data;
+            log_debug(" - final frame");
+            if($opcode == 0x02 or $opcode == 0x01){
+                log_debug(" - final binary frame");
+                my $xor_key = $ENV{XOR_KEY};
+                if($xor_key){
+                    log_debug(" - xor_key: ".($xor_key));
+                    my $decoded_msg = xor_msg($xor_key, $$wsbuf);
+                    log_debug(" - decoded_msg: ".($decoded_msg));
+                    print $decoded_msg."\n";
                 } else {
-                    log_debug(" - final frame");
                     print $$wsbuf."\n";
                 }
-                $$wsbuf = "";
             } else {
-                log_debug(" - continuation frame");
-                if($opcode == 0x02 or $opcode == 0x01){
-                    log_debug(" - continuation binary frame");
-                    $$wsbuf .= $masked_data;
-                }
+                log_debug(" - final frame");
+                print $$wsbuf."\n";
+            }
+            $$wsbuf = "";
+        } else {
+            log_debug(" - continuation frame");
+            if($opcode == 0x02 or $opcode == 0x01){
+                log_debug(" - continuation binary frame");
+                $$wsbuf .= $masked_data;
             }
         }
-
     }
     return;
 }
