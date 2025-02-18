@@ -573,7 +573,6 @@ sub handle_payload {
         log_debug(" - uri: $2");
         log_debug(" - headers: $3");
         $st->{buf}   = "";
-        $st->{state} = 1; # HTTP req sent
     }
     my $res = $st->{buf} =~ s{.*?HTTP/1\.\d\s(\d+)\s(.*?)\r\n(.*?)\r\n\r\n}{}ms;
     if($res){
@@ -581,7 +580,6 @@ sub handle_payload {
         log_debug(" - status: $1");
         log_debug(" - reason: $2");
         log_debug(" - headers: $3");
-        $st->{state} = 2; # WebSocket
         # let's parse the headers for Content-Length
         my $content_length = $3 =~ m{Content-Length:\s(\d+)}m;
         log_debug(" - content_length: $content_length");
@@ -635,7 +633,6 @@ sub handle_payload {
                 my $close_reason = substr($masked_data, 0, length($masked_data), '');
                 log_debug(" - close_reason: $close_reason");
                 $$wsbuf = "";
-                $st->{state} = 0; # START
                 last;
             }
             if($masked and length($mask_key) >= 4){
