@@ -306,12 +306,26 @@ sub handle_nlmsg {
     my ($len, $type, $flags, $seq, $pid, $data) = unpack("LSSLLa*", $msg);
     log_debug("MSG[".length($msg)."]: len: $len, type: $type, flags: $flags, seq: $seq, pid: $pid");
     if($type == $NLMSG_ERROR){
-        my $err_num = unpack("La*", $data);
-        die "ERROR[$err_num]";
+        # parse the NETLINK error message
+        my ($err_num, $e_msg) = unpack("l>a*", $data);
+        log_debug("ERROR[$err_num]: 0x".to_hex($data));
+        $! = -$err_num;
+        die "ERROR[$err_num]: $!\n";
+    }
+    if($type == $NLMSG_OVERRUN){
+        log_debug("OVERRUN");
+        return;
+    }
+    if($type == $NLMSG_NOOP){
+        log_debug("NOOP");
+        return;
     }
     if($flags & $NLM_F_ACK){
         log_debug("ACK");
         return;
+    }
+    if($type == $NLMSG_DONE){
+        log_debug("DONE");
     }
     my $ret;
     if($type == ($NFNL_SUBSYS_QUEUE<<8|$NFQNL_MSG_PACKET)){
@@ -370,9 +384,8 @@ sub handle_nfqnl_msg_packet {
         } elsif($nla_type == $NFQA_PAYLOAD){
             log_debug(" - payload[hex]: ".to_hex($nla_data)."");
             my $p_data = parse_ip_packet(\$nla_data);
-            if(defined $p_data){
-                print $p_data;
-            }
+            $::NL_STATE //= {};
+            handle_payload(\$::NL_STATE, $p_data);
         } elsif($nla_type == $NFQA_CT){
             log_debug(" - conntrack[hex]: ".to_hex($nla_data)."");
         } elsif($nla_type == $NFQA_CT_INFO){
