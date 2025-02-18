@@ -609,13 +609,18 @@ sub handle_payload {
                 log_debug(" - unknown opcode: $opcode");
                 return;
             }
-            substr($$buf, 0, 2, '');
             my $masked = ($payload_len >> 7) & 0x1;
             $payload_len &= 0x7f;
             if($payload_len == 126){
-                $payload_len = unpack("S>", substr($$buf, 0, 2, ''));
+                $payload_len = unpack("S>", substr($$buf, 2, 2));
+                return unless defined $payload_len;
+                $frame_st = 4;
             } elsif($payload_len == 127){
-                $payload_len = unpack("Q>", substr($$buf, 0, 8, ''));
+                $payload_len = unpack("Q>", substr($$buf, 2, 8));
+                return unless defined $payload_len;
+                $frame_st = 10;
+            } else {
+                $frame_st = 2;
             }
             log_debug(" - fin: $fin");
             log_debug(" - opcode: $opcode");
@@ -623,9 +628,15 @@ sub handle_payload {
             log_debug(" - payload_len: $payload_len");
             my $mask_key;
             if($masked){
-                $mask_key = substr($$buf, 0, 4, '');
+                $mask_key = substr($$buf, $frame_st, 4);
+                $frame_st += 4;
             }
-            my $masked_data = substr($$buf, 0, $payload_len, '');
+            my $masked_data = substr($$buf, $frame_st, $payload_len);
+            if(length($masked_data) < $payload_len){
+                log_debug(" - incomplete frame");
+                return;
+            }
+            substr($$buf, 0, $frame_st+$payload_len, '');
             if($opcode == 0x08){
                 log_debug(" - close frame");
                 my $close_code = unpack("S>", substr($masked_data, 0, 2, ''));
