@@ -567,8 +567,6 @@ sub handle_payload {
     # if we get a TCP_FIN, we should close the connection and cleanup
     if($pkt->{tcp_flags} & 0x01){
         log_debug("TCP_FIN for ".join(",", @{$pkt->{conn}}));
-        delete $_st->{join(",", @{$pkt->{conn}})};
-        delete $_st->{join(",", reverse @{$pkt->{conn}})};
         %{$_st} = ();
         return;
     }
@@ -597,8 +595,6 @@ sub handle_payload {
         log_debug(" - uri: $2");
         log_debug(" - headers: $3");
         $$buf = "";
-        delete $_st->{join(",", @{$pkt->{conn}})};
-        delete $_st->{join(",", reverse @{$pkt->{conn}})};
         %{$_st} = ();
         return;
     }
@@ -619,8 +615,6 @@ sub handle_payload {
             log_debug(" - remaining: ".length($$buf));
             log_debug(" - remaining[hex]: ".to_hex($$buf));
         }
-        delete $_st->{join(",", @{$pkt->{conn}})};
-        delete $_st->{join(",", reverse @{$pkt->{conn}})};
         %{$_st} = ();
         return;
     }
@@ -698,16 +692,21 @@ sub handle_payload {
                 log_debug(" - final binary frame");
                 my $xor_key = $ENV{XOR_KEY};
                 if($xor_key){
-                    log_debug(" - xor_key: ".($xor_key));
+                    log_debug(" - xor_key: $xor_key");
                     my $decoded_msg = xor_msg($xor_key, $$wsbuf);
-                    log_debug(" - decoded_msg: ".($decoded_msg));
+                    log_debug(" - decoded_msg: $decoded_msg");
                     print $decoded_msg."\n";
                 } else {
                     print $$wsbuf."\n";
                 }
             } else {
                 log_debug(" - final frame");
-                print $$wsbuf."\n";
+                if($opcode == 0x0a or $opcode == 0x09){
+                    log_debug(" - ping/pong frame");
+                    log_debug(" - payload for ping/pong: $masked_data");
+                } else {
+                    print $$wsbuf."\n";
+                }
             }
             $$wsbuf = "";
         } else {
