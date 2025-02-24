@@ -4,29 +4,20 @@
 #   -p tcp -m multiport --ports 57875 \
 #   -j NFQUEUE --queue-num 121 --queue-bypass
 
-#
-#
-#  IN_IF=eth0
-#  OUT_IF=wlan1
-#  TGT=example.com/32
-#  TGT_PORT=80
-#  NFQ=121
-#  echo 1 > /proc/sys/net/ipv4/ip_forward
-#  
-#  iptables -t filter -D FORWARD -i $IN_IF -o $OUT_IF -m conntrack --ctstate NEW -j NF_METRICS
-#  iptables -t filter -D FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j NF_METRICS
-#  iptables -t filter -F NF_METRICS
-#  iptables -t filter -X NF_METRICS
-#  iptables -t filter -N NF_METRICS
-#  iptables -t filter -I FORWARD 1 -i $IN_IF -o $OUT_IF -m conntrack --ctstate NEW -j NF_METRICS
-#  iptables -t filter -I FORWARD 2 -m conntrack --ctstate ESTABLISHED,RELATED -j NF_METRICS
-#  iptables -t filter -I NF_METRICS -d $TGT -p tcp -m multiport --ports 80 -j NFQUEUE --queue-num $NFQ --queue-bypass
-#  iptables -t filter -I NF_METRICS -s $TGT -p tcp -j NFQUEUE --queue-num $NFQ --queue-bypass
-#  iptables -t filter -A NF_METRICS -j ACCEPT
-#  
-#  iptables -t nat -D POSTROUTING -o $OUT_IF -j MASQUERADE
-#  iptables -t nat -A POSTROUTING -o $OUT_IF -j MASQUERADE
-#
+# set +e
+# iptables -t filter -N NF_METRICS
+# iptables -t filter -F NF_METRICS
+# iptables -t filter -D FORWARD -i $IN_IF -o $OUT_IF -m conntrack --ctstate NEW -j NF_METRICS
+# iptables -t filter -D FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j NF_METRICS
+# iptables -t filter -I FORWARD 1 -i $IN_IF -o $OUT_IF -m conntrack --ctstate NEW -j NF_METRICS
+# iptables -t filter -I FORWARD 2 -m conntrack --ctstate ESTABLISHED,RELATED -j NF_METRICS
+# iptables -t filter -I NF_METRICS -d $TGT -p tcp -m multiport --ports 80 -j NFQUEUE --queue-num $NFQ --queue-bypass
+# iptables -t filter -I NF_METRICS -s $TGT -p tcp -j NFQUEUE --queue-num $NFQ --queue-bypass
+# iptables -t filter -A NF_METRICS -j ACCEPT
+# 
+# iptables -t nat -D POSTROUTING -o $OUT_IF -j MASQUERADE
+# iptables -t nat -A POSTROUTING -o $OUT_IF -j MASQUERADE
+# 
 
 use strict; use warnings;
 
@@ -233,7 +224,7 @@ while(1){
     # read data, process the netlink/netfilter/queue message
     while(1){
         local $!;
-        my $r = recv($nf_fh, my $pkt_msg, 1_000_000, 0);
+        my $r = recv($nf_fh, my $pkt_msg, 131072, 0);
         if(!defined $r){
             next M_LOOP if $!{EAGAIN};
             die "recv problem for: $!";
