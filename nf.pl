@@ -24,14 +24,8 @@
 #  iptables -t filter -I NF_METRICS -s $TGT -p tcp -j NFQUEUE --queue-num $NFQ --queue-bypass
 #  iptables -t filter -A NF_METRICS -j ACCEPT
 #  
-#  iptables -t nat -D POSTROUTING -o $OUT_IF -j MQ_METRICS
-#  iptables -t nat -F MQ_METRICS
-#  iptables -t nat -X MQ_METRICS
-#  iptables -t nat -N MQ_METRICS
-#  iptables -t nat -A POSTROUTING -o $OUT_IF -j MQ_METRICS
-#  iptables -t nat -I MQ_METRICS -j NFQUEUE -s $TGT --queue-num $NFQ --queue-bypass
-#  iptables -t nat -I MQ_METRICS -j NFQUEUE -d $TGT --queue-num $NFQ --queue-bypass
-#  iptables -t nat -A MQ_METRICS -j ACCEPT
+#  iptables -t nat -D POSTROUTING -o $OUT_IF -j MASQUERADE
+#  iptables -t nat -A POSTROUTING -o $OUT_IF -j MASQUERADE
 
 use strict; use warnings;
 
@@ -740,8 +734,10 @@ sub handle_payload {
                     my $decoded_msg = xor_msg($xor_key, $$wsbuf);
                     log_debug(" - decoded_msg: $decoded_msg");
                     print $decoded_msg."\n";
+                    my $_o = select STDOUT; $|=1; select $_o;
                 } else {
                     print $$wsbuf."\n";
+                    my $_o = select STDOUT; $|=1; select $_o;
                 }
             } else {
                 log_debug(" - final frame");
