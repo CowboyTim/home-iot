@@ -14,13 +14,13 @@
 #  echo 1 > /proc/sys/net/ipv4/ip_forward
 #  
 #  iptables -t filter -D FORWARD -i $IN_IF -o $OUT_IF -m conntrack --ctstate NEW -j NF_METRICS
-#  iptables -t filter -D FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j NF_METRICS
+#  iptables -t filter -D FORWARD -i $OUT_IF -o $IN_IF -m conntrack --ctstate ESTABLISHED,RELATED -j NF_METRICS
 #  iptables -t filter -F NF_METRICS
 #  iptables -t filter -X NF_METRICS
 #  iptables -t filter -N NF_METRICS
 #  iptables -t filter -I FORWARD 1 -i $IN_IF -o $OUT_IF -m conntrack --ctstate NEW -j NF_METRICS
-#  iptables -t filter -I FORWARD 2 -m conntrack --ctstate ESTABLISHED,RELATED -j NF_METRICS
-#  iptables -t filter -I NF_METRICS -d $TGT -p tcp -m multiport --ports $TGT_PORT -j NFQUEUE --queue-num $NFQ --queue-bypass
+#  iptables -t filter -I FORWARD 2 -i $OUT_IF -o $IN_IF -m conntrack --ctstate ESTABLISHED,RELATED -j NF_METRICS
+#  iptables -t filter -I NF_METRICS -d $TGT -p tcp -m multiport --ports 80 -j NFQUEUE --queue-num $NFQ --queue-bypass
 #  iptables -t filter -I NF_METRICS -s $TGT -p tcp -j NFQUEUE --queue-num $NFQ --queue-bypass
 #  iptables -t filter -A NF_METRICS -j ACCEPT
 #  
