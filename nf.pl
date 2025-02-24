@@ -30,7 +30,7 @@
 
 use strict; use warnings;
 
-use Socket qw(AF_UNSPEC AF_INET AF_INET6 SOCK_RAW SOCK_DGRAM inet_ntoa);
+use Socket qw(AF_UNSPEC AF_INET AF_INET6 SOCK_RAW inet_ntoa);
 use Socket6 qw(inet_ntop inet_pton);
 use POSIX ();
 use Fcntl qw(F_GETFL F_SETFL O_NONBLOCK);
