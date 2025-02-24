@@ -240,7 +240,7 @@ while(1){
         my ($m_seq, $m_pid, $pktids) = handle_nlmsg($pkt_msg);
         # send positive verdict
         foreach my $pkt_id (@$pktids){
-            log_info("Sending verdict ACCEPT for packet $pkt_id");
+            log_debug("Sending verdict ACCEPT for packet $pkt_id");
             nfqnl_send($nf_fh, $bind_addr, nfqnl_msg_verdict($m_seq, $m_pid, $queue_num, $pkt_id, $NF_ACCEPT))
                 or die "nfqnl_send: $!";
         }
