@@ -57,7 +57,7 @@ sub do_cli {
 
 sub do_daemon {
     my ($run_wait_time) = @_;
-    $0 = "modbus:poller";
+    $0 = "modbus:poller:".cfg("app", "generic");
 
     $run_wait_time //= cfg("loop_wait_time", 15);
     logger::log_debug("running ".($run_wait_time?"as a daemon, every $run_wait_time seconds":"once"));
