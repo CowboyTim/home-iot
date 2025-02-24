@@ -6,25 +6,33 @@
 
 #
 #
-# stats
-# IN_IF=eth0
-# OUT_IF=wlan1
-# TGT=example.com/32
-# echo 1 > /proc/sys/net/ipv4/ip_forward
-# delete
-# iptables -D FORWARD -i $IN_IF -o $OUT_IF -m conntrack --ctstate NEW -j NF_METRICS
-# iptables -D FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j NF_METRICS
-# iptables -t nat -D POSTROUTING -o wlan1 -j MASQUERADE
-# iptables -t filter -F NF_METRICS
-# iptables -t filter -X NF_METRICS
-# create
-# iptables -t filter -N NF_METRICS
-# iptables -I FORWARD 1 -i $IN_IF -o $OUT_IF -m conntrack --ctstate NEW -j NF_METRICS
-# iptables -t nat -A POSTROUTING -o $OUT_IF -j MASQUERADE
-# iptables -I FORWARD 2 -m conntrack --ctstate ESTABLISHED,RELATED -j NF_METRICS
-# iptables -t filter -I NF_METRICS -d $TGT -p tcp -m multiport --ports 80 -j NFQUEUE --queue-num 1221 --queue-bypass
-# iptables -t filter -A NF_METRICS -j ACCEPT
-#
+#  IN_IF=eth0
+#  OUT_IF=wlan1
+#  TGT=example.com/32
+#  TGT_PORT=80
+#  NFQ=121
+#  echo 1 > /proc/sys/net/ipv4/ip_forward
+#  
+#  iptables -t filter -D FORWARD -i $IN_IF -o $OUT_IF -m conntrack --ctstate NEW -j NF_METRICS
+#  iptables -t filter -D FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j NF_METRICS
+#  iptables -t filter -F NF_METRICS
+#  iptables -t filter -X NF_METRICS
+#  iptables -t filter -N NF_METRICS
+#  iptables -t filter -I FORWARD 1 -i $IN_IF -o $OUT_IF -m conntrack --ctstate NEW -j NF_METRICS
+#  iptables -t filter -I FORWARD 2 -m conntrack --ctstate ESTABLISHED,RELATED -j NF_METRICS
+#  iptables -t filter -I NF_METRICS -d $TGT -p tcp -m multiport --ports $TGT_PORT -j NFQUEUE --queue-num $NFQ --queue-bypass
+#  iptables -t filter -I NF_METRICS -s $TGT -p tcp -j NFQUEUE --queue-num $NFQ --queue-bypass
+#  iptables -t filter -A NF_METRICS -j ACCEPT
+#  
+#  iptables -t nat -D POSTROUTING -o $OUT_IF -j MQ_METRICS
+#  iptables -t nat -F MQ_METRICS
+#  iptables -t nat -X MQ_METRICS
+#  iptables -t nat -N MQ_METRICS
+#  iptables -t nat -A POSTROUTING -o $OUT_IF -j MQ_METRICS
+#  iptables -t nat -I MQ_METRICS -j NFQUEUE -s $TGT --queue-num $NFQ --queue-bypass
+#  iptables -t nat -I MQ_METRICS -j NFQUEUE -d $TGT --queue-num $NFQ --queue-bypass
+#  iptables -t nat -A MQ_METRICS -j ACCEPT
+
 use strict; use warnings;
 
 use Socket qw(AF_UNSPEC AF_INET AF_INET6 SOCK_RAW SOCK_DGRAM inet_ntoa);
@@ -655,6 +663,7 @@ sub handle_payload {
     }
 
     # is this a websocket frame?
+    log_debug("check WEBSOCKET");
     while(length($$buf//"") > 4){
         log_debug(" - buf: ".to_hex($$buf));
         my $frame_st = substr($$buf, 0, 2);
