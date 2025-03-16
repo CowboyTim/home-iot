@@ -589,7 +589,7 @@ sub parse_ip_packet {
 }
 
 sub handle_payload {
-    my ($state, $pkt) = @_;
+    my ($state, $pkt, $h_sub) = @_;
     return unless defined $pkt and defined $pkt->{conn};
     my $_st = $$state //= {};
 
@@ -720,17 +720,22 @@ sub handle_payload {
             log_debug(" - final frame");
             if($opcode == 0x02 or $opcode == 0x01){
                 log_debug(" - final binary frame");
-                my $xor_key = $ENV{XOR_KEY};
-                if($xor_key){
-                    log_debug(" - xor_key: $xor_key");
-                    my $decoded_msg = xor_msg($xor_key, $$wsbuf);
-                    log_debug(" - decoded_msg: $decoded_msg");
-                    print $decoded_msg."\n";
-                    my $_o = select STDOUT; $|=1; select $_o;
-                } else {
-                    print $$wsbuf."\n";
-                    my $_o = select STDOUT; $|=1; select $_o;
-                }
+                $h_sub //= sub {
+                    my ($buffer_ref) = @_;
+                    my $xor_key = $ENV{XOR_KEY};
+                    if($xor_key){
+                        log_debug(" - xor_key: $xor_key");
+                        my $decoded_msg = xor_msg($xor_key, $$buffer_ref);
+                        log_debug(" - decoded_msg: $decoded_msg");
+                        print $decoded_msg."\n";
+                        my $_o = select STDOUT; $|=1; select $_o;
+                    } else {
+                        print $$buffer_ref."\n";
+                        my $_o = select STDOUT; $|=1; select $_o;
+                    }
+                    return;
+                };
+                &{$h_sub}($wsbuf);
             } else {
                 log_debug(" - final frame");
                 if($opcode == 0x0a or $opcode == 0x09){
