@@ -331,7 +331,15 @@ double dht11_fetch_humidity(){
     Serial.print(DHT.humidity);
     Serial.println(F(" %"));
   }
-  return (double)DHT.humidity;
+  double h = (double)DHT.humidity;
+  if(h < 0.0 || h > 100.0){
+    if(cfg.do_log){
+      Serial.print(F("DHT11 humidity out of range, returning 0"));
+      Serial.println(h);
+    }
+    h = 0.0;
+  }
+  return h;
 }
 
 double dht11_fetch_temperature(){
@@ -345,7 +353,15 @@ double dht11_fetch_temperature(){
     Serial.print(DHT.temperature);
     Serial.println(F(" C"));
   }
-  return (double)DHT.temperature;
+  double t = (double)DHT.temperature;
+  if(t < -40.0 || t > 80.0){
+    if(cfg.do_log){
+      Serial.print(F("DHT11 temperature out of range, returning 0"));
+      Serial.println(t);
+    }
+    t = 0.0;
+  }
+  return t;
 }
 
 void pre_dht11(){
@@ -470,7 +486,7 @@ void setup(){
       if(v_value_function[i] == NULL){
         Serial.print(F("Sensor index "));
         Serial.print(i);
-        Serial.print(F("Sensor name "));
+        Serial.print(F(" Sensor name "));
         Serial.print(v_key[i]);
         Serial.println(F(" not configured, skipping"));
       }
