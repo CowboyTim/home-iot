@@ -309,6 +309,23 @@ void set_v(unsigned long *v, const char *p){
   }
 }
 
+double fetch_humidity(){
+  // fetch humidity from DHT11
+  return 0.0; // placeholder
+}
+
+double fetch_temperature(){
+  // fetch temperature from DHT11
+  return 0.0; // placeholder
+}
+
+double (*v_value_function[NR_OF_SENSORS])() = {
+    &fetch_humidity,    // HUMIDITY
+    &fetch_temperature, // TEMPERATURE
+    NULL,               // PRESSURE
+    NULL                // ILLUMINANCE
+};
+
 void setup(){
   // Serial setup, init at 115200 8N1
   Serial.begin(115200);
@@ -371,31 +388,21 @@ void setup(){
     Serial.print(F("Main loop delay: "));
     Serial.println(cfg.main_loop_delay);
     for(int i = 0; i < NR_OF_SENSORS; i++){
-        Serial.print(F("Sensor "));
+      Serial.print(F("Sensor "));
+      Serial.print(v_key[i]);
+      Serial.print(F(" log interval (ms): "));
+      Serial.println((unsigned long)cfg.v_intv[i]);
+      if(v_value_function[i] == NULL){
+        Serial.print(F("Sensor index "));
+        Serial.print(i);
+        Serial.print(F("Sensor name "));
         Serial.print(v_key[i]);
-        Serial.print(F(" log interval (ms): "));
-        Serial.println((unsigned long)cfg.v_intv[i]);
+        Serial.println(F(" not configured, skipping"));
+      }
     }
   }
   #endif
 }
-
-double fetch_humidity(){
-  // fetch humidity from DHT11
-  return 0.0; // placeholder
-}
-
-double fetch_temperature(){
-  // fetch temperature from DHT11
-  return 0.0; // placeholder
-}
-
-double (*v_value_function[NR_OF_SENSORS])() = {
-    &fetch_humidity,    // HUMIDITY
-    &fetch_temperature, // TEMPERATURE
-    NULL,               // PRESSURE
-    NULL                // ILLUMINANCE
-};
 
 void loop(){
   // any new AT command? on USB uart
@@ -423,56 +430,34 @@ void loop(){
     last_wifi_check = millis();
   }
 
-  // HUMIDITY
-  if(millis() - last_v_intv[HUMIDITY] > cfg.v_intv[HUMIDITY]){
-    double current_v = v_value_function[HUMIDITY]();
-    memset((char*)&outbuffer, 0, OUTBUFFER_SIZE);
-    h_strl = snprintf((char *)&outbuffer, OUTBUFFER_SIZE, v_unit[HUMIDITY], cfg.kvmkey, v_key[HUMIDITY], current_v);
-    if(h_strl > 0){
-        // output over UART?
-        if(cfg.do_log)
-          Serial.print(outbuffer);
-        // log to UDP sink?
-        if(valid_udp_host){
-          udp.beginPacket(udp_tgt, cfg.udp_port);
-          udp.write((uint8_t*)&outbuffer, h_strl);
-          udp.endPacket();
-        }
-    } else {
-        #ifdef VERBOSE
-        if(cfg.do_verbose){
-          Serial.print(F("snprintf failed: "));
-          Serial.println(strerror(errno));
-        }
-        #endif
-    }
-    last_v_intv[HUMIDITY] = millis();
-  }
-
-  // TEMPERATURE
-  if(millis() - last_v_intv[TEMPERATURE] > cfg.v_intv[TEMPERATURE]){
-    double current_v = v_value_function[TEMPERATURE]();
-    memset((char*)&outbuffer, 0, OUTBUFFER_SIZE);
-    h_strl = snprintf((char *)&outbuffer, OUTBUFFER_SIZE, v_unit[TEMPERATURE], cfg.kvmkey, v_key[TEMPERATURE], current_v);
-    if(h_strl > 0){
-      // output over UART?
-      if(cfg.do_log)
-        Serial.print(outbuffer);
-      // log to UDP sink?
-      if(valid_udp_host){
-        udp.beginPacket(udp_tgt, cfg.udp_port);
-        udp.write((uint8_t*)&outbuffer, h_strl);
-        udp.endPacket();
+  // loop through sensors and check if we need to fetch & log
+  for(int i = 0; i < NR_OF_SENSORS; i++){
+    if(v_value_function[i] == NULL)
+      continue;
+    if(millis() - last_v_intv[i] > cfg.v_intv[i]){
+      double current_v = v_value_function[i]();
+      memset((char*)&outbuffer, 0, OUTBUFFER_SIZE);
+      h_strl = snprintf((char *)&outbuffer, OUTBUFFER_SIZE, v_unit[i], cfg.kvmkey, v_key[i], current_v);
+      if(h_strl > 0){
+          // output over UART?
+          if(cfg.do_log)
+            Serial.print(outbuffer);
+          // log to UDP sink?
+          if(valid_udp_host){
+            udp.beginPacket(udp_tgt, cfg.udp_port);
+            udp.write((uint8_t*)&outbuffer, h_strl);
+            udp.endPacket();
+          }
+      } else {
+          #ifdef VERBOSE
+          if(cfg.do_verbose){
+            Serial.print(F("snprintf failed: "));
+            Serial.println(strerror(errno));
+          }
+          #endif
       }
-    } else {
-        #ifdef VERBOSE
-        if(cfg.do_verbose){
-          Serial.print(F("snprintf failed: "));
-          Serial.println(strerror(errno));
-        }
-        #endif
+      last_v_intv[i] = millis();
     }
-    last_v_intv[TEMPERATURE] = millis();
   }
 }
 
