@@ -34,6 +34,7 @@
 #include <DFRobot_DHT11.h>
 #define DHTPIN  A0     // GPIO2/A0 pin for DHT11
 DFRobot_DHT11 DHT;
+uint8_t did_dht11 = 0; // DHT11 read flag, to avoid multiple reads
 #endif
 
 #define NR_OF_SENSORS 4
@@ -177,9 +178,9 @@ void at_cmd_handler(SerialCommands* s, const char* atcmdline){
     s->GetSerial()->println(cfg.v_intv[HUMIDITY]);
   } else if(p = at_cmd_check("AT+HUMIDITY_LOG_INTERVAL=", atcmdline, cmd_len)){
     set_v(&cfg.v_intv[HUMIDITY], p);
-  } else if(p = at_cmd_check("AT+TEMP_LOG_INTERVAL?", atcmdline, cmd_len)){
+  } else if(p = at_cmd_check("AT+TEMPERATURE_LOG_INTERVAL?", atcmdline, cmd_len)){
     s->GetSerial()->println(cfg.v_intv[TEMPERATURE]);
-  } else if(p = at_cmd_check("AT+TEMP_LOG_INTERVAL=", atcmdline, cmd_len)){
+  } else if(p = at_cmd_check("AT+TEMPERATURE_LOG_INTERVAL=", atcmdline, cmd_len)){
     set_v(&cfg.v_intv[TEMPERATURE], p);
   } else if(p = at_cmd_check("AT+PRESSURE_LOG_INTERVAL?", atcmdline, cmd_len)){
     s->GetSerial()->println(cfg.v_intv[PRESSURE]);
@@ -321,14 +322,38 @@ void set_v(unsigned long *v, const char *p){
 
 double fetch_humidity(){
   // fetch humidity from DHT11
-  DHT.read(DHTPIN);
-  return DHT.humidity;
+  if(!did_dht11){
+    DHT.read(DHTPIN);
+    did_dht11 = 1;
+  }
+  if(cfg.do_log){
+    Serial.print(F("DHT11 humidity: "));
+    Serial.print(DHT.humidity);
+    Serial.println(F(" %"));
+  }
+  return (double)DHT.humidity;
 }
 
 double fetch_temperature(){
   // fetch temperature from DHT11
-  DHT.read(DHTPIN);
-  return DHT.temperature;
+  if(!did_dht11){
+    DHT.read(DHTPIN);
+    did_dht11 = 1;
+  }
+  if(cfg.do_log){
+    Serial.print(F("DHT11 temperature: "));
+    Serial.print(DHT.temperature);
+    Serial.println(F(" C"));
+  }
+  return (double)DHT.temperature;
+}
+
+void pre_dht11(){
+  did_dht11 = 0;
+}
+
+void post_dht11(){
+  did_dht11 = 0;
 }
 
 double (*v_value_function[NR_OF_SENSORS])() = {
@@ -338,9 +363,23 @@ double (*v_value_function[NR_OF_SENSORS])() = {
     NULL                // ILLUMINANCE
 };
 
-void (*v_setup_function[NR_OF_SENSORS])() = {
+void (*v_init_function[NR_OF_SENSORS])() = {
     NULL,               // HUMIDITY
     NULL,               // TEMPERATURE
+    NULL,               // PRESSURE
+    NULL                // ILLUMINANCE
+};
+
+void (*v_pre_function[NR_OF_SENSORS])() = {
+    &pre_dht11,        // HUMIDITY
+    &pre_dht11,        // TEMPERATURE
+    NULL,              // PRESSURE
+    NULL               // ILLUMINANCE
+};
+
+void (*v_post_function[NR_OF_SENSORS])() = {
+    &post_dht11,        // HUMIDITY
+    &post_dht11,        // TEMPERATURE
     NULL,               // PRESSURE
     NULL                // ILLUMINANCE
 };
@@ -388,8 +427,8 @@ void setup(){
 
   // setup sensors
   for(int i = 0; i < NR_OF_SENSORS; i++){
-    if(v_setup_function[i] != NULL){
-      v_setup_function[i]();
+    if(v_init_function[i] != NULL){
+      v_init_function[i]();
     } else {
       #ifdef VERBOSE
       if(cfg.do_verbose){
@@ -466,10 +505,19 @@ void loop(){
     last_wifi_check = millis();
   }
 
+  // loop through sensors and call pre function
+  for(int i = 0; i < NR_OF_SENSORS; i++){
+    doYIELD;
+    if(v_pre_function[i] == NULL)
+      continue;
+    v_pre_function[i]();
+  }
+
   // loop through sensors and check if we need to fetch & log
   for(int i = 0; i < NR_OF_SENSORS; i++){
+    doYIELD;
     if(v_value_function[i] == NULL)
-      continue;
+        continue;
     if(millis() - last_v_intv[i] > cfg.v_intv[i]){
       double current_v = v_value_function[i]();
       memset((char*)&outbuffer, 0, OUTBUFFER_SIZE);
@@ -494,6 +542,14 @@ void loop(){
       }
       last_v_intv[i] = millis();
     }
+  }
+
+  // loop through sensors and call post function
+  for(int i = 0; i < NR_OF_SENSORS; i++){
+    doYIELD;
+    if(v_post_function[i] == NULL)
+      continue;
+    v_post_function[i]();
   }
 }
 
