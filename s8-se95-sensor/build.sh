@@ -5,6 +5,7 @@ DEV_PLATFORM=${DEV_PLATFORM:-esp32:esp32}
 DEV_BOARD=${DEV_BOARD:-esp32:esp32:esp32c3}
 DEV_PORT=${DEV_PORT:-/dev/ttyACM0}
 DEV_BOARD_BAUDRATE=${DEV_BOARD_BAUDRATE:-460800}
+export TMPDIR=/var/tmp
 
 function do_update(){
     DEV_URLS=${DEV_URLS:-https://dl.espressif.com/dl/package_esp32_index.json}
