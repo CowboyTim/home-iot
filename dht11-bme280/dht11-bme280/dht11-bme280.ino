@@ -29,6 +29,18 @@
  #define doYIELD
 #endif
 
+#define NR_OF_SENSORS 4
+#define HUMIDITY      0
+#define TEMPERATURE   1
+#define PRESSURE      2
+#define ILLUMINANCE   3
+const char *v_key[NR_OF_SENSORS] = {
+  "humidity",
+  "temperature",
+  "pressure",
+  "illuminance"
+};
+
 /* our AT commands over UART to config WiFi */
 char atscbu[128] = {""};
 SerialCommands ATSc(&Serial, atscbu, sizeof(atscbu), "\r\n", "\r\n");
@@ -46,12 +58,12 @@ typedef struct cfg_t {
   uint8_t do_log       = 0;
   uint16_t udp_port    = 0;
   char udp_host_ip[16] = {0};
-  unsigned long humidity_log_interval  = 0;
-  unsigned long temp_log_interval = 0;
-  uint16_t main_loop_delay = 0;
+  uint16_t main_loop_delay = 100;
   char wifi_ssid[32]   = {0};   // max 31 + 1
   char wifi_pass[64]   = {0};   // nax 63 + 1
   char ntp_host[64]    = {0};   // max hostname + 1
+  char kvmkey[16]      = "unknown"; // location, max 15 + 1
+  unsigned long v_intv[NR_OF_SENSORS] = {0};
 };
 cfg_t cfg;
 
@@ -64,8 +76,7 @@ int h_strl = 0;
 uint8_t ntp_is_synced          = 1;
 uint8_t logged_wifi_status     = 0;
 unsigned long last_wifi_check  = 0;
-unsigned long last_humidity    = 0;
-unsigned long last_temp        = 0;
+unsigned long last_v_intv[NR_OF_SENSORS] = {0};
 void(* resetFunc)(void) = 0;
 
 char* at_cmd_check(const char *cmd, const char *at_cmd, unsigned short at_len){
@@ -149,35 +160,35 @@ void at_cmd_handler(SerialCommands* s, const char* atcmdline){
     }
     return;
   } else if(p = at_cmd_check("AT+HUMIDITY_LOG_INTERVAL?", atcmdline, cmd_len)){
-    s->GetSerial()->println(cfg.humidity_log_interval);
+    s->GetSerial()->println(cfg.v_intv[HUMIDITY]);
   } else if(p = at_cmd_check("AT+HUMIDITY_LOG_INTERVAL=", atcmdline, cmd_len)){
-    errno = 0;
-    unsigned int l_int = (double)strtoul(p, NULL, 10);
-    if(errno != 0){
-      s->GetSerial()->println(F("invalid integer"));
-      s->GetSerial()->println(F("ERROR"));
-      return;
-    }
-    if(l_int != cfg.humidity_log_interval){
-      cfg.humidity_log_interval = l_int;
-      EEPROM.put(CFG_EEPROM, cfg);
-      EEPROM.commit();
-    }
+    set_v(&cfg.v_intv[HUMIDITY], p);
   } else if(p = at_cmd_check("AT+TEMP_LOG_INTERVAL?", atcmdline, cmd_len)){
-    s->GetSerial()->println(cfg.temp_log_interval);
+    s->GetSerial()->println(cfg.v_intv[TEMPERATURE]);
   } else if(p = at_cmd_check("AT+TEMP_LOG_INTERVAL=", atcmdline, cmd_len)){
-    errno = 0;
-    unsigned int l_int = (double)strtoul(p, NULL, 10);
-    if(errno != 0){
-      s->GetSerial()->println(F("invalid integer"));
+    set_v(&cfg.v_intv[TEMPERATURE], p);
+  } else if(p = at_cmd_check("AT+PRESSURE_LOG_INTERVAL?", atcmdline, cmd_len)){
+    s->GetSerial()->println(cfg.v_intv[PRESSURE]);
+  } else if(p = at_cmd_check("AT+PRESSURE_LOG_INTERVAL=", atcmdline, cmd_len)){
+    set_v(&cfg.v_intv[PRESSURE], p);
+  } else if(p = at_cmd_check("AT+ILLUMINANCE_LOG_INTERVAL?", atcmdline, cmd_len)){
+    s->GetSerial()->println(cfg.v_intv[ILLUMINANCE]);
+  } else if(p = at_cmd_check("AT+ILLUMINANCE_LOG_INTERVAL=", atcmdline, cmd_len)){
+    set_v(&cfg.v_intv[ILLUMINANCE], p);
+  } else if(p = at_cmd_check("AT+KVMKEY=", atcmdline, cmd_len)){
+    size_t sz = (atcmdline+cmd_len)-p+1;
+    if(sz > 15){
+      s->GetSerial()->println(F("Location max 15 chars"));
       s->GetSerial()->println(F("ERROR"));
       return;
     }
-    if(l_int != cfg.temp_log_interval){
-      cfg.temp_log_interval = l_int;
-      EEPROM.put(CFG_EEPROM, cfg);
-      EEPROM.commit();
-    }
+    strncpy((char *)&cfg.kvmkey, p, sz);
+    EEPROM.put(CFG_EEPROM, cfg);
+    EEPROM.commit();
+  } else if(p = at_cmd_check("AT+KVMKEY?", atcmdline, cmd_len)){
+    s->GetSerial()->println(cfg.kvmkey);
+  } else if(p = at_cmd_check("AT+VERSION?", atcmdline, cmd_len)){
+    s->GetSerial()->println(F("0.2"
   #ifdef VERBOSE
   } else if(p = at_cmd_check("AT+VERBOSE=1", atcmdline, cmd_len)){
     cfg.do_verbose = 1;
@@ -276,6 +287,21 @@ void at_cmd_handler(SerialCommands* s, const char* atcmdline){
   return;
 }
 
+void set_v(unsigned long *v, const char *p){
+  errno = 0;
+  unsigned int l_int = (double)strtoul(p, NULL, 10);
+  if(errno != 0){
+    ATSc.GetSerial()->println(F("invalid integer"));
+    ATSc.GetSerial()->println(F("ERROR"));
+    return;
+  }
+  if(l_int != *(unsigned long *)v){
+    *(unsigned long *)v = l_int;
+    EEPROM.put(CFG_EEPROM, cfg);
+    EEPROM.commit();
+  }
+}
+
 void setup(){
   // Serial setup, init at 115200 8N1
   Serial.begin(115200);
@@ -301,8 +327,13 @@ void setup(){
     }
   }
   #endif
+
   // setup NTP sync to RTC
   configTime(0, 0, (char *)&cfg.ntp_host);
+
+  // sensors check
+  for(int i = 0; i < NR_OF_SENSORS; i++)
+    last_v_intv[i] = millis();
 }
 
 void loop(){
@@ -332,10 +363,10 @@ void loop(){
   }
 
   // HUMIDITY
-  if(millis() - last_humidity > cfg.humidity_log_interval){
+  if(millis() - last_v_intv[HUMIDITY] > cfg.v_intv[HUMIDITY]){
     double humidity = 0; // TODO!
     memset((char*)&outbuffer, 0, OUTBUFFER_SIZE);
-    h_strl = snprintf((char *)&outbuffer, OUTBUFFER_SIZE, "leefruimte:humidity*%,%d\r\n", (int)humidity);
+    h_strl = snprintf((char *)&outbuffer, OUTBUFFER_SIZE, "%s:%s*%,%d\r\n", cfg.kvmkey, v_key[HUMIDITY], (int)humidity);
     if(h_strl > 0){
         // output over UART?
         if(cfg.do_log)
@@ -347,14 +378,14 @@ void loop(){
           udp.endPacket();
         }
     }
-    last_humidity = millis();
+    last_v_intv[HUMIDITY] = millis();
   }
 
-  // Temperature
-  if(millis() - last_temp > cfg.temp_log_interval){
+  // TEMPERATURE
+  if(millis() - last_v_intv[TEMPERATURE] > cfg.v_intv[TEMPERATURE]){
     double temp_c = 0; // TODO!
     memset((char*)&outbuffer, 0, OUTBUFFER_SIZE);
-    h_strl = snprintf((char *)&outbuffer, OUTBUFFER_SIZE, "leefruimte:temperature*°C,%f\r\n", temp_c);
+    h_strl = snprintf((char *)&outbuffer, OUTBUFFER_SIZE, "%s:%s*°C,%f\r\n", cfg.kvmkey, v_key[TEMPERATURE], temp_c);
     if(h_strl > 0){
       // output over UART?
       if(cfg.do_log)
@@ -366,7 +397,7 @@ void loop(){
         udp.endPacket();
       }
     }
-    last_temp = millis();
+    last_v_intv[TEMPERATURE] = millis();
   }
 }
 
@@ -383,8 +414,8 @@ void setup_cfg(){
     cfg.version           = CFGVERSION;
     cfg.do_verbose        = 1;
     cfg.do_log            = 1;
-    cfg.humidity_log_interval  = 1000;
-    cfg.temp_log_interval = 1000;
+    for(int i = 0; i < NR_OF_SENSORS; i++)
+      cfg.v_intv[i] = 0;
     cfg.main_loop_delay   = 100;
     strcpy((char *)&cfg.ntp_host, (char *)DEFAULT_NTP_SERVER);
     // write
@@ -432,4 +463,3 @@ void setup_udp(){
     #endif
   }
 }
-
