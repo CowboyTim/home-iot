@@ -29,7 +29,7 @@
  #define doYIELD
 #endif
 
-/* our AT commands over UART to config OTP's and WiFi */
+/* our AT commands over UART to config WiFi */
 char atscbu[128] = {""};
 SerialCommands ATSc(&Serial, atscbu, sizeof(atscbu), "\r\n", "\r\n");
 
@@ -287,7 +287,6 @@ void setup(){
   ATSc.SetDefaultHandler(&at_cmd_handler);
 
   // see http://www.gnu.org/software/libc/manual/html_node/TZ-Variable.html
-  // for OTP tokens, this ALWAYS have to be "UTC"
   setenv("TZ", "UTC", 1);
   tzset();
 
@@ -329,6 +328,7 @@ void loop(){
     } else {
       valid_udp_host = 0;
     }
+    last_wifi_check = millis();
   }
 
   // HUMIDITY
