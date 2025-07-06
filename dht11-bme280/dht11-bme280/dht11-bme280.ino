@@ -41,11 +41,18 @@ const char *v_key[NR_OF_SENSORS] = {
   "illuminance"
 };
 
+const char *v_unit[NR_OF_SENSORS] = {
+  "%s:%s*%%,%.0f\r\n",       // HUMIDITY
+  "%s:%s*°C,%.2f\r\n",       // TEMPERATURE
+  "%s:%s*hPa,%.0f\r\n",      // PRESSURE
+  "%s:%s*lx,%.0f\r\n"        // ILLUMINANCE
+};
+
 /* our AT commands over UART to config WiFi */
 char atscbu[128] = {""};
 SerialCommands ATSc(&Serial, atscbu, sizeof(atscbu), "\r\n", "\r\n");
 
-#define CFGVERSION 0x02 // switch between 0x01/0x02 to reinit the config struct change
+#define CFGVERSION 0x03 // switch between 0x01/0x02 to reinit the config struct change
 #define CFGINIT    0x72 // at boot init check flag
 #define CFG_EEPROM 0x00 
 
@@ -293,6 +300,11 @@ void set_v(unsigned long *v, const char *p){
     ATSc.GetSerial()->println(F("ERROR"));
     return;
   }
+  if(l_int < 100){
+    ATSc.GetSerial()->println(F("interval must be at least 100ms"));
+    ATSc.GetSerial()->println(F("ERROR"));
+    return;
+  }
   if(l_int != *(unsigned long *)v){
     *(unsigned long *)v = l_int;
     EEPROM.put(CFG_EEPROM, cfg);
@@ -332,6 +344,43 @@ void setup(){
   // sensors check
   for(int i = 0; i < NR_OF_SENSORS; i++)
     last_v_intv[i] = millis();
+
+  // sensors config check for interval, when 0, assume 1000ms
+  for(int i = 0; i < NR_OF_SENSORS; i++){
+    if(cfg.v_intv[i] == 0)
+      cfg.v_intv[i] = 1000;
+    if(cfg.v_intv[i] < 100)
+      cfg.v_intv[i] = 100;
+  }
+
+  // config log on UART when VERBOSE=1
+  #ifdef VERBOSE
+  if(cfg.do_verbose){
+    Serial.println(F("DHT11/BME280 ESP32/ESP8266 logger started"));
+    Serial.print(F("NTP server: "));
+    Serial.println(cfg.ntp_host);
+    Serial.print(F("WiFi SSID: "));
+    Serial.println(cfg.wifi_ssid);
+    Serial.print(F("VERBOSE: "));
+    Serial.println(cfg.do_verbose);
+    Serial.print(F("LOG UART: "));
+    Serial.println(cfg.do_log);
+    Serial.print(F("UDP host: "));
+    Serial.print(cfg.udp_host_ip);
+    Serial.print(F(":"));
+    Serial.println(cfg.udp_port);
+    Serial.print(F("KVM key: "));
+    Serial.println(cfg.kvmkey);
+    Serial.print(F("Main loop delay: "));
+    Serial.println(cfg.main_loop_delay);
+    for(int i = 0; i < NR_OF_SENSORS; i++){
+        Serial.print(F("Sensor "));
+        Serial.print(v_key[i]);
+        Serial.print(F(" log interval (ms): "));
+        Serial.println((unsigned long)cfg.v_intv[i]);
+    }
+  }
+  #endif
 }
 
 void loop(){
@@ -362,9 +411,9 @@ void loop(){
 
   // HUMIDITY
   if(millis() - last_v_intv[HUMIDITY] > cfg.v_intv[HUMIDITY]){
-    double humidity = 0; // TODO!
+    double current_v = 0; // TODO!
     memset((char*)&outbuffer, 0, OUTBUFFER_SIZE);
-    h_strl = snprintf((char *)&outbuffer, OUTBUFFER_SIZE, "%s:%s*%,%d\r\n", cfg.kvmkey, v_key[HUMIDITY], (int)humidity);
+    h_strl = snprintf((char *)&outbuffer, OUTBUFFER_SIZE, v_unit[HUMIDITY], cfg.kvmkey, v_key[HUMIDITY], (int)current_v);
     if(h_strl > 0){
         // output over UART?
         if(cfg.do_log)
@@ -375,15 +424,22 @@ void loop(){
           udp.write((uint8_t*)&outbuffer, h_strl);
           udp.endPacket();
         }
+    } else {
+        #ifdef VERBOSE
+        if(cfg.do_verbose){
+          Serial.print(F("snprintf failed: "));
+          Serial.println(strerror(errno));
+        }
+        #endif
     }
     last_v_intv[HUMIDITY] = millis();
   }
 
   // TEMPERATURE
   if(millis() - last_v_intv[TEMPERATURE] > cfg.v_intv[TEMPERATURE]){
-    double temp_c = 0; // TODO!
+    double current_v = 0; // TODO!
     memset((char*)&outbuffer, 0, OUTBUFFER_SIZE);
-    h_strl = snprintf((char *)&outbuffer, OUTBUFFER_SIZE, "%s:%s*°C,%f\r\n", cfg.kvmkey, v_key[TEMPERATURE], temp_c);
+    h_strl = snprintf((char *)&outbuffer, OUTBUFFER_SIZE, v_unit[TEMPERATURE], cfg.kvmkey, v_key[TEMPERATURE], current_v);
     if(h_strl > 0){
       // output over UART?
       if(cfg.do_log)
@@ -394,6 +450,13 @@ void loop(){
         udp.write((uint8_t*)&outbuffer, h_strl);
         udp.endPacket();
       }
+    } else {
+        #ifdef VERBOSE
+        if(cfg.do_verbose){
+          Serial.print(F("snprintf failed: "));
+          Serial.println(strerror(errno));
+        }
+        #endif
     }
     last_v_intv[TEMPERATURE] = millis();
   }
@@ -413,7 +476,7 @@ void setup_cfg(){
     cfg.do_verbose        = 1;
     cfg.do_log            = 1;
     for(int i = 0; i < NR_OF_SENSORS; i++)
-      cfg.v_intv[i] = 0;
+      cfg.v_intv[i] = 1000;
     cfg.main_loop_delay   = 100;
     strcpy((char *)&cfg.ntp_host, (char *)DEFAULT_NTP_SERVER);
     // write
