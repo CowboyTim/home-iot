@@ -187,8 +187,6 @@ void at_cmd_handler(SerialCommands* s, const char* atcmdline){
     EEPROM.commit();
   } else if(p = at_cmd_check("AT+KVMKEY?", atcmdline, cmd_len)){
     s->GetSerial()->println(cfg.kvmkey);
-  } else if(p = at_cmd_check("AT+VERSION?", atcmdline, cmd_len)){
-    s->GetSerial()->println(F("0.2"
   #ifdef VERBOSE
   } else if(p = at_cmd_check("AT+VERBOSE=1", atcmdline, cmd_len)){
     cfg.do_verbose = 1;
