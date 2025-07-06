@@ -31,11 +31,9 @@
 #endif
 
 #ifdef DHT11
-#include <Adafruit_Sensor.h>
-#include <DHT.h>
-#include <DHT_U.h>
-#define DHTPIN 2       // GPIO 2 pin for DHT11
-#define DHTTYPE DHT11  // DHT 11
+#include <DFRobot_DHT11.h>
+#define DHTPIN  A0     // GPIO2/A0 pin for DHT11
+DFRobot_DHT11 DHT;
 #endif
 
 #define NR_OF_SENSORS 4
@@ -323,24 +321,15 @@ void set_v(unsigned long *v, const char *p){
 
 double fetch_humidity(){
   // fetch humidity from DHT11
-  return 0.0; // placeholder
+  DHT.read(DHTPIN);
+  return DHT.humidity;
 }
 
 double fetch_temperature(){
   // fetch temperature from DHT11
-  return 0.0; // placeholder
+  DHT.read(DHTPIN);
+  return DHT.temperature;
 }
-
-#ifdef DHT11
-DHT_Unified dht(DHTPIN, DHTTYPE);
-void setup_dht11() {
-  dht.begin();
-  #ifdef VERBOSE
-  if(cfg.do_verbose)
-    Serial.println(F("DHT11 sensor initialized"));
-  #endif
-}
-#endif
 
 double (*v_value_function[NR_OF_SENSORS])() = {
     &fetch_humidity,    // HUMIDITY
@@ -350,8 +339,8 @@ double (*v_value_function[NR_OF_SENSORS])() = {
 };
 
 void (*v_setup_function[NR_OF_SENSORS])() = {
-    &setup_dht11,       // HUMIDITY
-    &setup_dht11,       // TEMPERATURE
+    NULL,               // HUMIDITY
+    NULL,               // TEMPERATURE
     NULL,               // PRESSURE
     NULL                // ILLUMINANCE
 };
