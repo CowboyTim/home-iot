@@ -320,7 +320,7 @@ void set_v(unsigned long *v, const char *p){
   }
 }
 
-double fetch_humidity(){
+double dht11_fetch_humidity(){
   // fetch humidity from DHT11
   if(!did_dht11){
     DHT.read(DHTPIN);
@@ -334,7 +334,7 @@ double fetch_humidity(){
   return (double)DHT.humidity;
 }
 
-double fetch_temperature(){
+double dht11_fetch_temperature(){
   // fetch temperature from DHT11
   if(!did_dht11){
     DHT.read(DHTPIN);
@@ -357,10 +357,10 @@ void post_dht11(){
 }
 
 double (*v_value_function[NR_OF_SENSORS])() = {
-    &fetch_humidity,    // HUMIDITY
-    &fetch_temperature, // TEMPERATURE
-    NULL,               // PRESSURE
-    NULL                // ILLUMINANCE
+    &dht11_fetch_humidity,    // HUMIDITY
+    &dht11_fetch_temperature, // TEMPERATURE
+    NULL,                     // PRESSURE
+    NULL                      // ILLUMINANCE
 };
 
 void (*v_init_function[NR_OF_SENSORS])() = {
