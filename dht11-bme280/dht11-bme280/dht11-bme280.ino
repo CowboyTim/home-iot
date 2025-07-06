@@ -13,9 +13,6 @@
 #ifndef VERBOSE
 #define VERBOSE
 #endif
-#ifndef DEBUG
-#define DEBUG
-#endif
 
 /* NTP server to use, can be configured later on via AT commands */
 #ifndef DEFAULT_NTP_SERVER
