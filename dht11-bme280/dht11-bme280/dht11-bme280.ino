@@ -380,6 +380,23 @@ void setup(){
   #endif
 }
 
+double fetch_humidity(){
+  // fetch humidity from DHT11
+  return 0.0; // placeholder
+}
+
+double fetch_temperature(){
+  // fetch temperature from DHT11
+  return 0.0; // placeholder
+}
+
+double (*v_value_function[NR_OF_SENSORS])() = {
+    &fetch_humidity,    // HUMIDITY
+    &fetch_temperature, // TEMPERATURE
+    NULL,               // PRESSURE
+    NULL                // ILLUMINANCE
+};
+
 void loop(){
   // any new AT command? on USB uart
   ATSc.ReadSerial();
@@ -408,9 +425,9 @@ void loop(){
 
   // HUMIDITY
   if(millis() - last_v_intv[HUMIDITY] > cfg.v_intv[HUMIDITY]){
-    double current_v = 0; // TODO!
+    double current_v = v_value_function[HUMIDITY]();
     memset((char*)&outbuffer, 0, OUTBUFFER_SIZE);
-    h_strl = snprintf((char *)&outbuffer, OUTBUFFER_SIZE, v_unit[HUMIDITY], cfg.kvmkey, v_key[HUMIDITY], (int)current_v);
+    h_strl = snprintf((char *)&outbuffer, OUTBUFFER_SIZE, v_unit[HUMIDITY], cfg.kvmkey, v_key[HUMIDITY], current_v);
     if(h_strl > 0){
         // output over UART?
         if(cfg.do_log)
@@ -434,7 +451,7 @@ void loop(){
 
   // TEMPERATURE
   if(millis() - last_v_intv[TEMPERATURE] > cfg.v_intv[TEMPERATURE]){
-    double current_v = 0; // TODO!
+    double current_v = v_value_function[TEMPERATURE]();
     memset((char*)&outbuffer, 0, OUTBUFFER_SIZE);
     h_strl = snprintf((char *)&outbuffer, OUTBUFFER_SIZE, v_unit[TEMPERATURE], cfg.kvmkey, v_key[TEMPERATURE], current_v);
     if(h_strl > 0){
@@ -521,3 +538,4 @@ void setup_udp(){
     #endif
   }
 }
+
