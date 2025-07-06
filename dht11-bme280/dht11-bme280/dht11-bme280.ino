@@ -26,6 +26,18 @@
  #define doYIELD
 #endif
 
+#ifndef DHT11
+#define DHT11
+#endif
+
+#ifdef DHT11
+#include <Adafruit_Sensor.h>
+#include <DHT.h>
+#include <DHT_U.h>
+#define DHTPIN 2       // GPIO 2 pin for DHT11
+#define DHTTYPE DHT11  // DHT 11
+#endif
+
 #define NR_OF_SENSORS 4
 #define HUMIDITY      0
 #define TEMPERATURE   1
@@ -319,9 +331,27 @@ double fetch_temperature(){
   return 0.0; // placeholder
 }
 
+#ifdef DHT11
+DHT_Unified dht(DHTPIN, DHTTYPE);
+void setup_dht11() {
+  dht.begin();
+  #ifdef VERBOSE
+  if(cfg.do_verbose)
+    Serial.println(F("DHT11 sensor initialized"));
+  #endif
+}
+#endif
+
 double (*v_value_function[NR_OF_SENSORS])() = {
     &fetch_humidity,    // HUMIDITY
     &fetch_temperature, // TEMPERATURE
+    NULL,               // PRESSURE
+    NULL                // ILLUMINANCE
+};
+
+void (*v_setup_function[NR_OF_SENSORS])() = {
+    &setup_dht11,       // HUMIDITY
+    &setup_dht11,       // TEMPERATURE
     NULL,               // PRESSURE
     NULL                // ILLUMINANCE
 };
@@ -365,6 +395,23 @@ void setup(){
       cfg.v_intv[i] = 1000;
     if(cfg.v_intv[i] < 100)
       cfg.v_intv[i] = 100;
+  }
+
+  // setup sensors
+  for(int i = 0; i < NR_OF_SENSORS; i++){
+    if(v_setup_function[i] != NULL){
+      v_setup_function[i]();
+    } else {
+      #ifdef VERBOSE
+      if(cfg.do_verbose){
+        Serial.print(F("Sensor index "));
+        Serial.print(i);
+        Serial.print(F(" Sensor name "));
+        Serial.print(v_key[i]);
+        Serial.println(F(" not configured, skipping setup"));
+      }
+      #endif
+    }
   }
 
   // config log on UART when VERBOSE=1
