@@ -98,7 +98,7 @@ uint16_t apds_r = 0, apds_g = 0, apds_b = 0, apds_c = 0;
 char atscbu[128] = {""};
 SerialCommands ATSc(&Serial, atscbu, sizeof(atscbu), "\r\n", "\r\n");
 
-#define CFGVERSION 0x03 // switch between 0x01/0x02 to reinit the config struct change
+#define CFGVERSION 0x01 // switch between 0x01/0x02 to reinit the config struct change
 #define CFGINIT    0x72 // at boot init check flag
 #define CFG_EEPROM 0x00 
 
@@ -446,25 +446,39 @@ void init_ldr_adc(){
 
 // MQ-135 Air Quality Sensor
 #ifdef MQ135
+#define MQ135_RL 10000.0 // 10k Ohm load resistor
+#define MQ135_R0 10000.0 // Default R0, calibrate for your sensor
+#define MQ135_VCC 5.0    // Sensor powered by 5V
+#define MQ135_ADC_REF 3.3 // ESP32 ADC reference voltage
+
+double mq135_adc_to_ppm(int adc_value) {
+  float voltage = (float)adc_value * MQ135_ADC_REF / 4095.0;
+  float RS = (MQ135_VCC - voltage) * MQ135_RL / voltage;
+  float ratio = RS / MQ135_R0;
+  // For CO2: a = 110.47, b = -2.862 (from datasheet)
+  float ppm = pow(10, (log10(ratio) - log10(110.47)) / -2.862);
+  return ppm;
+}
+
 double fetch_mq135_adc(){
   // fetch MQ-135 ADC value
-  int mq135_adc = analogReadMilliVolts(MQ135PIN); // analog value
+  int mq135_adc = analogRead(MQ135PIN); // raw ADC value (0-4095)
   if(cfg.do_log){
     Serial.print(F("MQ-135 ADC value: "));
     Serial.println(mq135_adc);
   }
-  double mq135_value = (double)mq135_adc;
-  // 1.1V reference, 12-bit ADC, convert to voltage
-  mq135_value = mq135_value * 3.3 / 4096;
-  return mq135_value;
+  double ppm = mq135_adc_to_ppm(mq135_adc);
+  if(cfg.do_log){
+    Serial.print(F("MQ-135 CO2 ppm: "));
+    Serial.println(ppm);
+  }
+  return ppm;
 }
 
 void init_mq135_adc(){
   // initialize MQ-135 ADC pin
   pinMode(MQ135PIN, INPUT);
-  // set attenuation to 11dB for 3.3V range
   analogSetPinAttenuation(MQ135PIN, ADC_11db);
-  // 12-bit ADC resolution
   analogReadResolution(12);
   if(cfg.do_log)
     Serial.println(F("MQ-135 ADC initialized on A2"));
@@ -771,10 +785,10 @@ void setup_cfg(){
     cfg.version           = CFGVERSION;
     cfg.do_verbose        = 1;
     cfg.do_log            = 1;
-    for(int i = 0; i < NR_OF_SENSORS; i++)
-      cfg.v_intv[i] = 1000;
     cfg.main_loop_delay   = 100;
     strcpy((char *)&cfg.ntp_host, (char *)DEFAULT_NTP_SERVER);
+    for(int i = 0; i < NR_OF_SENSORS; i++)
+      cfg.v_intv[i] = 1000;
     // write
     EEPROM.put(CFG_EEPROM, cfg);
     EEPROM.commit();
