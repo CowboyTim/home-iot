@@ -212,22 +212,6 @@ void at_cmd_handler(SerialCommands* s, const char* atcmdline){
           s->GetSerial()->println(wifi_stat);
     }
     return;
-  } else if(p = at_cmd_check("AT+HUMIDITY_LOG_INTERVAL?", atcmdline, cmd_len)){
-    s->GetSerial()->println(cfg.v_intv[HUMIDITY]);
-  } else if(p = at_cmd_check("AT+HUMIDITY_LOG_INTERVAL=", atcmdline, cmd_len)){
-    set_v(&cfg.v_intv[HUMIDITY], p);
-  } else if(p = at_cmd_check("AT+TEMPERATURE_LOG_INTERVAL?", atcmdline, cmd_len)){
-    s->GetSerial()->println(cfg.v_intv[TEMPERATURE]);
-  } else if(p = at_cmd_check("AT+TEMPERATURE_LOG_INTERVAL=", atcmdline, cmd_len)){
-    set_v(&cfg.v_intv[TEMPERATURE], p);
-  } else if(p = at_cmd_check("AT+PRESSURE_LOG_INTERVAL?", atcmdline, cmd_len)){
-    s->GetSerial()->println(cfg.v_intv[PRESSURE]);
-  } else if(p = at_cmd_check("AT+PRESSURE_LOG_INTERVAL=", atcmdline, cmd_len)){
-    set_v(&cfg.v_intv[PRESSURE], p);
-  } else if(p = at_cmd_check("AT+LDR_ILLUMINANCE_LOG_INTERVAL?", atcmdline, cmd_len)){
-    s->GetSerial()->println(cfg.v_intv[LDR_ILLUMINANCE]);
-  } else if(p = at_cmd_check("AT+LDR_ILLUMINANCE_LOG_INTERVAL=", atcmdline, cmd_len)){
-    set_v(&cfg.v_intv[LDR_ILLUMINANCE], p);
   } else if(p = at_cmd_check("AT+KVMKEY=", atcmdline, cmd_len)){
     size_t sz = (atcmdline+cmd_len)-p+1;
     if(sz > 15){
@@ -342,6 +326,22 @@ void at_cmd_handler(SerialCommands* s, const char* atcmdline){
     s->GetSerial()->println(cfg.v_intv[APDS_COLOR]);
   } else if(p = at_cmd_check("AT+APDS_COLOR_LOG_INTERVAL=", atcmdline, cmd_len)){
     set_v(&cfg.v_intv[APDS_COLOR], p);
+  } else if(p = at_cmd_check("AT+HUMIDITY_LOG_INTERVAL?", atcmdline, cmd_len)){
+    s->GetSerial()->println(cfg.v_intv[HUMIDITY]);
+  } else if(p = at_cmd_check("AT+HUMIDITY_LOG_INTERVAL=", atcmdline, cmd_len)){
+    set_v(&cfg.v_intv[HUMIDITY], p);
+  } else if(p = at_cmd_check("AT+TEMPERATURE_LOG_INTERVAL?", atcmdline, cmd_len)){
+    s->GetSerial()->println(cfg.v_intv[TEMPERATURE]);
+  } else if(p = at_cmd_check("AT+TEMPERATURE_LOG_INTERVAL=", atcmdline, cmd_len)){
+    set_v(&cfg.v_intv[TEMPERATURE], p);
+  } else if(p = at_cmd_check("AT+PRESSURE_LOG_INTERVAL?", atcmdline, cmd_len)){
+    s->GetSerial()->println(cfg.v_intv[PRESSURE]);
+  } else if(p = at_cmd_check("AT+PRESSURE_LOG_INTERVAL=", atcmdline, cmd_len)){
+    set_v(&cfg.v_intv[PRESSURE], p);
+  } else if(p = at_cmd_check("AT+LDR_ILLUMINANCE_LOG_INTERVAL?", atcmdline, cmd_len)){
+    s->GetSerial()->println(cfg.v_intv[LDR_ILLUMINANCE]);
+  } else if(p = at_cmd_check("AT+LDR_ILLUMINANCE_LOG_INTERVAL=", atcmdline, cmd_len)){
+    set_v(&cfg.v_intv[LDR_ILLUMINANCE], p);
   } else {
     s->GetSerial()->println(F("ERROR"));
     return;
