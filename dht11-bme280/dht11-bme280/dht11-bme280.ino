@@ -401,7 +401,6 @@ double fetch_ldr_adc(){
 void init_ldr_adc(){
   // initialize LDR ADC pin
   pinMode(A1, INPUT); // assuming LDR is connected to A1
-  analogSetWidth(12); // set ADC width to 12 bits
   if(cfg.do_log)
     Serial.println(F("LDR ADC initialized on A1"));
 }
@@ -424,7 +423,6 @@ double fetch_mq135_adc(){
 void init_mq135_adc(){
   // initialize MQ-135 ADC pin
   pinMode(MQ135PIN, INPUT);
-  analogSetWidth(12); // set ADC width to 12 bits
   if(cfg.do_log)
     Serial.println(F("MQ-135 ADC initialized on A2"));
 }
