@@ -14,7 +14,7 @@ R_PORT=${5:-5775}
 METRICS_KEY=${6:-${METRICS_KEY?$(usage "Error: Metrics key is not specified.")}}
 do_uart(){
     echo -n "Command: $*: "
-    echo -ne "$*\r\n" >> $UART
+    (sleep 1; echo -ne "$*\r\n" >> $UART) &
     IFS=$'\n'
     while read -r l; do
         l=${l//[[:cntrl:]]/}
