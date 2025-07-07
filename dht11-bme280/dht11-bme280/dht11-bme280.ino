@@ -44,23 +44,28 @@ uint8_t did_dht11 = 0; // DHT11 read flag, to avoid multiple reads
 #define LDRPIN A1      // GPIO3/A1 pin for LDR
 #endif
 
-#define NR_OF_SENSORS 4
+#define MQ135PIN A2    // GPIO4/A2 pin for MQ-135
+
+#define NR_OF_SENSORS 5 // increased from 4 to 5
 #define HUMIDITY      0
 #define TEMPERATURE   1
 #define PRESSURE      2
 #define ILLUMINANCE   3
+#define AIR_QUALITY   4 // new sensor index
 const char *v_key[NR_OF_SENSORS] = {
   "humidity",
   "temperature",
   "pressure",
-  "illuminance"
+  "illuminance",
+  "air_quality" // new key
 };
 
 const char *v_unit[NR_OF_SENSORS] = {
   "%s:%s*%%,%.0f\r\n",       // HUMIDITY
   "%s:%s*°C,%.2f\r\n",       // TEMPERATURE
   "%s:%s*hPa,%.0f\r\n",      // PRESSURE
-  "%s:%s*lx,%.0f\r\n"        // ILLUMINANCE
+  "%s:%s*lx,%.0f\r\n",        // ILLUMINANCE
+  "%s:%s*ppm,%.0f\r\n"        // AIR_QUALITY (raw analog value, could be mapped to ppm)
 };
 
 /* our AT commands over UART to config WiFi */
@@ -402,6 +407,29 @@ void init_ldr_adc(){
 }
 #endif // LDR
 
+// MQ-135 Air Quality Sensor
+#ifdef MQ135PIN
+
+double fetch_mq135_adc(){
+  // fetch MQ-135 ADC value
+  int mq135_adc = analogReadMilliVolts(MQ135PIN); // analog value
+  if(cfg.do_log){
+    Serial.print(F("MQ-135 ADC value: "));
+    Serial.println(mq135_adc);
+  }
+  double mq135_value = (double)mq135_adc; // convert to double for consistency
+  return mq135_value;
+}
+
+void init_mq135_adc(){
+  // initialize MQ-135 ADC pin
+  pinMode(MQ135PIN, INPUT);
+  analogSetWidth(12); // set ADC width to 12 bits
+  if(cfg.do_log)
+    Serial.println(F("MQ-135 ADC initialized on A2"));
+}
+#endif // MQ135PIN
+
 double (*v_value_function[NR_OF_SENSORS])() = {
 #ifdef DHT11
     &dht11_fetch_humidity,    // HUMIDITY
@@ -412,9 +440,14 @@ double (*v_value_function[NR_OF_SENSORS])() = {
 #endif
     NULL,                     // PRESSURE
 #ifdef LDR
-    &fetch_ldr_adc            // ILLUMINANCE
+    &fetch_ldr_adc,           // ILLUMINANCE
 #else
-    NULL                      // ILLUMINANCE
+    NULL,                     // ILLUMINANCE
+#endif
+#ifdef MQ135PIN
+    &fetch_mq135_adc          // AIR_QUALITY
+#else
+    NULL                      // AIR_QUALITY
 #endif
 };
 
@@ -423,9 +456,14 @@ void (*v_init_function[NR_OF_SENSORS])() = {
     NULL,               // TEMPERATURE
     NULL,               // PRESSURE
 #ifdef LDR
-    &init_ldr_adc       // ILLUMINANCE
+    &init_ldr_adc,      // ILLUMINANCE
 #else
-    NULL                // ILLUMINANCE
+    NULL,               // ILLUMINANCE
+#endif
+#ifdef MQ135PIN
+    &init_mq135_adc     // AIR_QUALITY
+#else
+    NULL                // AIR_QUALITY
 #endif
 };
 
@@ -438,7 +476,8 @@ void (*v_pre_function[NR_OF_SENSORS])() = {
     NULL,              // TEMPERATURE
 #endif
     NULL,              // PRESSURE
-    NULL               // ILLUMINANCE
+    NULL,              // ILLUMINANCE
+    NULL               // AIR_QUALITY
 };
 
 void (*v_post_function[NR_OF_SENSORS])() = {
@@ -450,7 +489,8 @@ void (*v_post_function[NR_OF_SENSORS])() = {
     NULL,               // TEMPERATURE
 #endif
     NULL,               // PRESSURE
-    NULL                // ILLUMINANCE
+    NULL,               // ILLUMINANCE
+    NULL                // AIR_QUALITY
 };
 
 void setup(){
