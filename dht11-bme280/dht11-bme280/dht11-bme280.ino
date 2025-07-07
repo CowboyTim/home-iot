@@ -334,6 +334,14 @@ void at_cmd_handler(SerialCommands* s, const char* atcmdline){
     s->GetSerial()->println(cfg.v_intv[AIR_QUALITY]);
   } else if(p = at_cmd_check("AT+AIR_QUALITY_LOG_INTERVAL=", atcmdline, cmd_len)){
     set_v(&cfg.v_intv[AIR_QUALITY], p);
+  } else if(p = at_cmd_check("AT+APDS_ILLUMINANCE_LOG_INTERVAL?", atcmdline, cmd_len)){
+    s->GetSerial()->println(cfg.v_intv[APDS_ILLUMINANCE]);
+  } else if(p = at_cmd_check("AT+APDS_ILLUMINANCE_LOG_INTERVAL=", atcmdline, cmd_len)){
+    set_v(&cfg.v_intv[APDS_ILLUMINANCE], p);
+  } else if(p = at_cmd_check("AT+APDS_COLOR_LOG_INTERVAL?", atcmdline, cmd_len)){
+    s->GetSerial()->println(cfg.v_intv[APDS_COLOR]);
+  } else if(p = at_cmd_check("AT+APDS_COLOR_LOG_INTERVAL=", atcmdline, cmd_len)){
+    set_v(&cfg.v_intv[APDS_COLOR], p);
   } else {
     s->GetSerial()->println(F("ERROR"));
     return;
