@@ -98,7 +98,7 @@ uint16_t apds_r = 0, apds_g = 0, apds_b = 0, apds_c = 0;
 char atscbu[128] = {""};
 SerialCommands ATSc(&Serial, atscbu, sizeof(atscbu), "\r\n", "\r\n");
 
-#define CFGVERSION 0x01 // switch between 0x01/0x02 to reinit the config struct change
+#define CFGVERSION 0x02 // switch between 0x01/0x02 to reinit the config struct change
 #define CFGINIT    0x72 // at boot init check flag
 #define CFG_EEPROM 0x00 
 
@@ -116,7 +116,9 @@ typedef struct cfg_t {
   char wifi_pass[64]   = {0};   // nax 63 + 1
   char ntp_host[64]    = {0};   // max hostname + 1
   char kvmkey[16]      = "unknown"; // location, max 15 + 1
+  double mq135_r0      = 10000.0; // Default R0, configurable via AT command
   unsigned long v_intv[NR_OF_SENSORS] = {0};
+  uint8_t enabled[NR_OF_SENSORS] = {1,1,1,1,1,1,1}; // sensor enable flags, default all enabled
 };
 cfg_t cfg;
 
@@ -342,6 +344,19 @@ void at_cmd_handler(SerialCommands* s, const char* atcmdline){
     s->GetSerial()->println(cfg.v_intv[LDR_ILLUMINANCE]);
   } else if(p = at_cmd_check("AT+LDR_ILLUMINANCE_LOG_INTERVAL=", atcmdline, cmd_len)){
     set_v(&cfg.v_intv[LDR_ILLUMINANCE], p);
+  } else if(p = at_cmd_check("AT+MQ135_R0?", atcmdline, cmd_len)){
+    s->GetSerial()->println(cfg.mq135_r0, 2);
+    return;
+  } else if(p = at_cmd_check("AT+MQ135_R0=", atcmdline, cmd_len)){
+    double new_r0 = atof(p);
+    if(new_r0 < 1000.0 || new_r0 > 100000.0){
+      s->GetSerial()->println(F("R0 out of range (1000-100000)"));
+      s->GetSerial()->println(F("ERROR"));
+      return;
+    }
+    cfg.mq135_r0 = new_r0;
+    EEPROM.put(CFG_EEPROM, cfg);
+    EEPROM.commit();
   } else {
     s->GetSerial()->println(F("ERROR"));
     return;
@@ -447,14 +462,13 @@ void init_ldr_adc(){
 // MQ-135 Air Quality Sensor
 #ifdef MQ135
 #define MQ135_RL 10000.0 // 10k Ohm load resistor
-#define MQ135_R0 10000.0 // Default R0, calibrate for your sensor
 #define MQ135_VCC 5.0    // Sensor powered by 5V
 #define MQ135_ADC_REF 3.3 // ESP32 ADC reference voltage
 
 double mq135_adc_to_ppm(int adc_value) {
   float voltage = (float)adc_value * MQ135_ADC_REF / 4095.0;
   float RS = (MQ135_VCC - voltage) * MQ135_RL / voltage;
-  float ratio = RS / MQ135_R0;
+  float ratio = RS / cfg.mq135_r0;
   // For CO2: a = 110.47, b = -2.862 (from datasheet)
   float ppm = pow(10, (log10(ratio) - log10(110.47)) / -2.862);
   return ppm;
@@ -726,6 +740,7 @@ void loop(){
 
   // loop through sensors and call pre function
   for(int i = 0; i < NR_OF_SENSORS; i++){
+    if(cfg.enabled[i] == 0) continue;
     doYIELD;
     if(v_pre_function[i] == NULL)
       continue;
@@ -734,6 +749,7 @@ void loop(){
 
   // loop through sensors and check if we need to fetch & log
   for(int i = 0; i < NR_OF_SENSORS; i++){
+    if(cfg.enabled[i] == 0) continue;
     doYIELD;
     if(v_value_function[i] == NULL)
         continue;
@@ -765,6 +781,7 @@ void loop(){
 
   // loop through sensors and call post function
   for(int i = 0; i < NR_OF_SENSORS; i++){
+    if(cfg.enabled[i] == 0) continue;
     doYIELD;
     if(v_post_function[i] == NULL)
       continue;
@@ -787,9 +804,12 @@ void setup_cfg(){
     cfg.do_log            = 1;
     cfg.main_loop_delay   = 100;
     strcpy((char *)&cfg.ntp_host, (char *)DEFAULT_NTP_SERVER);
+    cfg.mq135_r0 = 10000.0; // Default R0
     for(int i = 0; i < NR_OF_SENSORS; i++)
       cfg.v_intv[i] = 1000;
-    // write
+    for(int i = 0; i < NR_OF_SENSORS; i++)
+      cfg.enabled[i] = 1; // enable all sensors by default
+    // write to EEPROM
     EEPROM.put(CFG_EEPROM, cfg);
     EEPROM.commit();
   }
