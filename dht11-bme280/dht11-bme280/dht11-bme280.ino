@@ -102,6 +102,8 @@ SerialCommands ATSc(&Serial, atscbu, sizeof(atscbu), "\r\n", "\r\n");
 #define CFGINIT    0x72 // at boot init check flag
 #define CFG_EEPROM 0x00 
 
+#define UDP_HOST_IP_MAXLEN  40 // enough for IPv6 string
+
 /* main config */
 typedef struct cfg_t {
   uint8_t initialized  = 0;
@@ -110,7 +112,7 @@ typedef struct cfg_t {
   uint8_t do_debug     = 0;
   uint8_t do_log       = 0;
   uint16_t udp_port    = 0;
-  char udp_host_ip[16] = {0};
+  char udp_host_ip[UDP_HOST_IP_MAXLEN] = {0}; // IPv4 or IPv6 string
   uint16_t main_loop_delay = 100;
   char wifi_ssid[32]   = {0};   // max 31 + 1
   char wifi_pass[64]   = {0};   // nax 63 + 1
@@ -287,13 +289,20 @@ void at_cmd_handler(SerialCommands* s, const char* atcmdline){
   } else if(p = at_cmd_check("AT+UDP_HOST_IP?", atcmdline, cmd_len)){
     s->GetSerial()->println(cfg.udp_host_ip);
   } else if(p = at_cmd_check("AT+UDP_HOST_IP=", atcmdline, cmd_len)){
+    if(strlen(p) >= UDP_HOST_IP_MAXLEN){
+      s->GetSerial()->println(F("invalid udp host ip (too long)"));
+      s->GetSerial()->println(F("ERROR"));
+      return;
+    }
     IPAddress tst;
     if(!tst.fromString(p)){
       s->GetSerial()->println(F("invalid udp host ip"));
       s->GetSerial()->println(F("ERROR"));
       return;
     }
-    strcpy(cfg.udp_host_ip, p);
+    // Accept IPv4 or IPv6 string
+    strncpy(cfg.udp_host_ip, p, UDP_HOST_IP_MAXLEN-1);
+    cfg.udp_host_ip[UDP_HOST_IP_MAXLEN-1] = '\0';
     EEPROM.put(CFG_EEPROM, cfg);
     EEPROM.commit();
     setup_udp();
@@ -724,8 +733,17 @@ void loop(){
       if(!logged_wifi_status){
         #ifdef VERBOSE
         if(cfg.do_verbose){
-          Serial.print(F("WiFi connected: "));
+          Serial.println(F("WiFi connected: "));
+          Serial.print(F("ipv4:"));
           Serial.println(WiFi.localIP());
+          Serial.println(WiFi.gatewayIP());
+          Serial.print(F("WiFi MAC: "));
+          Serial.println(WiFi.macAddress());
+          Serial.print(F("WiFi RSSI: "));
+          Serial.println(WiFi.RSSI());
+          Serial.print(F("WiFi SSID: "));
+          Serial.println(WiFi.SSID());
+
         }
         #endif
         logged_wifi_status = 1;
@@ -815,12 +833,54 @@ void setup_cfg(){
   }
 }
 
+
+void WiFiEvent(WiFiEvent_t event){
+    switch(event) {
+        case ARDUINO_EVENT_WIFI_STA_START:
+            Serial.println(F("WiFi STA started"));
+            break;
+        case ARDUINO_EVENT_WIFI_STA_CONNECTED:
+            Serial.print(F("WiFi STA connected to "));
+            Serial.println(WiFi.SSID());
+            break;
+        case ARDUINO_EVENT_WIFI_STA_GOT_IP6:
+            Serial.println("STA IPv6");
+            break;
+        case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+            Serial.print(F("WiFi STA got IP: "));
+            Serial.println(WiFi.localIP());
+            break;
+        case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+            Serial.println(F("WiFi STA disconnected"));
+            break;
+        case ARDUINO_EVENT_WIFI_STA_STOP:
+            Serial.println(F("WiFi STA stopped"));
+            break;
+        default:
+            break;
+    }
+}
+
 void setup_wifi(){
   // are we connecting to WiFi?
   if(strlen(cfg.wifi_ssid) == 0 || strlen(cfg.wifi_pass) == 0)
     return;
   if(WiFi.status() == WL_CONNECTED)
     return;
+
+  WiFi.disconnect(); // disconnect from any previous connection
+#ifdef VERBOSE
+  if(cfg.do_verbose)
+    Serial.println(F("Setting up WiFi..."));
+  WiFi.onEvent(WiFiEvent);
+#endif
+  WiFi.mode(WIFI_STA); // set WiFi mode to Station
+  WiFi.setAutoReconnect(true); // enable auto-reconnect
+  WiFi.setSleep(false); // disable WiFi sleep mode
+  WiFi.setHostname("dht11-bme280-logger"); // set hostname for the device
+  WiFi.setTxPower(WIFI_POWER_19_5dBm); // set WiFi transmit power (optional, adjust as needed)
+  WiFi.enableSTA(true); // enable Station mode
+  WiFi.enableIPv6(true); // enable IPv6 support
 
   // connect to Wi-Fi
   #ifdef VERBOSE
@@ -840,7 +900,7 @@ void setup_udp(){
     if(cfg.do_verbose){
       Serial.print(F("send counters to "));
       Serial.print(cfg.udp_host_ip);
-      Serial.print(F(":"));
+      Serial.print(F(", port:"));
       Serial.println(cfg.udp_port);
     }
     #endif
