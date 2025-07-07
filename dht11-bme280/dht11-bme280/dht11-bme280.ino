@@ -36,7 +36,7 @@
 #undef APDS9930   // TODO: implement software + hardware
 #endif
 #ifndef MQ135
-#undef MQ135      // TODO: implement hardware
+#define MQ135
 #endif
 
 #ifdef DHT11
@@ -453,13 +453,19 @@ double fetch_mq135_adc(){
     Serial.print(F("MQ-135 ADC value: "));
     Serial.println(mq135_adc);
   }
-  double mq135_value = (double)mq135_adc; // convert to double for consistency
+  double mq135_value = (double)mq135_adc;
+  // 1.1V reference, 12-bit ADC, convert to voltage
+  mq135_value = mq135_value * 3.3 / 4096;
   return mq135_value;
 }
 
 void init_mq135_adc(){
   // initialize MQ-135 ADC pin
   pinMode(MQ135PIN, INPUT);
+  // set attenuation to 11dB for 3.3V range
+  analogSetPinAttenuation(MQ135PIN, ADC_11db);
+  // 12-bit ADC resolution
+  analogReadResolution(12);
   if(cfg.do_log)
     Serial.println(F("MQ-135 ADC initialized on A2"));
 }
