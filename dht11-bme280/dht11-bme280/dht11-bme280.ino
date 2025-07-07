@@ -304,6 +304,10 @@ void at_cmd_handler(SerialCommands* s, const char* atcmdline){
     s->GetSerial()->println(F("OK"));
     resetFunc();
     return;
+  } else if(p = at_cmd_check("AT+AIR_QUALITY_LOG_INTERVAL?", atcmdline, cmd_len)){
+    s->GetSerial()->println(cfg.v_intv[AIR_QUALITY]);
+  } else if(p = at_cmd_check("AT+AIR_QUALITY_LOG_INTERVAL=", atcmdline, cmd_len)){
+    set_v(&cfg.v_intv[AIR_QUALITY], p);
   } else {
     s->GetSerial()->println(F("ERROR"));
     return;
