@@ -29,12 +29,19 @@
 #ifndef DHT11
 #define DHT11
 #endif
+#ifndef LDR
+#define LDR
+#endif
 
 #ifdef DHT11
 #include <DFRobot_DHT11.h>
 #define DHTPIN  A0     // GPIO2/A0 pin for DHT11
 DFRobot_DHT11 DHT;
 uint8_t did_dht11 = 0; // DHT11 read flag, to avoid multiple reads
+#endif
+
+#ifdef LDR
+#define LDRPIN A1      // GPIO3/A1 pin for LDR
 #endif
 
 #define NR_OF_SENSORS 4
@@ -320,6 +327,7 @@ void set_v(unsigned long *v, const char *p){
   }
 }
 
+#ifdef DHT11
 double dht11_fetch_humidity(){
   // fetch humidity from DHT11
   if(!did_dht11){
@@ -371,31 +379,76 @@ void pre_dht11(){
 void post_dht11(){
   did_dht11 = 0;
 }
+#endif // DHT11
+
+#ifdef LDR
+double fetch_ldr_adc(){
+  // fetch LDR ADC value
+  int ldr_adc = analogReadMilliVolts(A1); // assuming LDR is connected to A0
+  if(cfg.do_log){
+    Serial.print(F("LDR ADC value: "));
+    Serial.println(ldr_adc);
+  }
+  double ldr_value = (double)ldr_adc; // convert to double for consistency
+  return ldr_value;
+}
+
+void init_ldr_adc(){
+  // initialize LDR ADC pin
+  pinMode(A1, INPUT); // assuming LDR is connected to A1
+  analogSetWidth(12); // set ADC width to 12 bits
+  if(cfg.do_log)
+    Serial.println(F("LDR ADC initialized on A1"));
+}
+#endif // LDR
 
 double (*v_value_function[NR_OF_SENSORS])() = {
+#ifdef DHT11
     &dht11_fetch_humidity,    // HUMIDITY
     &dht11_fetch_temperature, // TEMPERATURE
+#else
+    NULL,                     // HUMIDITY
+    NULL,                     // TEMPERATURE
+#endif
     NULL,                     // PRESSURE
+#ifdef LDR
+    &fetch_ldr_adc            // ILLUMINANCE
+#else
     NULL                      // ILLUMINANCE
+#endif
 };
 
 void (*v_init_function[NR_OF_SENSORS])() = {
     NULL,               // HUMIDITY
     NULL,               // TEMPERATURE
     NULL,               // PRESSURE
+#ifdef LDR
+    &init_ldr_adc       // ILLUMINANCE
+#else
     NULL                // ILLUMINANCE
+#endif
 };
 
 void (*v_pre_function[NR_OF_SENSORS])() = {
+#ifdef DHT11
     &pre_dht11,        // HUMIDITY
     &pre_dht11,        // TEMPERATURE
+#else
+    NULL,              // HUMIDITY
+    NULL,              // TEMPERATURE
+#endif
     NULL,              // PRESSURE
     NULL               // ILLUMINANCE
 };
 
 void (*v_post_function[NR_OF_SENSORS])() = {
+#ifdef DHT11
     &post_dht11,        // HUMIDITY
     &post_dht11,        // TEMPERATURE
+#else
+    NULL,               // HUMIDITY
+    NULL,               // TEMPERATURE
+#endif
     NULL,               // PRESSURE
     NULL                // ILLUMINANCE
 };
