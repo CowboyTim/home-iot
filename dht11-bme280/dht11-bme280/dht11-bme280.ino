@@ -32,6 +32,12 @@
 #ifndef LDR
 #define LDR
 #endif
+#ifndef APDS9930
+#undef APDS9930   // TODO: implement software + hardware
+#endif
+#ifndef MQ135
+#undef MQ135      // TODO: implement hardware
+#endif
 
 #ifdef DHT11
 #include <DFRobot_DHT11.h>
@@ -40,33 +46,53 @@ DFRobot_DHT11 DHT;
 uint8_t did_dht11 = 0; // DHT11 read flag, to avoid multiple reads
 #endif
 
+#ifdef APDS9930
+#include <Wire.h>
+#include <Adafruit_APDS9930.h>
+#define APDS9930_I2C_ADDRESS 0x39 // default I2C address for APDS-9930
+#endif // APDS9930
+
 #ifdef LDR
-#define LDRPIN A1      // GPIO3/A1 pin for LDR
+#define LDRPIN    A1 // GPIO3/A1 pin for LDR
 #endif
 
-#define MQ135PIN A2    // GPIO4/A2 pin for MQ-135
+#ifdef MQ135
+#define MQ135PIN  A2 // GPIO4/A2 pin for MQ-135
+#endif
 
-#define NR_OF_SENSORS 5 // increased from 4 to 5
-#define HUMIDITY      0
-#define TEMPERATURE   1
-#define PRESSURE      2
-#define ILLUMINANCE   3
-#define AIR_QUALITY   4 // new sensor index
+#define NR_OF_SENSORS 7 // increased from 5 to 7
+#define HUMIDITY          0
+#define TEMPERATURE       1
+#define PRESSURE          2
+#define LDR_ILLUMINANCE   3
+#define AIR_QUALITY       4
+#define APDS_ILLUMINANCE  5
+#define APDS_COLOR        6
+
 const char *v_key[NR_OF_SENSORS] = {
   "humidity",
   "temperature",
   "pressure",
-  "illuminance",
-  "air_quality" // new key
+  "ldr_illuminance",
+  "air_quality",
+  "apds_illuminance",
+  "apds_color"
 };
 
 const char *v_unit[NR_OF_SENSORS] = {
-  "%s:%s*%%,%.0f\r\n",       // HUMIDITY
-  "%s:%s*°C,%.2f\r\n",       // TEMPERATURE
-  "%s:%s*hPa,%.0f\r\n",      // PRESSURE
-  "%s:%s*lx,%.0f\r\n",        // ILLUMINANCE
-  "%s:%s*ppm,%.0f\r\n"        // AIR_QUALITY (raw analog value, could be mapped to ppm)
+  "%s:%s*%%,%.0f\r\n",             // HUMIDITY
+  "%s:%s*°C,%.2f\r\n",             // TEMPERATURE
+  "%s:%s*hPa,%.0f\r\n",            // PRESSURE
+  "%s:%s*lx,%.0f\r\n",             // LDR ILLUMINANCE
+  "%s:%s*ppm,%.0f\r\n",            // AIR_QUALITY
+  "%s:%s*lx,%.0f\r\n",             // APDS ILLUMINANCE
+  "%s:%s*rgbc,%lu,%lu,%lu,%lu\r\n" // APDS COLOR (R,G,B,C)
 };
+
+#ifdef APDS9930
+Adafruit_APDS9930 apds(APDS9930_I2C_ADDRESS);
+uint16_t apds_r = 0, apds_g = 0, apds_b = 0, apds_c = 0;
+#endif // APDS9930
 
 /* our AT commands over UART to config WiFi */
 char atscbu[128] = {""};
@@ -198,10 +224,10 @@ void at_cmd_handler(SerialCommands* s, const char* atcmdline){
     s->GetSerial()->println(cfg.v_intv[PRESSURE]);
   } else if(p = at_cmd_check("AT+PRESSURE_LOG_INTERVAL=", atcmdline, cmd_len)){
     set_v(&cfg.v_intv[PRESSURE], p);
-  } else if(p = at_cmd_check("AT+ILLUMINANCE_LOG_INTERVAL?", atcmdline, cmd_len)){
-    s->GetSerial()->println(cfg.v_intv[ILLUMINANCE]);
-  } else if(p = at_cmd_check("AT+ILLUMINANCE_LOG_INTERVAL=", atcmdline, cmd_len)){
-    set_v(&cfg.v_intv[ILLUMINANCE], p);
+  } else if(p = at_cmd_check("AT+LDR_ILLUMINANCE_LOG_INTERVAL?", atcmdline, cmd_len)){
+    s->GetSerial()->println(cfg.v_intv[LDR_ILLUMINANCE]);
+  } else if(p = at_cmd_check("AT+LDR_ILLUMINANCE_LOG_INTERVAL=", atcmdline, cmd_len)){
+    set_v(&cfg.v_intv[LDR_ILLUMINANCE], p);
   } else if(p = at_cmd_check("AT+KVMKEY=", atcmdline, cmd_len)){
     size_t sz = (atcmdline+cmd_len)-p+1;
     if(sz > 15){
@@ -411,8 +437,7 @@ void init_ldr_adc(){
 #endif // LDR
 
 // MQ-135 Air Quality Sensor
-#ifdef MQ135PIN
-
+#ifdef MQ135
 double fetch_mq135_adc(){
   // fetch MQ-135 ADC value
   int mq135_adc = analogReadMilliVolts(MQ135PIN); // analog value
@@ -430,7 +455,44 @@ void init_mq135_adc(){
   if(cfg.do_log)
     Serial.println(F("MQ-135 ADC initialized on A2"));
 }
-#endif // MQ135PIN
+#endif // MQ135
+
+#ifdef APDS9930
+double fetch_apds_illuminance() {
+  // fetch APDS-9930 illuminance (lux)
+  float lux = 0;
+  apds.getLux(&lux);
+  if(cfg.do_log){
+    Serial.print(F("APDS-9930 lux: "));
+    Serial.println(lux);
+  }
+  return (double)lux;
+}
+
+double fetch_apds_color() {
+  // fetch APDS-9930 color (returns C, but logs R,G,B,C)
+  apds.getRGB(&apds_r, &apds_g, &apds_b, &apds_c);
+  if(cfg.do_log){
+    Serial.print(F("APDS-9930 RGB: "));
+    Serial.print(apds_r); Serial.print(",");
+    Serial.print(apds_g); Serial.print(",");
+    Serial.print(apds_b); Serial.print(",");
+    Serial.println(apds_c);
+  }
+  // For the main value, return clear channel (C)
+  return (double)apds_c;
+}
+
+void init_apds9930() {
+  if(!apds.begin()) {
+    if(cfg.do_log) Serial.println(F("APDS-9930 not found!"));
+    return;
+  }
+  apds.enableColor(true);
+  apds.enableLightSensor(true);
+  if(cfg.do_log) Serial.println(F("APDS-9930 initialized"));
+}
+#endif // APDS-9930
 
 double (*v_value_function[NR_OF_SENSORS])() = {
 #ifdef DHT11
@@ -442,14 +504,21 @@ double (*v_value_function[NR_OF_SENSORS])() = {
 #endif
     NULL,                     // PRESSURE
 #ifdef LDR
-    &fetch_ldr_adc,           // ILLUMINANCE
+    &fetch_ldr_adc,           // LDR ILLUMINANCE
 #else
-    NULL,                     // ILLUMINANCE
+    NULL,                     // LDR ILLUMINANCE
 #endif
-#ifdef MQ135PIN
-    &fetch_mq135_adc          // AIR_QUALITY
+#ifdef MQ135
+    &fetch_mq135_adc,         // AIR_QUALITY
 #else
-    NULL                      // AIR_QUALITY
+    NULL,                     // AIR_QUALITY
+#endif
+#ifdef APDS9930
+    &fetch_apds_illuminance,  // APDS ILLUMINANCE
+    &fetch_apds_color         // APDS COLOR
+#else
+    NULL,                     // APDS ILLUMINANCE
+    NULL                      // APDS COLOR
 #endif
 };
 
@@ -458,14 +527,21 @@ void (*v_init_function[NR_OF_SENSORS])() = {
     NULL,               // TEMPERATURE
     NULL,               // PRESSURE
 #ifdef LDR
-    &init_ldr_adc,      // ILLUMINANCE
+    &init_ldr_adc,      // LDR ILLUMINANCE
 #else
-    NULL,               // ILLUMINANCE
+    NULL,               // LDR ILLUMINANCE
 #endif
-#ifdef MQ135PIN
-    &init_mq135_adc     // AIR_QUALITY
+#ifdef MQ135
+    &init_mq135_adc,    // AIR_QUALITY
 #else
-    NULL                // AIR_QUALITY
+    NULL,               // AIR_QUALITY
+#endif
+#ifdef APDS9930
+    &init_apds9930,     // APDS ILLUMINANCE
+    &init_apds9930      // APDS COLOR
+#else
+    NULL,               // APDS ILLUMINANCE
+    NULL                // APDS COLOR
 #endif
 };
 
@@ -478,8 +554,10 @@ void (*v_pre_function[NR_OF_SENSORS])() = {
     NULL,              // TEMPERATURE
 #endif
     NULL,              // PRESSURE
-    NULL,              // ILLUMINANCE
-    NULL               // AIR_QUALITY
+    NULL,              // LDR ILLUMINANCE
+    NULL,              // AIR_QUALITY
+    NULL,              // APDS ILLUMINANCE
+    NULL               // APDS COLOR
 };
 
 void (*v_post_function[NR_OF_SENSORS])() = {
@@ -491,8 +569,10 @@ void (*v_post_function[NR_OF_SENSORS])() = {
     NULL,               // TEMPERATURE
 #endif
     NULL,               // PRESSURE
-    NULL,               // ILLUMINANCE
-    NULL                // AIR_QUALITY
+    NULL,               // LDR ILLUMINANCE
+    NULL,               // AIR_QUALITY
+    NULL,               // APDS ILLUMINANCE
+    NULL                // APDS COLOR
 };
 
 void setup(){
