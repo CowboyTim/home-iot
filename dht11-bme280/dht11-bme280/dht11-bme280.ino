@@ -855,6 +855,9 @@ void setup(){
   // setup WiFi with ssid/pass from EEPROM if set
   setup_wifi();
 
+  // setup UDP if host IP is set
+  setup_udp();
+
   #ifdef VERBOSE
   if(cfg.do_verbose){
     if(strlen(cfg.ntp_host) && strlen(cfg.wifi_ssid) && strlen(cfg.wifi_pass)){
@@ -941,29 +944,24 @@ void loop(){
 
   // just wifi check
   if(millis() - last_wifi_check > 500){
-    if(WiFi.status() == WL_CONNECTED){
-      if(!logged_wifi_status){
-        #ifdef VERBOSE
-        if(cfg.do_verbose){
-          Serial.println(F("WiFi connected: "));
-          Serial.print(F("ipv4:"));
-          Serial.println(WiFi.localIP());
-          Serial.println(WiFi.gatewayIP());
-          Serial.print(F("WiFi MAC: "));
-          Serial.println(WiFi.macAddress());
-          Serial.print(F("WiFi RSSI: "));
-          Serial.println(WiFi.RSSI());
-          Serial.print(F("WiFi SSID: "));
-          Serial.println(WiFi.SSID());
-
-        }
-        #endif
-        logged_wifi_status = 1;
+    if(WiFi.status() != WL_CONNECTED)
+        setup_wifi();
+    if(!logged_wifi_status){
+      #ifdef VERBOSE
+      if(cfg.do_verbose){
+        Serial.println(F("WiFi connected: "));
+        Serial.print(F("ipv4:"));
+        Serial.println(WiFi.localIP());
+        Serial.println(WiFi.gatewayIP());
+        Serial.print(F("WiFi MAC: "));
+        Serial.println(WiFi.macAddress());
+        Serial.print(F("WiFi RSSI: "));
+        Serial.println(WiFi.RSSI());
+        Serial.print(F("WiFi SSID: "));
+        Serial.println(WiFi.SSID());
       }
-      if(!valid_udp_host)
-        setup_udp();
-    } else {
-      valid_udp_host = 0;
+      #endif
+      logged_wifi_status = 1;
     }
     last_wifi_check = millis();
   }
@@ -992,7 +990,7 @@ void loop(){
           if(cfg.do_log)
             Serial.print(outbuffer);
           // log to UDP sink?
-          if(valid_udp_host){
+          if(valid_udp_host && WiFi.status() == WL_CONNECTED){
             udp.beginPacket(udp_tgt, cfg.udp_port);
             udp.write((uint8_t*)&outbuffer, h_strl);
             udp.endPacket();
@@ -1079,6 +1077,7 @@ void setup_wifi(){
     return;
   if(WiFi.status() == WL_CONNECTED)
     return;
+  logged_wifi_status = 0; // reset logged status
 
   WiFi.disconnect(); // disconnect from any previous connection
 #ifdef VERBOSE
