@@ -26,6 +26,12 @@
  #define doYIELD
 #endif
 
+#ifndef S8
+#define S8
+#endif
+#ifndef SE95
+#define SE95
+#endif
 #ifndef DHT11
 #define DHT11
 #endif
@@ -38,6 +44,24 @@
 #ifndef MQ135
 #define MQ135
 #endif
+
+#ifdef SE95
+/* SE95 temperature on i2c, The Temperature_LM75_Derived 
+   class can read that */
+#define I2C_DAT   6
+#define I2C_CLK   7
+#include <Wire.h>
+#include <Temperature_LM75_Derived.h>
+NXP_SE95 se95_temp_sensor;
+#endif // SE95
+
+#ifdef S8
+/* Sensair S8 LP sensor for CO2 */
+#include "s8_uart.h"
+S8_UART *sensor_S8;
+S8_sensor sensor;
+#endif // S8
+
 
 #ifdef DHT11
 #include <DFRobot_DHT11.h>
@@ -60,14 +84,16 @@ uint8_t did_dht11 = 0; // DHT11 read flag, to avoid multiple reads
 #define MQ135PIN  A2 // GPIO4/A2 pin for MQ-135
 #endif
 
-#define NR_OF_SENSORS 7 // increased from 5 to 7
-#define HUMIDITY          0
-#define TEMPERATURE       1
-#define PRESSURE          2
-#define LDR_ILLUMINANCE   3
-#define AIR_QUALITY       4
-#define APDS_ILLUMINANCE  5
-#define APDS_COLOR        6
+#define NR_OF_SENSORS 9
+#define HUMIDITY          0 // DHT11 humidity sensor
+#define TEMPERATURE       1 // DHT11 temperature sensor
+#define PRESSURE          2 // BMP280 pressure sensor
+#define LDR_ILLUMINANCE   3 // LDR illuminance sensor
+#define AIR_QUALITY       4 // MQ-135 air quality sensor
+#define APDS_ILLUMINANCE  5 // APDS-9930 illuminance sensor
+#define APDS_COLOR        6 // APDS-9930 color sensor
+#define TEMPERATURE_SE95  7 // SE95 temperature sensor
+#define S8_CO2            8 // S8 CO2 sensor
 
 const char *v_key[NR_OF_SENSORS] = {
   "humidity",
@@ -76,7 +102,9 @@ const char *v_key[NR_OF_SENSORS] = {
   "ldr_illuminance",
   "air_quality",
   "apds_illuminance",
-  "apds_color"
+  "apds_color",
+  "temperature_se95",
+  "s8_co2"
 };
 
 const char *v_unit[NR_OF_SENSORS] = {
@@ -86,7 +114,9 @@ const char *v_unit[NR_OF_SENSORS] = {
   "%s:%s*lx,%.0f\r\n",             // LDR ILLUMINANCE
   "%s:%s*ppm,%.0f\r\n",            // AIR_QUALITY
   "%s:%s*lx,%.0f\r\n",             // APDS ILLUMINANCE
-  "%s:%s*rgbc,%lu,%lu,%lu,%lu\r\n" // APDS COLOR (R,G,B,C)
+  "%s:%s*rgbc,%lu,%lu,%lu,%lu\r\n",// APDS COLOR (R,G,B,C)
+  "%s:%s*°C,%.2f\r\n",             // TEMPERATURE
+  "%s:%s*ppm,%.0f\r\n"             // AIR_QUALITY
 };
 
 #ifdef APDS9930
@@ -119,8 +149,8 @@ typedef struct cfg_t {
   char ntp_host[64]    = {0};   // max hostname + 1
   char kvmkey[16]      = "unknown"; // location, max 15 + 1
   double mq135_r0      = 10000.0; // Default R0, configurable via AT command
-  unsigned long v_intv[NR_OF_SENSORS] = {0};
-  uint8_t enabled[NR_OF_SENSORS] = {1,1,1,1,1,1,1}; // sensor enable flags, default all enabled
+  unsigned long v_intv[NR_OF_SENSORS]  = {0};
+  uint8_t       enabled[NR_OF_SENSORS] = {1};
 };
 cfg_t cfg;
 
@@ -130,9 +160,9 @@ IPAddress udp_tgt;
 uint8_t valid_udp_host = 0;
 char outbuffer[OUTBUFFER_SIZE] = {0};
 int h_strl = 0;
-uint8_t ntp_is_synced          = 1;
-uint8_t logged_wifi_status     = 0;
-unsigned long last_wifi_check  = 0;
+uint8_t ntp_is_synced         = 1;
+uint8_t logged_wifi_status    = 0;
+unsigned long last_wifi_check = 0;
 unsigned long last_v_intv[NR_OF_SENSORS] = {0};
 void(* resetFunc)(void) = 0;
 
@@ -353,6 +383,17 @@ void at_cmd_handler(SerialCommands* s, const char* atcmdline){
     s->GetSerial()->println(cfg.v_intv[LDR_ILLUMINANCE]);
   } else if(p = at_cmd_check("AT+LDR_ILLUMINANCE_LOG_INTERVAL=", atcmdline, cmd_len)){
     set_v(&cfg.v_intv[LDR_ILLUMINANCE], p);
+  } else if(p = at_cmd_check("AT+S8_LOG_INTERVAL?", atcmdline, cmd_len)){
+    s->GetSerial()->println(cfg.v_intv[AIR_QUALITY]); // S8 uses the same interval as AIR_QUALITY
+  } else if(p = at_cmd_check("AT+S8_LOG_INTERVAL=", atcmdline, cmd_len)){
+    set_v(&cfg.v_intv[AIR_QUALITY], p); // S8 uses the same interval as AIR_QUALITY
+  } else if(p = at_cmd_check("AT+SE95_LOG_INTERVAL?", atcmdline, cmd_len)){
+    s->GetSerial()->println(cfg.v_intv[TEMPERATURE]); // SE95 uses the same interval as TEMPERATURE
+  } else if(p = at_cmd_check("AT+SE95_LOG_INTERVAL=", atcmdline, cmd_len)){
+    set_v(&cfg.v_intv[TEMPERATURE], p); // SE95 uses the same interval as TEMPERATURE
+  } else if(p = at_cmd_check("AT+MQ135_R0?", atcmdline, cmd_len)){
+    s->GetSerial()->println(cfg.mq135_r0, 2);
+    return;
   } else if(p = at_cmd_check("AT+MQ135_R0?", atcmdline, cmd_len)){
     s->GetSerial()->println(cfg.mq135_r0, 2);
     return;
@@ -401,17 +442,21 @@ double dht11_fetch_humidity(){
     DHT.read(DHTPIN);
     did_dht11 = 1;
   }
-  if(cfg.do_log){
+  #ifdef VERBOSE
+  if(cfg.do_verbose){
     Serial.print(F("DHT11 humidity: "));
     Serial.print(DHT.humidity);
     Serial.println(F(" %"));
   }
+  #endif
   double h = (double)DHT.humidity;
   if(h < 0.0 || h > 100.0){
-    if(cfg.do_log){
+    #ifdef VERBOSE
+    if(cfg.do_verbose){
       Serial.print(F("DHT11 humidity out of range, returning 0"));
       Serial.println(h);
     }
+    #endif
     h = 0.0;
   }
   return h;
@@ -423,17 +468,21 @@ double dht11_fetch_temperature(){
     DHT.read(DHTPIN);
     did_dht11 = 1;
   }
-  if(cfg.do_log){
+  #ifdef VERBOSE
+  if(cfg.do_verbose){
     Serial.print(F("DHT11 temperature: "));
     Serial.print(DHT.temperature);
     Serial.println(F(" C"));
   }
+  #endif
   double t = (double)DHT.temperature;
   if(t < -40.0 || t > 80.0){
-    if(cfg.do_log){
+    #ifdef VERBOSE
+    if(cfg.do_verbose){
       Serial.print(F("DHT11 temperature out of range, returning 0"));
       Serial.println(t);
     }
+    #endif
     t = 0.0;
   }
   return t;
@@ -452,10 +501,12 @@ void post_dht11(){
 double fetch_ldr_adc(){
   // fetch LDR ADC value
   int ldr_adc = analogReadMilliVolts(A1); // assuming LDR is connected to A0
-  if(cfg.do_log){
+  #ifdef VERBOSE
+  if(cfg.do_verbose){
     Serial.print(F("LDR ADC value: "));
     Serial.println(ldr_adc);
   }
+  #endif
   double ldr_value = (double)ldr_adc; // convert to double for consistency
   return ldr_value;
 }
@@ -463,8 +514,10 @@ double fetch_ldr_adc(){
 void init_ldr_adc(){
   // initialize LDR ADC pin
   pinMode(A1, INPUT); // assuming LDR is connected to A1
-  if(cfg.do_log)
+  #ifdef VERBOSE
+  if(cfg.do_verbose)
     Serial.println(F("LDR ADC initialized on A1"));
+  #endif
 }
 #endif // LDR
 
@@ -486,15 +539,19 @@ double mq135_adc_to_ppm(int adc_value) {
 double fetch_mq135_adc(){
   // fetch MQ-135 ADC value
   int mq135_adc = analogRead(MQ135PIN); // raw ADC value (0-4095)
-  if(cfg.do_log){
+  #ifdef VERBOSE
+  if(cfg.do_verbose){
     Serial.print(F("MQ-135 ADC value: "));
     Serial.println(mq135_adc);
   }
+  #endif
   double ppm = mq135_adc_to_ppm(mq135_adc);
-  if(cfg.do_log){
+  #ifdef VERBOSE
+  if(cfg.do_verbose){
     Serial.print(F("MQ-135 CO2 ppm: "));
     Serial.println(ppm);
   }
+  #endif
   return ppm;
 }
 
@@ -503,8 +560,10 @@ void init_mq135_adc(){
   pinMode(MQ135PIN, INPUT);
   analogSetPinAttenuation(MQ135PIN, ADC_11db);
   analogReadResolution(12);
-  if(cfg.do_log)
+  #ifdef VERBOSE
+  if(cfg.do_verbose)
     Serial.println(F("MQ-135 ADC initialized on A2"));
+  #endif
 }
 #endif // MQ135
 
@@ -513,37 +572,166 @@ double fetch_apds_illuminance() {
   // fetch APDS-9930 illuminance (lux)
   float lux = 0;
   apds.getLux(&lux);
-  if(cfg.do_log){
+  #ifdef VERBOSE
+  if(cfg.do_verbose)
     Serial.print(F("APDS-9930 lux: "));
     Serial.println(lux);
   }
+  #endif
   return (double)lux;
 }
 
 double fetch_apds_color() {
   // fetch APDS-9930 color (returns C, but logs R,G,B,C)
   apds.getRGB(&apds_r, &apds_g, &apds_b, &apds_c);
-  if(cfg.do_log){
+  #ifdef VERBOSE
+  if(cfg.do_verbose)
     Serial.print(F("APDS-9930 RGB: "));
     Serial.print(apds_r); Serial.print(",");
     Serial.print(apds_g); Serial.print(",");
     Serial.print(apds_b); Serial.print(",");
     Serial.println(apds_c);
   }
+  #endif
   // For the main value, return clear channel (C)
   return (double)apds_c;
 }
 
 void init_apds9930() {
   if(!apds.begin()) {
-    if(cfg.do_log) Serial.println(F("APDS-9930 not found!"));
+    #ifdef VERBOSE
+    if(cfg.do_verbose)
+      Serial.println(F("APDS-9930 not found!"));
+    #endif
     return;
   }
   apds.enableColor(true);
   apds.enableLightSensor(true);
-  if(cfg.do_log) Serial.println(F("APDS-9930 initialized"));
+  #ifdef VERBOSE
+  if(cfg.do_verbose)
+    Serial.println(F("APDS-9930 initialized"));
+  #endif
+  return;
 }
 #endif // APDS-9930
+
+#ifdef S8
+void init_s8() {
+  Serial1.begin(S8_BAUDRATE, SERIAL_8N1, 1, 0);
+  sensor_S8 = new S8_UART(Serial1);
+
+  // Check if S8 is available
+  sensor_S8->get_firmware_version(sensor.firm_version);
+  int len = strlen(sensor.firm_version);
+  if(len == 0){
+    Serial.println("SenseAir S8 CO2 sensor not found!");
+    while(1){
+        doYIELD;
+        delay(1);
+    }
+  }
+
+  // Show basic S8 sensor info
+  Serial.println("| >>> SenseAir S8 NDIR CO2 sensor <<<");
+  printf("| Firmware version: %s\n", sensor.firm_version);
+  sensor.sensor_id = sensor_S8->get_sensor_ID();
+  Serial.print("| Sensor ID: 0x"); printIntToHex(sensor.sensor_id, 4);
+  Serial.println("");
+  sensor.sensor_type_id = sensor_S8->get_sensor_type_ID();
+  Serial.print("| Sensor type: 0x"); printIntToHex(sensor.sensor_type_id, 3);
+  Serial.println("");
+  sensor.map_version = sensor_S8->get_memory_map_version();
+  Serial.print("| Memory map version: ");
+  Serial.println(sensor.map_version);
+  sensor.abc_period = sensor_S8->get_ABC_period();
+  if(sensor.abc_period > 0){
+    Serial.print("| ABC (automatic background calibration) period: ");
+    Serial.print(sensor.abc_period); Serial.println(" hours");
+  } else {
+    Serial.println("| ABC (automatic calibration) is disabled");
+  }
+  Serial.println("| Setting ABC to 0 and wait 1s");
+  sensor.abc_period = sensor_S8->set_ABC_period(0);
+  delay(1000);
+  sensor.abc_period = sensor_S8->get_ABC_period();
+  if(sensor.abc_period > 0){
+    Serial.print("| ABC (automatic background calibration) period: ");
+    Serial.print(sensor.abc_period);
+    Serial.println(" hours");
+  } else {
+    Serial.println("| ABC (automatic calibration) is disabled (0s)");
+  }
+
+  // Check the health of the sensor
+  Serial.println("| Checking the health of the sensor...");
+  sensor.meter_status = sensor_S8->get_meter_status();
+  if(sensor.meter_status & S8_MASK_METER_ANY_ERROR) {
+    Serial.println("| One or more errors detected!");
+    if(sensor.meter_status & S8_MASK_METER_FATAL_ERROR)
+      Serial.println("| Fatal error in sensor!");
+    if(sensor.meter_status & S8_MASK_METER_OFFSET_REGULATION_ERROR)
+      Serial.println("| Offset regulation error in sensor!");
+    if(sensor.meter_status & S8_MASK_METER_ALGORITHM_ERROR)
+      Serial.println("| Algorithm error in sensor!");
+    if(sensor.meter_status & S8_MASK_METER_OUTPUT_ERROR)
+      Serial.println("| Output error in sensor!");
+    if(sensor.meter_status & S8_MASK_METER_SELF_DIAG_ERROR)
+      Serial.println("| Self diagnostics error in sensor!");
+    if(sensor.meter_status & S8_MASK_METER_OUT_OF_RANGE)
+      Serial.println("| Out of range in sensor!");
+    if(sensor.meter_status & S8_MASK_METER_MEMORY_ERROR)
+      Serial.println("| Memory error in sensor!");
+  } else {
+    Serial.println("| The sensor is OK.");
+  }
+  return;
+}
+
+double fetch_s8_co2() {
+  // Fetch CO2 value from S8 sensor
+  if(sensor_S8 == NULL) {
+    Serial.println(F("S8 sensor not initialized!"));
+    return 0.0;
+  }
+
+  sensor.co2 = sensor_S8->get_co2();
+  #ifdef VERBOSE
+  if(cfg.do_verbose){
+    Serial.print(F("S8 CO2 ppm: "));
+    Serial.println(sensor.co2);
+  }
+  #endif
+  return (double)sensor.co2;
+}
+#endif // S8
+
+#ifdef SE95
+void init_se95() {
+  // Initialize SE95 temperature sensor
+  Wire.begin();
+  #if defined(ARDUINO_ARCH_ESP32) || defined(ARDUINO_ARCH_ESP8266)
+  Wire.setPins(I2C_DAT, I2C_CLK);
+  #endif
+  #ifdef VERBOSE
+  if(cfg.do_verbose)
+    Serial.println(F("SE95 temperature sensor initialized"));
+  #endif
+  return;
+}
+
+double fetch_se95_temperature() {
+  // Fetch temperature from SE95 sensor
+  double temp = se95_temp_sensor.readTemperatureC();
+  #ifdef VERBOSE
+  if(cfg.do_verbose){
+    Serial.print(F("SE95 temperature: "));
+    Serial.print(temp);
+    Serial.println(F(" C"));
+  }
+  #endif
+  return (double)temp;
+}
+#endif // SE95
 
 double (*v_value_function[NR_OF_SENSORS])() = {
 #ifdef DHT11
@@ -566,10 +754,20 @@ double (*v_value_function[NR_OF_SENSORS])() = {
 #endif
 #ifdef APDS9930
     &fetch_apds_illuminance,  // APDS ILLUMINANCE
-    &fetch_apds_color         // APDS COLOR
+    &fetch_apds_color,        // APDS COLOR
 #else
     NULL,                     // APDS ILLUMINANCE
-    NULL                      // APDS COLOR
+    NULL,                     // APDS COLOR
+#endif
+#ifdef SE95
+    &fetch_se95_temperature,  // TEMPERATURE_SE95
+#else
+    NULL,                     // TEMPERATURE_SE95
+#endif
+#ifdef S8
+    &fetch_s8_co2             // S8 CO2
+#else
+    NULL                      // S8 CO2
 #endif
 };
 
@@ -589,10 +787,20 @@ void (*v_init_function[NR_OF_SENSORS])() = {
 #endif
 #ifdef APDS9930
     &init_apds9930,     // APDS ILLUMINANCE
-    &init_apds9930      // APDS COLOR
+    &init_apds9930,     // APDS COLOR
 #else
     NULL,               // APDS ILLUMINANCE
-    NULL                // APDS COLOR
+    NULL,               // APDS COLOR
+#endif
+#ifdef SE95
+    &init_se95,         // TEMPERATURE_SE95
+#else
+    NULL,               // TEMPERATURE_SE95
+#endif
+#ifdef S8
+    &init_s8            // S8 CO2
+#else
+    NULL                // S8 CO2
 #endif
 };
 
@@ -608,7 +816,9 @@ void (*v_pre_function[NR_OF_SENSORS])() = {
     NULL,              // LDR ILLUMINANCE
     NULL,              // AIR_QUALITY
     NULL,              // APDS ILLUMINANCE
-    NULL               // APDS COLOR
+    NULL,              // APDS COLOR
+    NULL,              // TEMPERATURE_SE95
+    NULL               // S8 CO2
 };
 
 void (*v_post_function[NR_OF_SENSORS])() = {
@@ -623,7 +833,9 @@ void (*v_post_function[NR_OF_SENSORS])() = {
     NULL,               // LDR ILLUMINANCE
     NULL,               // AIR_QUALITY
     NULL,               // APDS ILLUMINANCE
-    NULL                // APDS COLOR
+    NULL,               // APDS COLOR
+    NULL,               // TEMPERATURE_SE95
+    NULL                // S8 CO2
 };
 
 void setup(){
