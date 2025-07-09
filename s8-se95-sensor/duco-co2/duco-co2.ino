@@ -9,7 +9,6 @@
 #include "SerialCommands.h"
 #include "EEPROM.h"
 #include "sntp.h"
-#include <Wire.h>
 
 #ifndef VERBOSE
 #define VERBOSE
@@ -17,22 +16,6 @@
 #ifndef DEBUG
 #define DEBUG
 #endif
-
-#define I2C_DAT   6
-#define I2C_CLK   7
-
-/* DUCO CO2 Sensor contains a SE95 temperature on i2c, The
-   Temperature_LM75_Derived class can read that */
-#define TEMP_SENSOR
-#ifdef TEMP_SENSOR
-#include <Temperature_LM75_Derived.h>
-NXP_SE95 se95_temp_sensor;
-#endif
-
-/* DUCO CO2 Sensor uses an Sensair S8 LP sensor for CO2 */
-#include "s8_uart.h"
-S8_UART *sensor_S8;
-S8_sensor sensor;
 
 /* NTP server to use, can be configured later on via AT commands */
 #ifndef DEFAULT_NTP_SERVER
@@ -45,6 +28,23 @@ S8_sensor sensor;
 #else
  #define doYIELD
 #endif
+
+/* DUCO CO2 Sensor contains a SE95 temperature on i2c, The
+   Temperature_LM75_Derived class can read that */
+#define TEMP_SENSOR
+#ifdef TEMP_SENSOR
+#define I2C_DAT   6
+#define I2C_CLK   7
+#include <Wire.h>
+#include <Temperature_LM75_Derived.h>
+NXP_SE95 se95_temp_sensor;
+#endif
+
+/* DUCO CO2 Sensor uses an Sensair S8 LP sensor for CO2 */
+#include "s8_uart.h"
+S8_UART *sensor_S8;
+S8_sensor sensor;
+
 
 /* our AT commands over UART to config WiFi */
 char atscbu[128] = {""};
@@ -411,8 +411,17 @@ void loop(){
       if(!logged_wifi_status){
         #ifdef VERBOSE
         if(cfg.do_verbose){
-          Serial.print(F("WiFi connected: "));
+          Serial.println(F("WiFi connected: "));
+          Serial.print(F("ipv4:"));
           Serial.println(WiFi.localIP());
+          Serial.println(WiFi.gatewayIP());
+          Serial.print(F("WiFi MAC: "));
+          Serial.println(WiFi.macAddress());
+          Serial.print(F("WiFi RSSI: "));
+          Serial.println(WiFi.RSSI());
+          Serial.print(F("WiFi SSID: "));
+          Serial.println(WiFi.SSID());
+
         }
         #endif
         logged_wifi_status = 1;
@@ -422,6 +431,7 @@ void loop(){
     } else {
       valid_udp_host = 0;
     }
+    last_wifi_check = millis();
   }
 
   // CO2
