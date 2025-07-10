@@ -45,45 +45,6 @@
 #define MQ135
 #endif
 
-#ifdef SE95
-/* SE95 temperature on i2c, The Temperature_LM75_Derived 
-   class can read that */
-#define I2C_DAT   6
-#define I2C_CLK   7
-#include <Wire.h>
-#include <Temperature_LM75_Derived.h>
-NXP_SE95 se95_temp_sensor;
-#endif // SE95
-
-#ifdef S8
-/* Sensair S8 LP sensor for CO2 */
-#include "s8_uart.h"
-S8_UART *sensor_S8;
-S8_sensor sensor;
-#endif // S8
-
-
-#ifdef DHT11
-#include <DFRobot_DHT11.h>
-#define DHTPIN  A0     // GPIO2/A0 pin for DHT11
-DFRobot_DHT11 DHT;
-uint8_t did_dht11 = 0; // DHT11 read flag, to avoid multiple reads
-#endif
-
-#ifdef APDS9930
-#include <Wire.h>
-#include <Adafruit_APDS9930.h>
-#define APDS9930_I2C_ADDRESS 0x39 // default I2C address for APDS-9930
-#endif // APDS9930
-
-#ifdef LDR
-#define LDRPIN    A1 // GPIO3/A1 pin for LDR
-#endif
-
-#ifdef MQ135
-#define MQ135PIN  A2 // GPIO4/A2 pin for MQ-135
-#endif
-
 #define NR_OF_SENSORS 9
 #define HUMIDITY          0 // DHT11 humidity sensor
 #define TEMPERATURE       1 // DHT11 temperature sensor
@@ -119,16 +80,11 @@ const char *v_unit[NR_OF_SENSORS] = {
   "%s:%s*ppm,%.0f\r\n"             // AIR_QUALITY
 };
 
-#ifdef APDS9930
-Adafruit_APDS9930 apds(APDS9930_I2C_ADDRESS);
-uint16_t apds_r = 0, apds_g = 0, apds_b = 0, apds_c = 0;
-#endif // APDS9930
-
 /* our AT commands over UART to config WiFi */
 char atscbu[128] = {""};
 SerialCommands ATSc(&Serial, atscbu, sizeof(atscbu), "\r\n", "\r\n");
 
-#define CFGVERSION 0x02 // switch between 0x01/0x02 to reinit the config struct change
+#define CFGVERSION 0x01 // switch between 0x01/0x02 to reinit the config struct change
 #define CFGINIT    0x72 // at boot init check flag
 #define CFG_EEPROM 0x00 
 
@@ -436,6 +392,10 @@ void set_v(unsigned long *v, const char *p){
 }
 
 #ifdef DHT11
+#include <DFRobot_DHT11.h>
+#define DHTPIN  A0     // GPIO2/A0 pin for DHT11
+DFRobot_DHT11 DHT;
+uint8_t did_dht11 = 0; // DHT11 read flag, to avoid multiple reads
 double dht11_fetch_humidity(){
   // fetch humidity from DHT11
   if(!did_dht11){
@@ -498,6 +458,7 @@ void post_dht11(){
 #endif // DHT11
 
 #ifdef LDR
+#define LDRPIN    A1 // GPIO3/A1 pin for LDR
 double fetch_ldr_adc(){
   // fetch LDR ADC value
   int ldr_adc = analogReadMilliVolts(A1); // assuming LDR is connected to A0
@@ -523,6 +484,7 @@ void init_ldr_adc(){
 
 // MQ-135 Air Quality Sensor
 #ifdef MQ135
+#define MQ135PIN  A2 // GPIO4/A2 pin for MQ-135
 #define MQ135_RL 10000.0 // 10k Ohm load resistor
 #define MQ135_VCC 5.0    // Sensor powered by 5V
 #define MQ135_ADC_REF 3.3 // ESP32 ADC reference voltage
@@ -568,6 +530,11 @@ void init_mq135_adc(){
 #endif // MQ135
 
 #ifdef APDS9930
+#include <Wire.h>
+#include <Adafruit_APDS9930.h>
+#define APDS9930_I2C_ADDRESS 0x39 // default I2C address for APDS-9930
+Adafruit_APDS9930 apds(APDS9930_I2C_ADDRESS);
+uint16_t apds_r = 0, apds_g = 0, apds_b = 0, apds_c = 0;
 double fetch_apds_illuminance() {
   // fetch APDS-9930 illuminance (lux)
   float lux = 0;
@@ -616,6 +583,10 @@ void init_apds9930() {
 #endif // APDS-9930
 
 #ifdef S8
+/* Sensair S8 LP sensor for CO2 */
+#include "s8_uart.h"
+S8_UART *sensor_S8;
+S8_sensor sensor;
 void init_s8() {
   Serial1.begin(S8_BAUDRATE, SERIAL_8N1, 1, 0);
   sensor_S8 = new S8_UART(Serial1);
@@ -625,10 +596,10 @@ void init_s8() {
   int len = strlen(sensor.firm_version);
   if(len == 0){
     Serial.println("SenseAir S8 CO2 sensor not found!");
-    while(1){
-        doYIELD;
-        delay(1);
-    }
+    delete sensor_S8;
+    sensor_S8 = NULL;
+    cfg.enabled[S8_CO2] = 0; // Disable in config
+    return;
   }
 
   // Show basic S8 sensor info
@@ -690,7 +661,10 @@ void init_s8() {
 double fetch_s8_co2() {
   // Fetch CO2 value from S8 sensor
   if(sensor_S8 == NULL) {
-    Serial.println(F("S8 sensor not initialized!"));
+    #ifdef VERBOSE
+    if(cfg.do_verbose)
+        Serial.println(F("S8 sensor not initialized!"));
+    #endif
     return 0.0;
   }
 
@@ -706,12 +680,31 @@ double fetch_s8_co2() {
 #endif // S8
 
 #ifdef SE95
+#include <Wire.h>
+#define I2C_DAT   6
+#define I2C_CLK   7
+#define SE95_I2C_ADDRESS      0x48 // default I2C address for SE95
+#define SE95_TEMPERATURE      0x00 // Command to read temperature from SE95 sensor
+#define SE95_CONFIGURATION    0x01 // Command to configure SE95 sensor
+#define SE95_THYST            0x02 // Command to store the hysteresis threshold
+#define SE95_TOS              0x03 // Command to store the overtemperature shutdown threshold
+#define SE95_ID               0x05 // Command to read the ID of the SE95 sensor
 void init_se95() {
   // Initialize SE95 temperature sensor
   Wire.begin();
   #if defined(ARDUINO_ARCH_ESP32) || defined(ARDUINO_ARCH_ESP8266)
   Wire.setPins(I2C_DAT, I2C_CLK);
   #endif
+  // Fetch temperature from SE95 sensor
+  Wire.beginTransmission(SE95_I2C_ADDRESS);
+  if(Wire.endTransmission() != ESP_OK){
+    cfg.enabled[TEMPERATURE_SE95] = 0; // Disable in config
+    #ifdef VERBOSE
+    if(cfg.do_verbose)
+      Serial.println(F("SE95 sensor not found!"));
+    #endif
+    return;
+  }
   #ifdef VERBOSE
   if(cfg.do_verbose)
     Serial.println(F("SE95 temperature sensor initialized"));
@@ -720,8 +713,19 @@ void init_se95() {
 }
 
 double fetch_se95_temperature() {
+  Wire.beginTransmission(SE95_I2C_ADDRESS);
+  Wire.write(SE95_TEMPERATURE);
+  Wire.endTransmission();
+  Wire.requestFrom(SE95_I2C_ADDRESS, 2);
+  uint8_t msb = Wire.read();
+  uint8_t lsb = Wire.read();
+  uint16_t raw_temp = (msb << 8) | lsb; // Combine high and low byte
+  Wire.endTransmission();
+  // now convert the temp value to a 13-bit complement double
+  raw_temp &= 0x1FFF; // Mask to 13 bits
+  double temp = (double)raw_temp * 0.03125; // Convert to Celsius (0.03125 C per LSB)
+
   // Fetch temperature from SE95 sensor
-  double temp = se95_temp_sensor.readTemperatureC();
   #ifdef VERBOSE
   if(cfg.do_verbose){
     Serial.print(F("SE95 temperature: "));
@@ -857,7 +861,6 @@ void setup(){
 
   // setup UDP if host IP is set
   setup_udp();
-
   #ifdef VERBOSE
   if(cfg.do_verbose){
     if(strlen(cfg.ntp_host) && strlen(cfg.wifi_ssid) && strlen(cfg.wifi_pass)){
@@ -937,15 +940,23 @@ void setup(){
 }
 
 void loop(){
-  // any new AT command? on USB uart
-  ATSc.ReadSerial();
+  #ifdef VERBOSE
+  if(cfg.do_verbose)
+    Serial.print(F("."));
+  #endif
+
+  if(!ATSc.GetSerial()->available()){
+    // no AT command, just continue
+    doYIELD;
+  } else {
+    // we have AT command, handle it
+    ATSc.ReadSerial();
+  }
 
   delay(cfg.main_loop_delay);
 
   // just wifi check
   if(millis() - last_wifi_check > 500){
-    if(WiFi.status() != WL_CONNECTED)
-        setup_wifi();
     if(!logged_wifi_status){
       #ifdef VERBOSE
       if(cfg.do_verbose){
@@ -1045,6 +1056,8 @@ void setup_cfg(){
 
 
 void WiFiEvent(WiFiEvent_t event){
+  #ifdef VERBOSE
+  if(cfg.do_verbose){
     switch(event) {
         case ARDUINO_EVENT_WIFI_STA_START:
             Serial.println(F("WiFi STA started"));
@@ -1069,6 +1082,8 @@ void WiFiEvent(WiFiEvent_t event){
         default:
             break;
     }
+  }
+  #endif
 }
 
 void setup_wifi(){
@@ -1080,11 +1095,11 @@ void setup_wifi(){
   logged_wifi_status = 0; // reset logged status
 
   WiFi.disconnect(); // disconnect from any previous connection
-#ifdef VERBOSE
+  #ifdef VERBOSE
   if(cfg.do_verbose)
     Serial.println(F("Setting up WiFi..."));
   WiFi.onEvent(WiFiEvent);
-#endif
+  #endif
   WiFi.mode(WIFI_STA); // set WiFi mode to Station
   WiFi.setAutoReconnect(true); // enable auto-reconnect
   WiFi.setSleep(false); // disable WiFi sleep mode
