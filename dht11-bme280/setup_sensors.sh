@@ -14,7 +14,7 @@ R_PORT=${5:-5775}
 METRICS_KEY=${6:-${METRICS_KEY?$(usage "Error: Metrics key is not specified.")}}
 do_uart(){
     echo -n "Command: $*: "
-    (sleep 1; echo -ne "$*\r\n" >> $UART) &
+    (echo -ne "$*\r\n" >> $UART) &
     IFS=$'\n'
     while read -r l; do
         l=${l//[[:cntrl:]]/}
@@ -39,6 +39,7 @@ do_uart(){
             fi
         fi
     done < $UART
+    kill %1
 }
 do_uart "AT+WIFI_SSID=$SSID"
 do_uart "AT+WIFI_PASS=$PASS"
@@ -52,7 +53,16 @@ do_uart "AT+LDR_ILLUMINANCE_LOG_INTERVAL=5000"
 do_uart "AT+HUMIDITY_LOG_INTERVAL=5000"
 do_uart "AT+APDS_ILLUMINANCE_LOG_INTERVAL=5000"
 do_uart "AT+APDS_COLOR_LOG_INTERVAL=5000"
-do_uart "AT+S8_LOG_INTERVAL=5000"
-do_uart "AT+SE95_LOG_INTERVAL=5000"
+do_uart "AT+S8_CO2_LOG_INTERVAL=5000"
+do_uart "AT+SE95_TEMPERATURE_LOG_INTERVAL=5000"
+do_uart "AT+ENABLE_PRESSURE=0"
+do_uart "AT+ENABLE_HUMIDITY=0"
+do_uart "AT+ENABLE_TEMPERATURE=0"
+do_uart "AT+ENABLE_AIR_QUALITY=0"
+do_uart "AT+ENABLE_LDR_ILLUMINANCE=0"
+do_uart "AT+ENABLE_APDS_ILLUMINANCE=0"
+do_uart "AT+ENABLE_APDS_COLOR=0"
+do_uart "AT+ENABLE_S8_CO2=1"
+do_uart "AT+ENABLE_SE95_TEMPERATURE=1"
 do_uart "AT+VERBOSE=0"
 do_uart "AT+LOG_UART=0"

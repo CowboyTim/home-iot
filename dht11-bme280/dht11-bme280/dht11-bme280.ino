@@ -53,7 +53,7 @@
 #define AIR_QUALITY       4 // MQ-135 air quality sensor
 #define APDS_ILLUMINANCE  5 // APDS-9930 illuminance sensor
 #define APDS_COLOR        6 // APDS-9930 color sensor
-#define TEMPERATURE_SE95  7 // SE95 temperature sensor
+#define SE95_TEMPERATURE  7 // SE95 temperature sensor
 #define S8_CO2            8 // S8 CO2 sensor
 
 const char *v_key[NR_OF_SENSORS] = {
@@ -64,7 +64,7 @@ const char *v_key[NR_OF_SENSORS] = {
   "air_quality",
   "apds_illuminance",
   "apds_color",
-  "temperature_se95",
+  "se95_temperature",
   "s8_co2"
 };
 
@@ -147,8 +147,7 @@ void at_cmd_handler(SerialCommands* s, const char* atcmdline){
   } else if(p = at_cmd_check("AT+WIFI_SSID=", atcmdline, cmd_len)){
     size_t sz = (atcmdline+cmd_len)-p+1;
     if(sz > 31){
-      s->GetSerial()->println(F("WiFI SSID max 31 chars"));
-      s->GetSerial()->println(F("ERROR"));
+      s->GetSerial()->println(F("+ERROR: WiFI SSID max 31 chars"));
       return;
     }
     strncpy((char *)&cfg.wifi_ssid, p, sz);
@@ -163,8 +162,7 @@ void at_cmd_handler(SerialCommands* s, const char* atcmdline){
   } else if(p = at_cmd_check("AT+WIFI_PASS=", atcmdline, cmd_len)){
     size_t sz = (atcmdline+cmd_len)-p+1;
     if(sz > 63){
-      s->GetSerial()->println(F("WiFI password max 63 chars"));
-      s->GetSerial()->println(F("ERROR"));
+      s->GetSerial()->println(F("+ERROR: WiFi PASS max 63 chars"));
       return;
     }
     strncpy((char *)&cfg.wifi_pass, p, sz);
@@ -205,8 +203,7 @@ void at_cmd_handler(SerialCommands* s, const char* atcmdline){
   } else if(p = at_cmd_check("AT+KVMKEY=", atcmdline, cmd_len)){
     size_t sz = (atcmdline+cmd_len)-p+1;
     if(sz > 15){
-      s->GetSerial()->println(F("Location max 15 chars"));
-      s->GetSerial()->println(F("ERROR"));
+      s->GetSerial()->println(F("+ERROR: Location max 15 chars"));
       return;
     }
     strncpy((char *)&cfg.kvmkey, p, sz);
@@ -239,8 +236,7 @@ void at_cmd_handler(SerialCommands* s, const char* atcmdline){
   } else if(p = at_cmd_check("AT+NTP_HOST=", atcmdline, cmd_len)){
     size_t sz = (atcmdline+cmd_len)-p+1;
     if(sz > 63){
-      s->GetSerial()->println(F("NTP hostname max 63 chars"));
-      s->GetSerial()->println(F("ERROR"));
+      s->GetSerial()->println(F("+ERROR: NTP hostname max 63 chars"));
       return;
     }
     strncpy((char *)&cfg.ntp_host, p, sz);
@@ -262,8 +258,7 @@ void at_cmd_handler(SerialCommands* s, const char* atcmdline){
   } else if(p = at_cmd_check("AT+UDP_PORT=", atcmdline, cmd_len)){
     uint16_t new_udp_port = (uint16_t)strtol(p, NULL, 10);
     if(new_udp_port == 0){
-      s->GetSerial()->println(F("invalid udp port"));
-      s->GetSerial()->println(F("ERROR"));
+      s->GetSerial()->println(F("+ERROR: invalid UDP port"));
       return;
     }
     if(new_udp_port != cfg.udp_port){
@@ -276,14 +271,12 @@ void at_cmd_handler(SerialCommands* s, const char* atcmdline){
     s->GetSerial()->println(cfg.udp_host_ip);
   } else if(p = at_cmd_check("AT+UDP_HOST_IP=", atcmdline, cmd_len)){
     if(strlen(p) >= UDP_HOST_IP_MAXLEN){
-      s->GetSerial()->println(F("invalid udp host ip (too long)"));
-      s->GetSerial()->println(F("ERROR"));
+      s->GetSerial()->println(F("+ERROR: invalid udp host ip (too long)"));
       return;
     }
     IPAddress tst;
     if(!tst.fromString(p)){
-      s->GetSerial()->println(F("invalid udp host ip"));
-      s->GetSerial()->println(F("ERROR"));
+      s->GetSerial()->println(F("+ERROR: invalid udp host ip"));
       return;
     }
     // Accept IPv4 or IPv6 string
@@ -296,8 +289,7 @@ void at_cmd_handler(SerialCommands* s, const char* atcmdline){
     errno = 0;
     unsigned int new_c = strtoul(p, NULL, 10);
     if(errno != 0){
-      s->GetSerial()->println(F("invalid integer"));
-      s->GetSerial()->println(F("ERROR"));
+      s->GetSerial()->println(F("+ERROR: invalid number"));
       return;
     }
     if(new_c != cfg.main_loop_delay){
@@ -339,13 +331,13 @@ void at_cmd_handler(SerialCommands* s, const char* atcmdline){
     s->GetSerial()->println(cfg.v_intv[LDR_ILLUMINANCE]);
   } else if(p = at_cmd_check("AT+LDR_ILLUMINANCE_LOG_INTERVAL=", atcmdline, cmd_len)){
     set_v(&cfg.v_intv[LDR_ILLUMINANCE], p);
-  } else if(p = at_cmd_check("AT+S8_LOG_INTERVAL?", atcmdline, cmd_len)){
+  } else if(p = at_cmd_check("AT+S8_CO2_LOG_INTERVAL?", atcmdline, cmd_len)){
     s->GetSerial()->println(cfg.v_intv[AIR_QUALITY]); // S8 uses the same interval as AIR_QUALITY
-  } else if(p = at_cmd_check("AT+S8_LOG_INTERVAL=", atcmdline, cmd_len)){
+  } else if(p = at_cmd_check("AT+S8_CO2_LOG_INTERVAL=", atcmdline, cmd_len)){
     set_v(&cfg.v_intv[AIR_QUALITY], p); // S8 uses the same interval as AIR_QUALITY
-  } else if(p = at_cmd_check("AT+SE95_LOG_INTERVAL?", atcmdline, cmd_len)){
+  } else if(p = at_cmd_check("AT+SE95_TEMPERATURE_LOG_INTERVAL?", atcmdline, cmd_len)){
     s->GetSerial()->println(cfg.v_intv[TEMPERATURE]); // SE95 uses the same interval as TEMPERATURE
-  } else if(p = at_cmd_check("AT+SE95_LOG_INTERVAL=", atcmdline, cmd_len)){
+  } else if(p = at_cmd_check("AT+SE95_TEMPERATURE_LOG_INTERVAL=", atcmdline, cmd_len)){
     set_v(&cfg.v_intv[TEMPERATURE], p); // SE95 uses the same interval as TEMPERATURE
   } else if(p = at_cmd_check("AT+MQ135_R0?", atcmdline, cmd_len)){
     s->GetSerial()->println(cfg.mq135_r0, 2);
@@ -356,15 +348,17 @@ void at_cmd_handler(SerialCommands* s, const char* atcmdline){
   } else if(p = at_cmd_check("AT+MQ135_R0=", atcmdline, cmd_len)){
     double new_r0 = atof(p);
     if(new_r0 < 1000.0 || new_r0 > 100000.0){
-      s->GetSerial()->println(F("R0 out of range (1000-100000)"));
-      s->GetSerial()->println(F("ERROR"));
+      s->GetSerial()->println(F("+ERROR: invalid R0 value (1000-100000)"));
       return;
     }
     cfg.mq135_r0 = new_r0;
     EEPROM.put(CFG_EEPROM, cfg);
     EEPROM.commit();
+  } else if(p = at_cmd_check("AT+ENABLE_", atcmdline, cmd_len)){
+    at_cmd_handler_sensor(s, atcmdline, cmd_len);
+    return;
   } else {
-    s->GetSerial()->println(F("ERROR"));
+    s->GetSerial()->println(F("+ERROR: unknown command"));
     return;
   }
   s->GetSerial()->println(F("OK"));
@@ -375,13 +369,11 @@ void set_v(unsigned long *v, const char *p){
   errno = 0;
   unsigned int l_int = (double)strtoul(p, NULL, 10);
   if(errno != 0){
-    ATSc.GetSerial()->println(F("invalid integer"));
-    ATSc.GetSerial()->println(F("ERROR"));
+    ATSc.GetSerial()->println(F("+ERROR: invalid number"));
     return;
   }
   if(l_int < 100){
-    ATSc.GetSerial()->println(F("interval must be at least 100ms"));
-    ATSc.GetSerial()->println(F("ERROR"));
+    ATSc.GetSerial()->println(F("+ERROR: invalid interval, must be at least 100ms"));
     return;
   }
   if(l_int != *(unsigned long *)v){
@@ -698,7 +690,7 @@ void init_se95() {
   // Fetch temperature from SE95 sensor
   Wire.beginTransmission(SE95_I2C_ADDRESS);
   if(Wire.endTransmission() != ESP_OK){
-    cfg.enabled[TEMPERATURE_SE95] = 0; // Disable in config
+    cfg.enabled[SE95_TEMPERATURE] = 0; // Disable in config
     #ifdef VERBOSE
     if(cfg.do_verbose)
       Serial.println(F("SE95 sensor not found!"));
@@ -764,9 +756,9 @@ double (*v_value_function[NR_OF_SENSORS])() = {
     NULL,                     // APDS COLOR
 #endif
 #ifdef SE95
-    &fetch_se95_temperature,  // TEMPERATURE_SE95
+    &fetch_se95_temperature,  // SE95_TEMPERATURE
 #else
-    NULL,                     // TEMPERATURE_SE95
+    NULL,                     // SE95_TEMPERATURE
 #endif
 #ifdef S8
     &fetch_s8_co2             // S8 CO2
@@ -797,9 +789,9 @@ void (*v_init_function[NR_OF_SENSORS])() = {
     NULL,               // APDS COLOR
 #endif
 #ifdef SE95
-    &init_se95,         // TEMPERATURE_SE95
+    &init_se95,         // SE95_TEMPERATURE
 #else
-    NULL,               // TEMPERATURE_SE95
+    NULL,               // SE95_TEMPERATURE
 #endif
 #ifdef S8
     &init_s8            // S8 CO2
@@ -821,7 +813,7 @@ void (*v_pre_function[NR_OF_SENSORS])() = {
     NULL,              // AIR_QUALITY
     NULL,              // APDS ILLUMINANCE
     NULL,              // APDS COLOR
-    NULL,              // TEMPERATURE_SE95
+    NULL,              // SE95_TEMPERATURE
     NULL               // S8 CO2
 };
 
@@ -838,7 +830,7 @@ void (*v_post_function[NR_OF_SENSORS])() = {
     NULL,               // AIR_QUALITY
     NULL,               // APDS ILLUMINANCE
     NULL,               // APDS COLOR
-    NULL,               // TEMPERATURE_SE95
+    NULL,               // SE95_TEMPERATURE
     NULL                // S8 CO2
 };
 
@@ -1141,3 +1133,35 @@ void setup_udp(){
   }
 }
 
+void at_cmd_handler_sensor(SerialCommands *s, const char *at_cmd, unsigned short at_len){
+    // Add sensor enable/disable AT commands (UPPERCASE only)
+    for (int i = 0; i < NR_OF_SENSORS; i++) {
+        char enable_set_cmd[48];
+        char enable_get_cmd[48];
+        snprintf(enable_set_cmd, sizeof(enable_set_cmd), "AT+ENABLE_%s=", v_key[i]);
+        snprintf(enable_get_cmd, sizeof(enable_get_cmd), "AT+ENABLE_%s?", v_key[i]);
+        if(at_len < strlen(enable_set_cmd) || at_len < strlen(enable_get_cmd)) {
+            continue; // skip if command is too short
+        }
+
+        if (strncasecmp(enable_set_cmd, at_cmd, strlen(enable_set_cmd)) == 0) {
+            int val = atoi(at_cmd + strlen(enable_set_cmd));
+            if (val != 0 && val != 1) {
+                s->GetSerial()->println(F("+ERROR: Enable must be 0 or 1"));
+                return;
+            }
+            cfg.enabled[i] = val;
+            EEPROM.put(CFG_EEPROM, cfg);
+            EEPROM.commit();
+            s->GetSerial()->println(F("OK"));
+            return;
+        } else if (strncasecmp(enable_get_cmd, at_cmd, strlen(enable_get_cmd)) == 0) {
+            s->GetSerial()->println(cfg.enabled[i]);
+            return;
+        } else {
+            continue; // continue to next sensor
+        }
+    }
+    // if no sensor matched, print error
+    s->GetSerial()->println(F("+ERROR: unknown command"));
+}
