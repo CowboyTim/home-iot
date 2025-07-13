@@ -76,8 +76,8 @@ const char *v_unit[NR_OF_SENSORS] = {
   "%s:%s*ppm,%.0f\r\n",            // AIR_QUALITY
   "%s:%s*lx,%.0f\r\n",             // APDS ILLUMINANCE
   "%s:%s*rgbc,%lu,%lu,%lu,%lu\r\n",// APDS COLOR (R,G,B,C)
-  "%s:%s*°C,%.2f\r\n",             // TEMPERATURE
-  "%s:%s*ppm,%.0f\r\n"             // AIR_QUALITY
+  "%s:%s*°C,%.5f\r\n",             // SE95_TEMPERATURE
+  "%s:%s*ppm,%.0f\r\n"             // S8_CO2
 };
 
 /* our AT commands over UART to config WiFi */
@@ -676,13 +676,40 @@ double fetch_se95_temperature() {
   Wire.write(SE95_TEMPERATURE);
   Wire.endTransmission();
   Wire.requestFrom(SE95_I2C_ADDRESS, 2);
-  uint8_t msb = Wire.read();
-  uint8_t lsb = Wire.read();
-  uint16_t raw_temp = (msb << 8) | lsb; // Combine high and low byte
-  Wire.endTransmission();
-  // now convert the temp value to a 13-bit complement double
-  raw_temp &= 0x1FFF; // Mask to 13 bits
-  double temp = (double)raw_temp * 0.03125; // Convert to Celsius (0.03125 C per LSB)
+  uint8_t msb, lsb;
+  if(Wire.available()){
+    msb = Wire.read();
+  } else {
+    #ifdef VERBOSE
+    if(cfg.do_verbose)
+      Serial.println(F("SE95 temperature read error, no data available"));
+    #endif
+    return 0.0; // No data available, return 0.0
+  }
+  if(Wire.available()){
+    lsb = Wire.read();
+  } else {
+    #ifdef VERBOSE
+    if(cfg.do_verbose)
+      Serial.println(F("SE95 temperature read error, no data available"));
+    #endif
+    return 0.0; // No data available, return 0.0
+  }
+  if(Wire.endTransmission() != ESP_OK){
+    #ifdef VERBOSE
+    if(cfg.do_verbose)
+      Serial.println(F("SE95 temperature read error, end transmission failed"));
+    #endif
+    return 0.0; // Transmission error, return 0.0
+  }
+
+  // Convert the raw temperature data
+  // MSB=0, +(TEMP * 0.03125)
+  // MSB=1, -(TEMP two complement) * 0.03125
+  // get 13 bits, shift right 3
+  uint16_t raw_temp = ((msb << 8) | lsb) >> 3;
+  double temp;
+  temp = (double)raw_temp * 0.03125;
 
   // Fetch temperature from SE95 sensor
   #ifdef VERBOSE
