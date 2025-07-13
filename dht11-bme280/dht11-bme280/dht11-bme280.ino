@@ -1134,18 +1134,40 @@ void setup_udp(){
 }
 
 void at_cmd_handler_sensor(SerialCommands *s, const char *at_cmd, unsigned short at_len){
-    // Add sensor enable/disable AT commands (UPPERCASE only)
+    const char *p = NULL;
     for (int i = 0; i < NR_OF_SENSORS; i++) {
-        char enable_set_cmd[48];
-        char enable_get_cmd[48];
-        snprintf(enable_set_cmd, sizeof(enable_set_cmd), "AT+ENABLE_%s=", v_key[i]);
-        snprintf(enable_get_cmd, sizeof(enable_get_cmd), "AT+ENABLE_%s?", v_key[i]);
-        if(at_len < strlen(enable_set_cmd) || at_len < strlen(enable_get_cmd)) {
-            continue; // skip if command is too short
-        }
+        if (p = at_cmd_check("AT+ENABLE_", at_cmd, at_len)) {
+            // move pointer past "AT+ENABLE_"
+            p += strlen("AT+ENABLE_");
+            // AT+ENABLE_<sensor>=<0|1> or AT+ENABLE_<sensor>?
+            #ifdef AT_DEBUG
+            Serial.print(F("AT+ENABLE_ command for sensor: "));
+            Serial.println(v_key[i]);
+            #endif
+            // match sensor?
+            if(strncasecmp(v_key[i], p, strlen(v_key[i])) != 0) {
+                #ifdef AT_DEBUG
+                Serial.print(F("Sensor key does not match: "));
+                Serial.println(v_key[i]);
+                Serial.println(p);
+                #endif
+                continue; // not matching sensor key
+            }
+            // move pointer to the = or ? part
+            p += strlen(v_key[i]);
+            if(*p == '?') {
+                // query enable status
+                s->GetSerial()->println(cfg.enabled[i]);
+                return;
+            }
+            if(*p != '=') {
+                // error handle
+                s->GetSerial()->println(F("+ERROR: Enable command must end with =<0|1> or ?"));
+                return;
+            }
+            p++; // move past '='
 
-        if (strncasecmp(enable_set_cmd, at_cmd, strlen(enable_set_cmd)) == 0) {
-            int val = atoi(at_cmd + strlen(enable_set_cmd));
+            int val = atoi(p);
             if (val != 0 && val != 1) {
                 s->GetSerial()->println(F("+ERROR: Enable must be 0 or 1"));
                 return;
@@ -1154,9 +1176,6 @@ void at_cmd_handler_sensor(SerialCommands *s, const char *at_cmd, unsigned short
             EEPROM.put(CFG_EEPROM, cfg);
             EEPROM.commit();
             s->GetSerial()->println(F("OK"));
-            return;
-        } else if (strncasecmp(enable_get_cmd, at_cmd, strlen(enable_get_cmd)) == 0) {
-            s->GetSerial()->println(cfg.enabled[i]);
             return;
         } else {
             continue; // continue to next sensor
