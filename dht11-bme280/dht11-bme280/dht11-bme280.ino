@@ -303,42 +303,6 @@ void at_cmd_handler(SerialCommands* s, const char* atcmdline){
     s->GetSerial()->println(F("OK"));
     resetFunc();
     return;
-  } else if(p = at_cmd_check("AT+AIR_QUALITY_LOG_INTERVAL?", atcmdline, cmd_len)){
-    s->GetSerial()->println(cfg.v_intv[AIR_QUALITY]);
-  } else if(p = at_cmd_check("AT+AIR_QUALITY_LOG_INTERVAL=", atcmdline, cmd_len)){
-    set_v(&cfg.v_intv[AIR_QUALITY], p);
-  } else if(p = at_cmd_check("AT+APDS_ILLUMINANCE_LOG_INTERVAL?", atcmdline, cmd_len)){
-    s->GetSerial()->println(cfg.v_intv[APDS_ILLUMINANCE]);
-  } else if(p = at_cmd_check("AT+APDS_ILLUMINANCE_LOG_INTERVAL=", atcmdline, cmd_len)){
-    set_v(&cfg.v_intv[APDS_ILLUMINANCE], p);
-  } else if(p = at_cmd_check("AT+APDS_COLOR_LOG_INTERVAL?", atcmdline, cmd_len)){
-    s->GetSerial()->println(cfg.v_intv[APDS_COLOR]);
-  } else if(p = at_cmd_check("AT+APDS_COLOR_LOG_INTERVAL=", atcmdline, cmd_len)){
-    set_v(&cfg.v_intv[APDS_COLOR], p);
-  } else if(p = at_cmd_check("AT+HUMIDITY_LOG_INTERVAL?", atcmdline, cmd_len)){
-    s->GetSerial()->println(cfg.v_intv[HUMIDITY]);
-  } else if(p = at_cmd_check("AT+HUMIDITY_LOG_INTERVAL=", atcmdline, cmd_len)){
-    set_v(&cfg.v_intv[HUMIDITY], p);
-  } else if(p = at_cmd_check("AT+TEMPERATURE_LOG_INTERVAL?", atcmdline, cmd_len)){
-    s->GetSerial()->println(cfg.v_intv[TEMPERATURE]);
-  } else if(p = at_cmd_check("AT+TEMPERATURE_LOG_INTERVAL=", atcmdline, cmd_len)){
-    set_v(&cfg.v_intv[TEMPERATURE], p);
-  } else if(p = at_cmd_check("AT+PRESSURE_LOG_INTERVAL?", atcmdline, cmd_len)){
-    s->GetSerial()->println(cfg.v_intv[PRESSURE]);
-  } else if(p = at_cmd_check("AT+PRESSURE_LOG_INTERVAL=", atcmdline, cmd_len)){
-    set_v(&cfg.v_intv[PRESSURE], p);
-  } else if(p = at_cmd_check("AT+LDR_ILLUMINANCE_LOG_INTERVAL?", atcmdline, cmd_len)){
-    s->GetSerial()->println(cfg.v_intv[LDR_ILLUMINANCE]);
-  } else if(p = at_cmd_check("AT+LDR_ILLUMINANCE_LOG_INTERVAL=", atcmdline, cmd_len)){
-    set_v(&cfg.v_intv[LDR_ILLUMINANCE], p);
-  } else if(p = at_cmd_check("AT+S8_CO2_LOG_INTERVAL?", atcmdline, cmd_len)){
-    s->GetSerial()->println(cfg.v_intv[AIR_QUALITY]); // S8 uses the same interval as AIR_QUALITY
-  } else if(p = at_cmd_check("AT+S8_CO2_LOG_INTERVAL=", atcmdline, cmd_len)){
-    set_v(&cfg.v_intv[AIR_QUALITY], p); // S8 uses the same interval as AIR_QUALITY
-  } else if(p = at_cmd_check("AT+SE95_TEMPERATURE_LOG_INTERVAL?", atcmdline, cmd_len)){
-    s->GetSerial()->println(cfg.v_intv[TEMPERATURE]); // SE95 uses the same interval as TEMPERATURE
-  } else if(p = at_cmd_check("AT+SE95_TEMPERATURE_LOG_INTERVAL=", atcmdline, cmd_len)){
-    set_v(&cfg.v_intv[TEMPERATURE], p); // SE95 uses the same interval as TEMPERATURE
   } else if(p = at_cmd_check("AT+MQ135_R0?", atcmdline, cmd_len)){
     s->GetSerial()->println(cfg.mq135_r0, 2);
     return;
@@ -354,6 +318,9 @@ void at_cmd_handler(SerialCommands* s, const char* atcmdline){
     cfg.mq135_r0 = new_r0;
     EEPROM.put(CFG_EEPROM, cfg);
     EEPROM.commit();
+  } else if(p = at_cmd_check("AT+LOG_INTERVAL_", atcmdline, cmd_len)){
+    at_cmd_handler_sensor(s, atcmdline, cmd_len);
+    return;
   } else if(p = at_cmd_check("AT+ENABLE_", atcmdline, cmd_len)){
     at_cmd_handler_sensor(s, atcmdline, cmd_len);
     return;
@@ -1173,6 +1140,42 @@ void at_cmd_handler_sensor(SerialCommands *s, const char *at_cmd, unsigned short
                 return;
             }
             cfg.enabled[i] = val;
+            EEPROM.put(CFG_EEPROM, cfg);
+            EEPROM.commit();
+            s->GetSerial()->println(F("OK"));
+            return;
+        } else if (p = at_cmd_check("AT+LOG_INTERVAL_", at_cmd, at_len)){
+            // move pointer past "AT+LOG_INTERVAL_"
+            p += strlen("AT+LOG_INTERVAL_");
+            // AT+LOG_INTERVAL_<sensor>=<interval>
+            #ifdef AT_DEBUG
+            Serial.print(F("AT+LOG_INTERVAL_ command for sensor: "));
+            Serial.println(v_key[i]);
+            #endif
+            // match sensor?
+            if(strncasecmp(v_key[i], p, strlen(v_key[i])) != 0) {
+                #ifdef AT_DEBUG
+                Serial.print(F("Sensor key does not match: "));
+                Serial.println(v_key[i]);
+                Serial.println(p);
+                #endif
+                continue; // not matching sensor key
+            }
+            // move pointer to the = part
+            p += strlen(v_key[i]);
+            if(*p != '=') {
+                // error handle
+                s->GetSerial()->println(F("+ERROR: Log interval command must end with =<interval>"));
+                return;
+            }
+            p++; // move past '='
+
+            unsigned long new_interval = strtoul(p, NULL, 10);
+            if(new_interval < 100){
+              s->GetSerial()->println(F("+ERROR: Log interval must be at least 100ms"));
+              return;
+            }
+            cfg.v_intv[i] = new_interval;
             EEPROM.put(CFG_EEPROM, cfg);
             EEPROM.commit();
             s->GetSerial()->println(F("OK"));
