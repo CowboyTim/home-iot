@@ -1,6 +1,6 @@
 #!/bin/bash
 
-MODULE=${MODULE:-duco-co2}
+MODULE=${MODULE:-sensors}
 DEV_PLATFORM=${DEV_PLATFORM:-esp32:esp32}
 DEV_BOARD=${DEV_BOARD:-esp32:esp32:esp32c3}
 DEV_PORT=${DEV_PORT:-/dev/ttyACM0}
@@ -13,6 +13,7 @@ function do_update(){
         arduino-cli --additional-urls "$DEV_URLS" update
         arduino-cli --additional-urls "$DEV_URLS" lib update-index
         arduino-cli --additional-urls "$DEV_URLS" lib install 'SerialCommands'
+        arduino-cli --additional-urls "$DEV_URLS" lib install 'DFRobot_DHT11'
         arduino-cli --additional-urls "$DEV_URLS" lib install 'S8_UART'
         arduino-cli --additional-urls "$DEV_URLS" lib install 'I2C Temperature Sensors derived from the LM75'
         arduino-cli --additional-urls "$DEV_URLS" lib upgrade
@@ -22,9 +23,10 @@ function do_update(){
 }
 function do_build(){
     DEV_EXTRA_FLAGS="-DARDUINO_USB_MODE=1 -DARDUINO_USB_CDC_ON_BOOT=1"
-    if [ ! -z "${DEBUG}" -a "${DEBUG}" = "1" ]; then
+    if [ ! -z "${DEBUG}" -a "${DEBUG:-0}" = "1" ]; then
         DEV_EXTRA_FLAGS="$DEV_EXTRA_FLAGS -DDEBUG"
     fi
+#endif
     if [ ! -z "${AT_DEBUG}" -a "${AT_DEBUG:-0}" = "1" ]; then
         DEV_EXTRA_FLAGS="$DEV_EXTRA_FLAGS -DAT_DEBUG"
     fi
