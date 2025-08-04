@@ -12,6 +12,7 @@ function do_update(){
     [ "${DEV_UPDATE:-0}" = 1 ] && {
         arduino-cli core install $DEV_PLATFORM
         arduino-cli --additional-urls "$DEV_URLS" update
+        arduino-cli --additional-urls "$DEV_URLS" core install "${PLATFORM_BOARD}"
         arduino-cli --additional-urls "$DEV_URLS" lib update-index
         arduino-cli --additional-urls "$DEV_URLS" lib install 'SerialCommands'
         arduino-cli --additional-urls "$DEV_URLS" lib upgrade
@@ -19,6 +20,7 @@ function do_update(){
         arduino-cli --additional-urls "$DEV_URLS" board list
     }
 }
+
 function do_build(){
     DEV_EXTRA_FLAGS="-DARDUINO_USB_MODE=1 -DARDUINO_USB_CDC_ON_BOOT=1"
     if [ ! -z "${DEBUG}" -a "${DEBUG:-0}" = "1" ]; then
