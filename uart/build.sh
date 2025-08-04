@@ -1,6 +1,6 @@
 #!/bin/bash
 
-MODULE=${MODULE:-sensors}
+MODULE=${MODULE:-uart}
 DEV_PLATFORM=${DEV_PLATFORM:-esp32:esp32}
 DEV_BOARD=${DEV_BOARD:-esp32:esp32:esp32c3}
 DEV_PORT=${DEV_PORT:-/dev/ttyACM0}
@@ -14,9 +14,6 @@ function do_update(){
         arduino-cli --additional-urls "$DEV_URLS" update
         arduino-cli --additional-urls "$DEV_URLS" lib update-index
         arduino-cli --additional-urls "$DEV_URLS" lib install 'SerialCommands'
-        arduino-cli --additional-urls "$DEV_URLS" lib install 'DFRobot_DHT11'
-        arduino-cli --additional-urls "$DEV_URLS" lib install 'S8_UART'
-        arduino-cli --additional-urls "$DEV_URLS" lib install 'I2C Temperature Sensors derived from the LM75'
         arduino-cli --additional-urls "$DEV_URLS" lib upgrade
         arduino-cli --additional-urls "$DEV_URLS" lib list
         arduino-cli --additional-urls "$DEV_URLS" board list
