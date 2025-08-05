@@ -12,6 +12,29 @@
 #include "EEPROM.h"
 #include "sntp.h"
 
+#define BLUETOOTH_UART_AT
+
+#ifdef BLUETOOTH_UART_AT
+#define BLUETOOTH_UART_DEFAULT_PIN "1234"
+#define BLUETOOTH_UART_DEVICE_NAME "UART"
+#include "BluetoothSerial.h"
+#if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
+#warning Bluetooth is not enabled or possible.
+#undef BLUETOOTH_UART_AT
+#endif
+#if !defined(CONFIG_BT_SPP_ENABLED)
+#warning Serial Bluetooth not available or not enabled. It is only available for the ESP32 chip.
+#undef BLUETOOTH_UART_AT
+#endif
+#endif
+
+#ifdef BLUETOOTH_UART_AT
+/* AT commands over Classic Serial Bluetooth */
+BluetoothSerial SerialBT;
+char atscbt[128] = {""};
+SerialCommands ATScBT(&SerialBT, atscbt, sizeof(atscbt), "\r\n", "\r\n");
+#endif
+
 #ifndef VERBOSE
 #define VERBOSE
 #endif
@@ -257,6 +280,14 @@ void setup(){
   setenv("TZ", "UTC", 1);
   tzset();
 
+  // BlueTooth SPP setup possible?
+  #ifdef BLUETOOTH_UART_AT
+  SerialBT.begin(BLUETOOTH_UART_DEVICE_NAME);
+  SerialBT.setPin(BLUETOOTH_UART_DEFAULT_PIN);
+  SerialBT.register_callback(BT_EventHandler);
+  ATScBT.SetDefaultHandler(&at_cmd_handler);
+  #endif
+
   // setup WiFi with ssid/pass from EEPROM if set
   setup_wifi();
 
@@ -365,6 +396,30 @@ void WiFiEvent(WiFiEvent_t event){
   }
   #endif
 }
+
+#ifdef BLUETOOTH_UART_AT
+void BT_EventHandler(esp_spp_cb_event_t event, esp_spp_cb_param_t *param){
+  if(event == ESP_SPP_START_EVT){
+    #ifdef VERBOSE
+    Serial.println(F("BlueTooth UART Initialized SPP"));
+    #endif
+  } else if(event == ESP_SPP_SRV_OPEN_EVT){
+    #ifdef VERBOSE
+    Serial.println(F("BlueTooth UART Client connected"));
+    #endif
+  } else if(event == ESP_SPP_CLOSE_EVT){
+    #ifdef VERBOSE
+    Serial.println(F("BlueTooth UART Client disconnected"));
+    #endif
+  } else if(event == ESP_SPP_DATA_IND_EVT){
+    #ifdef VERBOSE
+    Serial.println(F("BlueTooth UART Data received"));
+    #endif
+    // any new AT command?
+    ATScBT.ReadSerial();
+  }
+}
+#endif
 
 void setup_wifi(){
   // are we connecting to WiFi?
