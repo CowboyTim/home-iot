@@ -15,6 +15,7 @@ function do_update(){
         arduino-cli --additional-urls "$DEV_URLS" core install "${PLATFORM_BOARD}"
         arduino-cli --additional-urls "$DEV_URLS" lib update-index
         arduino-cli --additional-urls "$DEV_URLS" lib install 'SerialCommands'
+        arduino-cli --additional-urls "$DEV_URLS" lib uninstall 'ArduinoBLE'
         arduino-cli --additional-urls "$DEV_URLS" lib upgrade
         arduino-cli --additional-urls "$DEV_URLS" lib list
         arduino-cli --additional-urls "$DEV_URLS" board list
@@ -67,6 +68,7 @@ case $1 in
         do_monitor
         ;;
     build|compile)
+        DEV_UPDATE=1 do_update
         do_build
         ;;
     update)
