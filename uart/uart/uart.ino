@@ -17,18 +17,29 @@
 #ifdef BLUETOOTH_UART_AT
 #define BLUETOOTH_UART_DEFAULT_PIN "1234"
 #define BLUETOOTH_UART_DEVICE_NAME "UART"
+
 #include "BluetoothSerial.h"
 #if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
 #warning Bluetooth is not enabled or possible.
-#undef BLUETOOTH_UART_AT
+#undef BT_CLASSIC
+#undef BT_BLE
 #endif
 #if !defined(CONFIG_BT_SPP_ENABLED)
 #warning Serial Bluetooth not available or not enabled. It is only available for the ESP32 chip.
-#undef BLUETOOTH_UART_AT
-#endif
+#undef BT_CLASSIC
+#define BT_BLE
 #endif
 
-#ifdef BLUETOOTH_UART_AT
+#include "BLEUUID.h"
+#include <BLEDevice.h>
+
+#endif
+
+#if !defined(BT_BLE) && !defined(BT_CLASSIC)
+#undef BLUETOOTH_UART_AT
+#endif
+
+#ifdef BT_CLASSIC
 /* AT commands over Classic Serial Bluetooth */
 BluetoothSerial SerialBT;
 char atscbt[128] = {""};
@@ -282,10 +293,15 @@ void setup(){
 
   // BlueTooth SPP setup possible?
   #ifdef BLUETOOTH_UART_AT
+  #ifdef BT_BLE
+  setup_ble();
+  #endif
+  #ifdef BT_CLASSIC
   SerialBT.begin(BLUETOOTH_UART_DEVICE_NAME);
   SerialBT.setPin(BLUETOOTH_UART_DEFAULT_PIN);
   SerialBT.register_callback(BT_EventHandler);
   ATScBT.SetDefaultHandler(&at_cmd_handler);
+  #endif
   #endif
 
   // setup WiFi with ssid/pass from EEPROM if set
@@ -397,7 +413,7 @@ void WiFiEvent(WiFiEvent_t event){
   #endif
 }
 
-#ifdef BLUETOOTH_UART_AT
+#ifdef BT_CLASSIC
 void BT_EventHandler(esp_spp_cb_event_t event, esp_spp_cb_param_t *param){
   if(event == ESP_SPP_START_EVT){
     #ifdef VERBOSE
@@ -474,4 +490,7 @@ void setup_udp(){
     }
     #endif
   }
+}
+
+void setup_ble(){
 }

@@ -15,6 +15,7 @@ function do_update(){
         arduino-cli --additional-urls "$DEV_URLS" core install "${PLATFORM_BOARD}"
         arduino-cli --additional-urls "$DEV_URLS" lib update-index
         arduino-cli --additional-urls "$DEV_URLS" lib install 'SerialCommands'
+        arduino-cli --additional-urls "$DEV_URLS" lib install 'ArduinoBLE'
         arduino-cli --additional-urls "$DEV_URLS" lib upgrade
         arduino-cli --additional-urls "$DEV_URLS" lib list
         arduino-cli --additional-urls "$DEV_URLS" board list
@@ -22,7 +23,7 @@ function do_update(){
 }
 
 function do_build(){
-    DEV_EXTRA_FLAGS="-DARDUINO_USB_MODE=1 -DARDUINO_USB_CDC_ON_BOOT=1"
+    DEV_EXTRA_FLAGS="-DARDUINO_USB_MODE=1 -DARDUINO_USB_CDC_ON_BOOT=1 -D_ARDUINO_BLE_H_"
     if [ ! -z "${DEBUG}" -a "${DEBUG:-0}" = "1" ]; then
         DEV_EXTRA_FLAGS="$DEV_EXTRA_FLAGS -DDEBUG"
     fi
