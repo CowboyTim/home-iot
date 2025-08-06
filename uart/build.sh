@@ -12,7 +12,7 @@ function do_update(){
     [ "${DEV_UPDATE:-0}" = 1 ] && {
         arduino-cli core install $DEV_PLATFORM
         arduino-cli --additional-urls "$DEV_URLS" update
-        arduino-cli --additional-urls "$DEV_URLS" core install "${PLATFORM_BOARD}"
+        arduino-cli --additional-urls "$DEV_URLS" core install "${DEV_PLATFORM}"
         arduino-cli --additional-urls "$DEV_URLS" lib update-index
         arduino-cli --additional-urls "$DEV_URLS" lib install 'SerialCommands'
         arduino-cli --additional-urls "$DEV_URLS" lib uninstall 'ArduinoBLE'
