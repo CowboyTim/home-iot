@@ -418,6 +418,11 @@ void at_cmd_handler(SerialCommands* s, const char* atcmdline){
     }
     return;
   }
+  if(s != NULL) {
+    s->GetSerial()->println(F("OK"));
+  } else {
+    ble_send_response("OK");
+  }
 }
 
 // BLE UART Service - Nordic UART Service UUID
