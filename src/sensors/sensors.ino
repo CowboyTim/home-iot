@@ -211,7 +211,7 @@ typedef struct cfg_t {
   uint8_t ipv4_dns[4]  = {0}; // static DNS server
   char udp_host_ip[UDP_HOST_IP_MAXLEN] = {0}; // IPv4 or IPv6 string
   char kvmkey[16]      = "unknown"; // location, max 15 + 1
-  unsigned long v_intv[NR_OF_SENSORS]  = {0};
+  unsigned long v_intv[NR_OF_SENSORS]  = {1000};
   uint8_t       enabled[NR_OF_SENSORS] = {0};
   double mq135_r0      = 10000.0; // Default R0, configurable via AT command
 };
@@ -1478,11 +1478,6 @@ void setup_cfg(){
     cfg.main_loop_delay   = 100;
     strcpy((char *)&cfg.ntp_host, (char *)DEFAULT_NTP_SERVER);
     cfg.ip_mode = IPV4_DHCP | IPV6_DHCP;
-    cfg.mq135_r0 = 10000.0; // Default R0
-    for(int i = 0; i < NR_OF_SENSORS; i++)
-      cfg.v_intv[i] = 1000;
-    for(int i = 0; i < NR_OF_SENSORS; i++)
-      cfg.enabled[i] = 1; // enable all sensors by default
     // write to EEPROM
     EEPROM.put(CFG_EEPROM, cfg);
     EEPROM.commit();
