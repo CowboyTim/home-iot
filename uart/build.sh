@@ -1,10 +1,12 @@
 #!/bin/bash
 
+HERE=$(dirname $(readlink -f $BASH_SOURCE))
 MODULE=${MODULE:-uart}
 DEV_PLATFORM=${DEV_PLATFORM:-esp32:esp32}
 DEV_BOARD=${DEV_BOARD:-esp32:esp32:esp32c3}
 DEV_PORT=${DEV_PORT:-/dev/ttyACM0}
 DEV_BOARD_BAUDRATE=${DEV_BOARD_BAUDRATE:-460800}
+export ARDUINO_DIRECTORIES_DATA=${ARDUINO_DIRECTORIES_DATA:-$HERE/.arduino15}
 export TMPDIR=/var/tmp
 
 function do_update(){
@@ -15,9 +17,7 @@ function do_update(){
         arduino-cli --additional-urls "$DEV_URLS" core install "${DEV_PLATFORM}"
         arduino-cli --additional-urls "$DEV_URLS" lib update-index
         arduino-cli --additional-urls "$DEV_URLS" lib install 'SerialCommands'
-        arduino-cli --additional-urls "$DEV_URLS" lib uninstall 'ArduinoBLE'
         arduino-cli --additional-urls "$DEV_URLS" lib upgrade
-        arduino-cli --additional-urls "$DEV_URLS" lib list
         arduino-cli --additional-urls "$DEV_URLS" board list
     }
 }
@@ -27,14 +27,20 @@ function do_build(){
     if [ ! -z "${DEBUG}" -a "${DEBUG:-0}" = "1" ]; then
         DEV_EXTRA_FLAGS="$DEV_EXTRA_FLAGS -DDEBUG"
     fi
-    if [ ! -z "${AT_DEBUG}" -a "${AT_DEBUG:-0}" = "1" ]; then
-        DEV_EXTRA_FLAGS="$DEV_EXTRA_FLAGS -DAT_DEBUG"
-    fi
     if [ ! -z "${VERBOSE}" ]; then
         DEV_EXTRA_FLAGS="$DEV_EXTRA_FLAGS -DVERBOSE"
     fi
     if [ ! -z "${DEFAULT_NTP_SERVER}" ]; then
         DEV_EXTRA_FLAGS="$DEV_EXTRA_FLAGS -DDEFAULT_NTP_SERVER=\"${DEFAULT_NTP_SERVER}\""
+    fi
+    if [ ! -z "${DEFAULT_HOSTNAME}" ]; then
+        DEV_EXTRA_FLAGS="$DEV_EXTRA_FLAGS -DDEFAULT_HOSTNAME=\"${DEFAULT_HOSTNAME}\""
+    fi
+    if [ ! -z "${DEFAULT_BLUETOOTH_NAME}" ]; then
+        DEV_EXTRA_FLAGS="$DEV_EXTRA_FLAGS -DDEFAULT_BLUETOOTH_NAME=\"${DEFAULT_BLUETOOTH_NAME}\""
+    fi
+    if [ ! -z "${DEFAULT_BLUETOOTH_PIN}" ]; then
+        DEV_EXTRA_FLAGS="$DEV_EXTRA_FLAGS -DDEFAULT_BLUETOOTH_PIN=\"${DEFAULT_BLUETOOTH_PIN}\""
     fi
     arduino-cli -b ${DEV_BOARD} compile \
         --log \
