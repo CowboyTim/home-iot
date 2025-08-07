@@ -1491,63 +1491,71 @@ void setup_cfg(){
 }
 
 void WiFiEvent(WiFiEvent_t event){
-  #ifdef VERBOSE
-  if(cfg.do_verbose){
-    switch(event) {
-        case ARDUINO_EVENT_WIFI_READY:
-            DOLOGLN(F("WiFi ready"));
-            break;
-        case ARDUINO_EVENT_WIFI_STA_START:
-            DOLOGLN(F("WiFi STA started"));
-            break;
-        case ARDUINO_EVENT_WIFI_STA_STOP:
-            DOLOGLN(F("WiFi STA stopped"));
-            break;
-        case ARDUINO_EVENT_WIFI_STA_CONNECTED:
-            DOLOG(F("WiFi STA connected to "));
-            DOLOGLN(WiFi.SSID());
-            break;
-        case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
-            DOLOGLN(F("WiFi STA disconnected"));
-            break;
-        case ARDUINO_EVENT_WIFI_STA_AUTHMODE_CHANGE:
-            DOLOGLN(F("WiFi STA auth mode changed"));
-            break;
-        case ARDUINO_EVENT_WIFI_STA_GOT_IP6:
-            DOLOGLN("WiFi STA got IPv6: ");
-            {
-                IPAddress g_ip6 = WiFi.globalIPv6();
-                DOLOG(F("Global IPv6: "));
-                DOLOGLN(g_ip6.toString());
-                IPAddress l_ip6 = WiFi.linkLocalIPv6();
-                DOLOG(F("LinkLocal IPv6: "));
-                DOLOGLN(l_ip6.toString());
-            }
-            break;
-        case ARDUINO_EVENT_WIFI_STA_GOT_IP:
-            DOLOG(F("WiFi STA got IP: "));
-            DOLOGLN(WiFi.localIP());
-            break;
-        case ARDUINO_EVENT_WIFI_STA_LOST_IP:
-            DOLOGLN(F("WiFi STA lost IP"));
-            break;
-        case ARDUINO_EVENT_WPS_ER_SUCCESS:
-            DOLOGLN(F("WPS succeeded"));
-            break;
-        case ARDUINO_EVENT_WPS_ER_FAILED:
-            DOLOGLN(F("WPS failed"));
-            break;
-        case ARDUINO_EVENT_WPS_ER_TIMEOUT:
-            DOLOGLN(F("WPS timed out"));
-            break;
-        case ARDUINO_EVENT_WPS_ER_PIN:
-            DOLOGLN(F("WPS PIN received"));
-            break;
-        default:
-            break;
-    }
+  switch(event) {
+      case ARDUINO_EVENT_WIFI_READY:
+          DOLOGLN(F("WiFi ready"));
+          break;
+      case ARDUINO_EVENT_WIFI_STA_START:
+          DOLOGLN(F("WiFi STA started"));
+          break;
+      case ARDUINO_EVENT_WIFI_STA_STOP:
+          DOLOGLN(F("WiFi STA stopped"));
+          if(esp_sntp_enabled()){
+              DOLOGLN(F("Stopping NTP sync"));
+              esp_sntp_stop();
+          }
+          break;
+      case ARDUINO_EVENT_WIFI_STA_CONNECTED:
+          DOLOG(F("WiFi STA connected to "));
+          DOLOGLN(WiFi.SSID());
+          break;
+      case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+          DOLOGLN(F("WiFi STA disconnected"));
+          if(esp_sntp_enabled()){
+              DOLOGLN(F("Stopping NTP sync"));
+              esp_sntp_stop();
+          }
+          break;
+      case ARDUINO_EVENT_WIFI_STA_AUTHMODE_CHANGE:
+          DOLOGLN(F("WiFi STA auth mode changed"));
+          break;
+      case ARDUINO_EVENT_WIFI_STA_GOT_IP6:
+          DOLOGLN("WiFi STA got IPv6: ");
+          {
+              IPAddress g_ip6 = WiFi.globalIPv6();
+              DOLOG(F("Global IPv6: "));
+              DOLOGLN(g_ip6.toString());
+              IPAddress l_ip6 = WiFi.linkLocalIPv6();
+              DOLOG(F("LinkLocal IPv6: "));
+              DOLOGLN(l_ip6.toString());
+          }
+          break;
+      case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+          DOLOG(F("WiFi STA got IP: "));
+          DOLOGLN(WiFi.localIP());
+          break;
+      case ARDUINO_EVENT_WIFI_STA_LOST_IP:
+          DOLOGLN(F("WiFi STA lost IP"));
+          if(esp_sntp_enabled()){
+              DOLOGLN(F("Stopping NTP sync"));
+              esp_sntp_stop();
+          }
+          break;
+      case ARDUINO_EVENT_WPS_ER_SUCCESS:
+          DOLOGLN(F("WPS succeeded"));
+          break;
+      case ARDUINO_EVENT_WPS_ER_FAILED:
+          DOLOGLN(F("WPS failed"));
+          break;
+      case ARDUINO_EVENT_WPS_ER_TIMEOUT:
+          DOLOGLN(F("WPS timed out"));
+          break;
+      case ARDUINO_EVENT_WPS_ER_PIN:
+          DOLOGLN(F("WPS PIN received"));
+          break;
+      default:
+          break;
   }
-  #endif
 }
 
 #ifdef BT_CLASSIC
@@ -1588,11 +1596,19 @@ void setup_ntp(){
     DOLOG(4 * 3600);
     DOLOG(F(", timezone: "));
     DOLOGLN("UTC");
-    sntp_set_sync_interval(4 * 3600 * 1000UL);
-    sntp_set_time_sync_notification_cb(cb_ntp_synced);
-    sntp_setoperatingmode(SNTP_OPMODE_POLL);
-    sntp_setservername(0, (char*)&cfg.ntp_host);
-    sntp_init();
+    if(esp_sntp_enabled()){
+      DOLOGLN(F("NTP already enabled, skipping setup"));
+      sntp_set_sync_interval(4 * 3600 * 1000UL);
+      sntp_setservername(0, (char*)&cfg.ntp_host);
+    } else {
+      DOLOGLN(F("Setting up NTP sync"));
+      esp_sntp_stop();
+      sntp_set_sync_interval(4 * 3600 * 1000UL);
+      sntp_setservername(0, (char*)&cfg.ntp_host);
+      sntp_set_time_sync_notification_cb(cb_ntp_synced);
+      sntp_setoperatingmode(SNTP_OPMODE_POLL);
+      sntp_init();
+    }
     setenv("TZ", "UTC", 1);
     tzset();
   }
