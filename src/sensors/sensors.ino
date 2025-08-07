@@ -181,7 +181,7 @@ const char *v_unit[NR_OF_SENSORS] = {
 char atscbu[128] = {""};
 SerialCommands ATSc(&Serial, atscbu, sizeof(atscbu), "\r\n", "\r\n");
 
-#define CFGVERSION 0x01 // switch between 0x01/0x02 to reinit the config struct change
+#define CFGVERSION 0x02 // switch between 0x01/0x02 to reinit the config struct change
 #define CFGINIT    0x72 // at boot init check flag
 #define CFG_EEPROM 0x00 
 
@@ -211,9 +211,9 @@ typedef struct cfg_t {
   uint8_t ipv4_dns[4]  = {0}; // static DNS server
   char udp_host_ip[UDP_HOST_IP_MAXLEN] = {0}; // IPv4 or IPv6 string
   char kvmkey[16]      = "unknown"; // location, max 15 + 1
-  double mq135_r0      = 10000.0; // Default R0, configurable via AT command
   unsigned long v_intv[NR_OF_SENSORS]  = {0};
-  uint8_t       enabled[NR_OF_SENSORS] = {1};
+  uint8_t       enabled[NR_OF_SENSORS] = {0};
+  double mq135_r0      = 10000.0; // Default R0, configurable via AT command
 };
 cfg_t cfg;
 
@@ -1279,9 +1279,6 @@ void setup(){
   // setup WiFi with ssid/pass from EEPROM if set
   setup_wifi();
 
-  // setup NTP sync if needed
-  setup_ntp();
-
   // setup UDP if host IP is set
   setup_udp();
 
@@ -1468,7 +1465,9 @@ void setup_cfg(){
   EEPROM.begin(sizeof(cfg));
   EEPROM.get(CFG_EEPROM, cfg);
   // was (or needs) initialized?
-  if(cfg.initialized != CFGINIT || cfg.version != CFGVERSION){
+  if(1 || cfg.initialized != CFGINIT || cfg.version != CFGVERSION){
+    cfg.do_verbose = 1;
+    DOLOGLN(F("reinitializing config"));
     // clear
     memset(&cfg, 0, sizeof(cfg));
     // reinit
@@ -1487,6 +1486,7 @@ void setup_cfg(){
     // write to EEPROM
     EEPROM.put(CFG_EEPROM, cfg);
     EEPROM.commit();
+    DOLOGLN(F("reinitializing config done"));
   }
 }
 
@@ -1599,6 +1599,15 @@ void setup_ntp(){
 }
 
 void setup_wifi(){
+  DOLOGLN(F("WiFi setup"));
+  DOLOG(F("WiFi SSID: "));
+  DOLOGLN(cfg.wifi_ssid);
+  DOLOG(F("WiFi Pass: "));
+  if(strlen(cfg.wifi_pass) == 0)
+    DOLOGLN(F("none"))
+  else
+    // print password as stars
+    DOLOGLN(String("*"));
   // are we connecting to WiFi?
   if(strlen(cfg.wifi_ssid) == 0 || strlen(cfg.wifi_pass) == 0)
     return;
@@ -1607,7 +1616,6 @@ void setup_wifi(){
   logged_wifi_status = 0; // reset logged status
 
   WiFi.disconnect(); // disconnect from any previous connection
-  DOLOGLN(F("WiFi setup"));
   WiFi.onEvent(WiFiEvent);
 
   // IPv4 configuration
@@ -1651,6 +1659,9 @@ void setup_wifi(){
   DOLOGLN(cfg.wifi_ssid);
   WiFi.persistent(false);
   WiFi.begin(cfg.wifi_ssid, cfg.wifi_pass);
+
+  // setup NTP sync if needed
+  setup_ntp();
 }
 
 void setup_udp(){
