@@ -1632,6 +1632,7 @@ void setup_wifi(){
   logged_wifi_status = 0; // reset logged status
 
   WiFi.disconnect(); // disconnect from any previous connection
+  DOLOGLN(F("WiFi setup"));
   WiFi.onEvent(WiFiEvent);
 
   // IPv4 configuration
