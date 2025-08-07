@@ -181,7 +181,7 @@ const char *v_unit[NR_OF_SENSORS] = {
 char atscbu[128] = {""};
 SerialCommands ATSc(&Serial, atscbu, sizeof(atscbu), "\r\n", "\r\n");
 
-#define CFGVERSION 0x02 // switch between 0x01/0x02 to reinit the config struct change
+#define CFGVERSION 0x01 // switch between 0x01/0x02 to reinit the config struct change
 #define CFGINIT    0x72 // at boot init check flag
 #define CFG_EEPROM 0x00 
 
@@ -1465,7 +1465,7 @@ void setup_cfg(){
   EEPROM.begin(sizeof(cfg));
   EEPROM.get(CFG_EEPROM, cfg);
   // was (or needs) initialized?
-  if(1 || cfg.initialized != CFGINIT || cfg.version != CFGVERSION){
+  if(cfg.initialized != CFGINIT || cfg.version != CFGVERSION){
     cfg.do_verbose = 1;
     DOLOGLN(F("reinitializing config"));
     // clear
