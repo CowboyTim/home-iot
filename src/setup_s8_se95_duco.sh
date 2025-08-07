@@ -1,8 +1,8 @@
 #!/bin/bash
 
 function usage(){
-    echo "Usage: $BASH_SOURCE <uart_device> <ssid> <password> <remote_host> [remote_port]" >/dev/stderr
-    echo "Example: $BASH_SOURCE /dev/ttyUSB0 MySSID MyPassword 2001:db8::1 5665" >/dev/stderr
+    echo "Usage: $BASH_SOURCE <uart_device> <ssid> <password> <remote_host> [remote_port] <metrics KEY>" >/dev/stderr
+    echo "Example: $BASH_SOURCE /dev/ttyUSB0 MySSID MyPassword 2001:db8::1 5665 homeoffice" >/dev/stderr
     echo "$*"
     exit 1
 }
