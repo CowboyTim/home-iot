@@ -41,6 +41,9 @@ do_uart(){
     done < $UART
     kill %1
 }
+do_uart "AT+VERBOSE=0"
+do_uart "AT+IPV4=dhcp"
+do_uart "AT+IPV6=dhcp"
 do_uart "AT+WIFI_SSID=$SSID"
 do_uart "AT+WIFI_PASS=$PASS"
 do_uart "AT+KVMKEY=$METRICS_KEY"
