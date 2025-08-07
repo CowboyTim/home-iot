@@ -926,16 +926,7 @@ void setup(){
 }
 
 void loop(){
-  #ifdef VERBOSE
-  if(cfg.do_verbose)
-    Serial.print(F("."));
-  #endif
-
-  if(!ATSc.GetSerial()->available()){
-    // no AT command, just continue
-    doYIELD;
-  } else {
-    // we have AT command, handle it
+  if(ATSc.GetSerial()->available()){
     ATSc.ReadSerial();
   }
 
