@@ -87,8 +87,6 @@ typedef struct cfg_t {
   uint8_t do_verbose   = 0;
   uint8_t do_debug     = 0;
   uint8_t do_log       = 0;
-  uint16_t udp_port    = 0;
-  char udp_host_ip[UDP_HOST_IP_MAXLEN] = {0}; // IPv4 or IPv6 string
   uint16_t main_loop_delay = 100;
   char wifi_ssid[32]   = {0};   // max 31 + 1
   char wifi_pass[64]   = {0};   // nax 63 + 1
