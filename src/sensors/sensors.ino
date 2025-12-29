@@ -430,16 +430,16 @@ void sensors_setup(){
     if(v_init_function[i] != NULL){
       v_init_function[i]();
     } else {
-      LOG("Sensor index %d Sensor name %s not configured, skipping setup", i, v_key[i]);
+      LOG("[SENSORS] Sensor index %d Sensor name %s not configured, skipping setup", i, v_key[i]);
     }
   }
 
   // config log on UART when VERBOSE=1
   DO_VERBOSE(
     for(int i = 0; i < SENSORS::nr; i++){
-      LOG("Sensor %s log interval (ms): %lu", v_key[i], (unsigned long)SENSORS::cfg.v_intv[i]);
+      LOG("[SENSORS] Sensor %s log interval (ms): %lu", v_key[i], (unsigned long)SENSORS::cfg.v_intv[i]);
       if(v_value_function[i] == NULL)
-        LOG("Sensor index %d Sensor name %s not configured, skipping", i, v_key[i]);
+        LOG("[SENSORS] Sensor index %d Sensor name %s not configured, skipping", i, v_key[i]);
     }
   )
 
@@ -480,11 +480,13 @@ void sensors_loop(){
         if((size_t)h_strl <= copy_len_max){
           copy_len_max = (size_t)h_strl;
         } else {
-          LOG("WARNING: only %d bytes to inbuf, had %d bytes for sensor %d", copy_len_max, h_strl, i);
+          LOG("[SENSORS] ERROR: only %d bytes to inbuf, had %d bytes for sensor %d", copy_len_max, h_strl, i);
         }
+        LOG("[SENSORS] copying %d bytes to inbuf for sensor %s", copy_len_max, v_key[i]);
         memcpy(b_new, (uint8_t *)SENSORS::out_buf, copy_len_max);
+        ::inlen += copy_len_max;
       } else {
-        LOG("snprintf failed for sensor %s: %s", v_key[i], strerror(errno));
+        LOG("[SENSORS] ERROR: snprintf failed for sensor %s: %s", v_key[i], strerror(errno));
       }
       last_v_intv[i] = millis();
     }
