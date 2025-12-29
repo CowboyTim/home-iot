@@ -6721,6 +6721,75 @@ void do_loop_delay() {
 }
 #endif // LOOP_DELAY
 
+INLINE
+void log_supported_features(){
+#ifdef SUPPORT_UDP
+  LOG("[SETUP] SUPPORT_UDP enabled");
+#else
+  LOG("[SETUP] SUPPORT_UDP disabled");
+#endif
+#ifdef SUPPORT_TCP
+  LOG("[SETUP] SUPPORT_TCP enabled");
+#else
+  LOG("[SETUP] SUPPORT_TCP disabled");
+#endif
+#ifdef SUPPORT_TLS
+  LOG("[SETUP] SUPPORT_TLS enabled");
+#else
+  LOG("[SETUP] SUPPORT_TLS disabled");
+#endif
+#ifdef SUPPORT_TCP_SERVER
+  LOG("[SETUP] SUPPORT_TCP_SERVER enabled");
+#else
+  LOG("[SETUP] SUPPORT_TCP_SERVER disabled");
+#endif
+#ifdef SUPPORT_WIFI
+  LOG("[SETUP] SUPPORT_WIFI enabled");
+#else
+  LOG("[SETUP] SUPPORT_WIFI disabled");
+#endif
+#ifdef SUPPORT_BLE_UART1
+  LOG("[SETUP] SUPPORT_BLE_UART1 enabled");
+#else
+  LOG("[SETUP] SUPPORT_BLE_UART1 disabled");
+#endif
+#ifdef SUPPORT_PLUGINS
+  LOG("[SETUP] SUPPORT_PLUGINS enabled");
+#else
+  LOG("[SETUP] SUPPORT_PLUGINS disabled");
+#endif
+#ifdef UART_AT
+  LOG("[SETUP] UART_AT enabled");
+#else
+  LOG("[SETUP] UART_AT disabled");
+#endif
+#ifdef SUPPORT_MDNS
+  LOG("[SETUP] SUPPORT_MDNS enabled");
+#else
+  LOG("[SETUP] SUPPORT_MDNS disabled");
+#endif
+#ifdef SUPPORT_NTP
+  LOG("[SETUP] SUPPORT_NTP enabled");
+#else
+  LOG("[SETUP] SUPPORT_NTP disabled");
+#endif
+#ifdef SUPPORT_ESP_LOG_INFO
+  LOG("[SETUP] SUPPORT_ESP_LOG_INFO enabled");
+#else
+  LOG("[SETUP] SUPPORT_ESP_LOG_INFO disabled");
+#endif
+#ifdef LOGUART
+  LOG("[SETUP] LOGUART enabled");
+#else
+  LOG("[SETUP] LOGUART disabled");
+#endif
+#ifdef TIMELOG
+  LOG("[SETUP] TIMELOG enabled");
+#else
+  LOG("[SETUP] TIMELOG disabled");
+#endif
+}
+
 void setup() {
   // Serial setup, init at 115200 8N1
   LOGSETUP();
@@ -6746,6 +6815,9 @@ void setup() {
   #ifdef SUPPORT_ESP_LOG_INFO
   log_esp_info();
   #endif // SUPPORT_ESP_LOG_INFO
+
+  // log the SUPPORT builtin
+  log_supported_features();
 
   // plugins setup
   #ifdef SUPPORT_PLUGINS
