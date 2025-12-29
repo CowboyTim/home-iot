@@ -40,105 +40,6 @@
 
 namespace SENSORS {
 
-NOINLINE
-char* at_cmd_check(const char *cmd, const char *at_cmd, unsigned short at_len) {
-  unsigned short l = strlen(cmd); /* AT+<cmd>=, or AT, or AT+<cmd>? */
-  if(at_len >= l && strncmp(cmd, at_cmd, l) == 0) {
-    if(*(cmd+l-1) == '=') {
-      return (char *)at_cmd+l;
-    } else {
-      return (char *)at_cmd;
-    }
-  }
-  return NULL;
-}
-
-NOINLINE
-const char* at_cmd_handler_sensor(const char *at_cmd, unsigned short at_len){
-    const char *p = NULL;
-    for (int i = 0; i < SENSORS::nr; i++) {
-        if (p = at_cmd_check("AT+ENABLE_", at_cmd, at_len)) {
-            // move pointer past "AT+ENABLE_"
-            p += strlen("AT+ENABLE_");
-            // AT+ENABLE_<sensor>=<0|1> or AT+ENABLE_<sensor>?
-            // match sensor?
-            if(strncasecmp(v_key[i], p, strlen(v_key[i])) != 0)
-                continue; // not matching sensor key
-            // move pointer to the = or ? part
-            p += strlen(v_key[i]);
-            if(*p == '?') {
-                // query enable status
-                return AT_R_INT(SENSORS::cfg.enabled[i]);
-            }
-            if(*p != '=') {
-                // error handle
-                return AT_R("+ERROR: Enable command must end with =<0|1> or ?");
-            }
-            p++; // move past '='
-
-            int val = atoi(p);
-            if (val != 0 && val != 1) {
-                return AT_R("+ERROR: Enable must be 0 or 1");
-            }
-            SENSORS::cfg.enabled[i] = val;
-            return AT_R_OK;
-        } else if (p = at_cmd_check("AT+LOG_INTERVAL_", at_cmd, at_len)){
-            // move pointer past "AT+LOG_INTERVAL_"
-            p += strlen("AT+LOG_INTERVAL_");
-            // AT+LOG_INTERVAL_<sensor>=<interval>
-            // match sensor?
-            if(strncasecmp(v_key[i], p, strlen(v_key[i])) != 0) {
-                continue; // not matching sensor key
-            }
-            // move pointer to the = part
-            p += strlen(v_key[i]);
-            if(*p != '=') {
-                // error handle
-                return AT_R("+ERROR: Log interval command must end with =<interval>");
-            }
-            p++; // move past '='
-
-            unsigned long new_interval = strtoul(p, NULL, 10);
-            if(new_interval < 100){
-              return AT_R("+ERROR: Log interval must be at least 100ms");
-            }
-            SENSORS::cfg.v_intv[i] = new_interval;
-            return AT_R_OK;
-        } else {
-            continue; // continue to next sensor
-        }
-    }
-    return AT_R("+ERROR: unknown sensor command");
-}
-
-NOINLINE
-const char* at_cmd_handler_sensors(const char* atcmdline){
-  unsigned int cmd_len = strlen(atcmdline);
-  char *p = NULL;
-  if(p = at_cmd_check("AT+KVMKEY=", atcmdline, cmd_len)){
-    size_t sz = (atcmdline+cmd_len)-p+1;
-    if(sz > 15)
-      return AT_R("+ERROR: Location max 15 chars");
-    strncpy((char *)&SENSORS::cfg.kvmkey, p, sz);
-    return AT_R_OK;
-  } else if(p = at_cmd_check("AT+KVMKEY?", atcmdline, cmd_len)){
-    return AT_R(SENSORS::cfg.kvmkey);
-  } else if(p = at_cmd_check("AT+MQ135_R0?", atcmdline, cmd_len)){
-    return AT_R_DOUBLE(SENSORS::cfg.mq135_r0);
-  } else if(p = at_cmd_check("AT+MQ135_R0=", atcmdline, cmd_len)){
-    double new_r0 = atof(p);
-    if(new_r0 < 1000.0 || new_r0 > 100000.0)
-      return AT_R("+ERROR: invalid R0 value (1000-100000)");
-    SENSORS::cfg.mq135_r0 = new_r0;
-    return AT_R_OK;
-  } else if(p = at_cmd_check("AT+LOG_INTERVAL_", atcmdline, cmd_len)){
-    return at_cmd_handler_sensor(atcmdline, cmd_len);
-  } else if(p = at_cmd_check("AT+ENABLE_", atcmdline, cmd_len)){
-    return at_cmd_handler_sensor(atcmdline, cmd_len);
-  }
-  return AT_R("+ERROR: unknown command");
-}
-
 
 #ifdef DHT11
 #define DHTPIN  A0     // GPIO2/A0 pin for DHT11
@@ -150,10 +51,10 @@ double dht11_fetch_humidity(){
     DHT.read(DHTPIN);
     did_dht11 = 1;
   }
-  LOG("DHT11 humidity: %d %%", DHT.humidity);
+  LOG("[DHT11] humidity: %d %%", DHT.humidity);
   double h = (double)DHT.humidity;
   if(h < 0.0 || h > 100.0){
-    LOG("DHT11 humidity out of range, returning 0: %.2f", h);
+    LOG("[DHT11] humidity out of range, returning 0: %.2f", h);
     h = 0.0;
   }
   return h;
@@ -165,10 +66,10 @@ double dht11_fetch_temperature(){
     DHT.read(DHTPIN);
     did_dht11 = 1;
   }
-  LOG("DHT11 temperature: %d °C", DHT.temperature);
+  LOG("[DHT11] temperature: %d °C", DHT.temperature);
   double t = (double)DHT.temperature;
   if(t < -40.0 || t > 80.0){
-    LOG("DHT11 temperature out of range, returning 0: %.2f", t);
+    LOG("[DHT11] temperature out of range, returning 0: %.2f", t);
     t = 0.0;
   }
   return t;
@@ -188,7 +89,7 @@ void post_dht11(){
 double fetch_ldr_adc(){
   // fetch LDR ADC value
   int ldr_adc = analogReadMilliVolts(A1); // assuming LDR is connected to A0
-  LOG("LDR ADC value: %d mV", ldr_adc);
+  LOG("[LDR/ADC] value: %d mV", ldr_adc);
   double ldr_value = (double)ldr_adc; // convert to double for consistency
   return ldr_value;
 }
@@ -196,7 +97,7 @@ double fetch_ldr_adc(){
 void init_ldr_adc(){
   // initialize LDR ADC pin
   pinMode(A1, INPUT); // assuming LDR is connected to A1
-  LOG("LDR ADC initialized on A1");
+  LOG("[LDR/ADC] initialized on A1");
 }
 #endif // LDR
 
@@ -219,9 +120,9 @@ double mq135_adc_to_ppm(int adc_value) {
 double fetch_mq135_adc(){
   // fetch MQ-135 ADC value
   int mq135_adc = analogRead(MQ135PIN); // raw ADC value (0-4095)
-  LOG("MQ-135 ADC value: %d", mq135_adc);
+  LOG("[MQ-135] ADC value: %d", mq135_adc);
   double ppm = mq135_adc_to_ppm(mq135_adc);
-  LOG("MQ-135 CO2 ppm: %.2f", ppm);
+  LOG("[MQ-135] CO2 ppm: %.2f", ppm);
   return ppm;
 }
 
@@ -230,7 +131,7 @@ void init_mq135_adc(){
   pinMode(MQ135PIN, INPUT);
   analogSetPinAttenuation(MQ135PIN, ADC_11db);
   analogReadResolution(12);
-  LOG("MQ-135 ADC initialized on A2");
+  LOG("[MQ-135] ADC initialized on A2");
 }
 #endif // MQ135
 
@@ -244,26 +145,26 @@ double fetch_apds_illuminance() {
   // fetch APDS-9930 illuminance (lux)
   float lux = 0;
   apds.getLux(&lux);
-  LOG("APDS-9930 lux: %.2f", lux);
+  LOG("[APDS-9930] lux: %.2f", lux);
   return (double)lux;
 }
 
 double fetch_apds_color() {
   // fetch APDS-9930 color (returns C, but logs R,G,B,C)
   apds.getRGB(&apds_r, &apds_g, &apds_b, &apds_c);
-  LOG("APDS-9930 RGB: %d,%d,%d,%d", apds_r, apds_g, apds_b, apds_c);
+  LOG("[APDS-9930] RGB: %d,%d,%d,%d", apds_r, apds_g, apds_b, apds_c);
   // For the main value, return clear channel (C)
   return (double)apds_c;
 }
 
 void init_apds9930() {
   if(!apds.begin()) {
-    LOG("APDS-9930 not found!");
+    LOG("[APDS-9930] not found");
     return;
   }
   apds.enableColor(true);
   apds.enableLightSensor(true);
-  LOG("APDS-9930 initialized");
+  LOG("[APDS-9930] initialized");
   return;
 }
 #endif // APDS-9930
@@ -279,7 +180,7 @@ void init_s8() {
   sensor_S8->get_firmware_version(sensor.firm_version);
   int len = strlen(sensor.firm_version);
   if(len == 0){
-    LOG("SenseAir S8 CO2 sensor not found!");
+    LOG("[S8] CO2 sensor not found!");
     delete sensor_S8;
     sensor_S8 = NULL;
     SENSORS::cfg.enabled[S8_CO2] = 0; // Disable in config
@@ -287,51 +188,51 @@ void init_s8() {
   }
 
   // Show basic S8 sensor info
-  LOG("| >>> SenseAir S8 NDIR CO2 sensor <<<");
-  printf("| Firmware version: %s\n", sensor.firm_version);
+  LOG("[S8] SenseAir S8 NDIR CO2 sensor");
+  LOG("[S8] Firmware version: %s", sensor.firm_version);
   sensor.sensor_id = sensor_S8->get_sensor_ID();
-  LOG("| Sensor ID: 0x%x", sensor.sensor_id);
+  LOG("[S8] Sensor ID: 0x%x", sensor.sensor_id);
   sensor.sensor_type_id = sensor_S8->get_sensor_type_ID();
-  LOG("| Sensor type ID: 0x%x", sensor.sensor_type_id);
+  LOG("[S8] Sensor type ID: 0x%x", sensor.sensor_type_id);
   sensor.map_version = sensor_S8->get_memory_map_version();
-  LOG("| Sensor memory map ID: 0x%x", sensor.sensor_type_id);
+  LOG("[S8] Sensor memory map ID: 0x%x", sensor.sensor_type_id);
   sensor.abc_period = sensor_S8->get_ABC_period();
   if(sensor.abc_period > 0){
-    LOG("| ABC (automatic background calibration) period: %d hours", sensor.abc_period);
+    LOG("[S8] ABC (automatic background calibration) period: %d hours", sensor.abc_period);
   } else {
-    LOG("| ABC (automatic calibration) is disabled");
+    LOG("[S8] ABC (automatic calibration) is disabled");
   }
-  LOG("| Setting ABC to 0 and wait 1s");
+  LOG("[S8] Setting ABC to 0 and wait 1s");
   sensor.abc_period = sensor_S8->set_ABC_period(0);
   delay(1000);
   sensor.abc_period = sensor_S8->get_ABC_period();
   if(sensor.abc_period > 0){
-    LOG("| ABC (automatic background calibration) period: %d hours", sensor.abc_period);
+    LOG("[S8] ABC (automatic background calibration) period: %d hours", sensor.abc_period);
   } else {
-    LOG("| ABC (automatic calibration) is disabled (0s)");
+    LOG("[S8] ABC (automatic calibration) is disabled (0s)");
   }
 
   // Check the health of the sensor
-  LOG("| Checking the health of the sensor...");
+  LOG("[S8] Checking the health of the sensor");
   sensor.meter_status = sensor_S8->get_meter_status();
   if(sensor.meter_status & S8_MASK_METER_ANY_ERROR) {
-    LOG("| One or more errors detected!");
+    LOG("[S8] One or more errors detected!");
     if(sensor.meter_status & S8_MASK_METER_FATAL_ERROR)
-      LOG("| Fatal error in sensor!");
+      LOG("[S8] Fatal error in sensor!");
     if(sensor.meter_status & S8_MASK_METER_OFFSET_REGULATION_ERROR)
-      LOG("| Offset regulation error in sensor!");
+      LOG("[S8] Offset regulation error in sensor!");
     if(sensor.meter_status & S8_MASK_METER_ALGORITHM_ERROR)
-      LOG("| Algorithm error in sensor!");
+      LOG("[S8] Algorithm error in sensor!");
     if(sensor.meter_status & S8_MASK_METER_OUTPUT_ERROR)
-      LOG("| Output error in sensor!");
+      LOG("[S8] Output error in sensor!");
     if(sensor.meter_status & S8_MASK_METER_SELF_DIAG_ERROR)
-      LOG("| Self diagnostics error in sensor!");
+      LOG("[S8] Self diagnostics error in sensor!");
     if(sensor.meter_status & S8_MASK_METER_OUT_OF_RANGE)
-      LOG("| Out of range in sensor!");
+      LOG("[S8] Out of range in sensor!");
     if(sensor.meter_status & S8_MASK_METER_MEMORY_ERROR)
-      LOG("| Memory error in sensor!");
+      LOG("[S8] Memory error in sensor!");
   } else {
-    LOG("| The sensor is OK.");
+    LOG("[S8] The sensor is OK");
   }
   return;
 }
@@ -339,12 +240,12 @@ void init_s8() {
 double fetch_s8_co2() {
   // Fetch CO2 value from S8 sensor
   if(sensor_S8 == NULL) {
-    LOG("S8 sensor not initialized!");
+    LOG("[S8] sensor not initialized");
     return 0.0;
   }
 
   sensor.co2 = sensor_S8->get_co2();
-  LOG("S8 CO2 ppm: %d", sensor.co2);
+  LOG("[S8] CO2 ppm: %d", sensor.co2);
   return (double)sensor.co2;
 }
 #endif // S8
@@ -360,10 +261,10 @@ void init_se95() {
   Wire.beginTransmission(SE95_I2C_ADDRESS);
   if(Wire.endTransmission() != ESP_OK){
       SENSORS::cfg.enabled[SE95_TEMPERATURE] = 0; // Disable in config
-    LOG("SE95 sensor not found!");
+    LOG("[SE95] sensor not found");
     return;
   }
-  LOG("SE95 temperature sensor initialized");
+  LOG("[SE95] temperature sensor initialized");
   return;
 }
 
@@ -376,17 +277,17 @@ double fetch_se95_temperature() {
   if(Wire.available()){
     msb = Wire.read();
   } else {
-    LOG("SE95 temperature read error, no data available");
+    LOG("[SE95] temperature read error, no data available");
     return 0.0; // No data available, return 0.0
   }
   if(Wire.available()){
     lsb = Wire.read();
   } else {
-    LOG("SE95 temperature read error, no data available");
+    LOG("[SE95] temperature read error, no data available");
     return 0.0; // No data available, return 0.0
   }
   if(Wire.endTransmission() != ESP_OK){
-    LOG("SE95 temperature read error, end transmission failed");
+    LOG("[SE95] temperature read error, end transmission failed");
     return 0.0; // Transmission error, return 0.0
   }
 
@@ -399,7 +300,7 @@ double fetch_se95_temperature() {
   temp = (double)raw_temp * 0.03125;
 
   // Fetch temperature from SE95 sensor
-  LOG("SE95 temperature: %.2f °C", temp);
+  LOG("[SE95] temperature: %.2f °C", temp);
   return (double)temp;
 }
 #endif // SE95
@@ -599,6 +500,109 @@ void sensors_loop(){
   }
 }
 
+NOINLINE
+char* at_cmd_check(const char *cmd, const char *at_cmd, unsigned short at_len) {
+  unsigned short l = strlen(cmd); /* AT+<cmd>=, or AT, or AT+<cmd>? */
+  if(at_len >= l && strncmp(cmd, at_cmd, l) == 0) {
+    if(*(cmd+l-1) == '=') {
+      return (char *)at_cmd+l;
+    } else {
+      return (char *)at_cmd;
+    }
+  }
+  return NULL;
+}
+
+NOINLINE
+const char* at_cmd_handler_sensor(const char *at_cmd, unsigned short at_len){
+    const char *p = NULL;
+    for (int i = 0; i < SENSORS::nr; i++) {
+        if (p = at_cmd_check("AT+ENABLE_", at_cmd, at_len)) {
+            // move pointer past "AT+ENABLE_"
+            p += strlen("AT+ENABLE_");
+            // AT+ENABLE_<sensor>=<0|1> or AT+ENABLE_<sensor>?
+            // match sensor?
+            if(strncasecmp(v_key[i], p, strlen(v_key[i])) != 0)
+                continue; // not matching sensor key
+            if(v_value_function[i] == NULL) {
+                return AT_R("+ERROR: Sensor not supported in this build");
+            }
+            // move pointer to the = or ? part
+            p += strlen(v_key[i]);
+            if(*p == '?') {
+                // query enable status
+                return AT_R_INT(SENSORS::cfg.enabled[i]);
+            }
+            if(*p != '=') {
+                // error handle
+                return AT_R("+ERROR: Enable command must end with =<0|1> or ?");
+            }
+            p++; // move past '='
+
+            int val = atoi(p);
+            if (val != 0 && val != 1) {
+                return AT_R("+ERROR: Enable must be 0 or 1");
+            }
+            SENSORS::cfg.enabled[i] = val;
+            return AT_R_OK;
+        } else if (p = at_cmd_check("AT+LOG_INTERVAL_", at_cmd, at_len)){
+            // move pointer past "AT+LOG_INTERVAL_"
+            p += strlen("AT+LOG_INTERVAL_");
+            // AT+LOG_INTERVAL_<sensor>=<interval>
+            // match sensor?
+            if(strncasecmp(v_key[i], p, strlen(v_key[i])) != 0) {
+                continue; // not matching sensor key
+            }
+            // move pointer to the = part
+            p += strlen(v_key[i]);
+            if(*p != '=') {
+                // error handle
+                return AT_R("+ERROR: Log interval command must end with =<interval>");
+            }
+            p++; // move past '='
+
+            unsigned long new_interval = strtoul(p, NULL, 10);
+            if(new_interval < 100){
+              return AT_R("+ERROR: Log interval must be at least 100ms");
+            }
+            SENSORS::cfg.v_intv[i] = new_interval;
+            return AT_R_OK;
+        } else {
+            continue; // continue to next sensor
+        }
+    }
+    return AT_R("+ERROR: unknown sensor command");
+}
+
+NOINLINE
+const char* at_cmd_handler_sensors(const char* atcmdline){
+  unsigned int cmd_len = strlen(atcmdline);
+  char *p = NULL;
+  if(p = at_cmd_check("AT+KVMKEY=", atcmdline, cmd_len)){
+    size_t sz = (atcmdline+cmd_len)-p+1;
+    if(sz > 15)
+      return AT_R("+ERROR: Location max 15 chars");
+    strncpy((char *)&SENSORS::cfg.kvmkey, p, sz);
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+KVMKEY?", atcmdline, cmd_len)){
+    return AT_R(SENSORS::cfg.kvmkey);
+  } else if(p = at_cmd_check("AT+MQ135_R0?", atcmdline, cmd_len)){
+    return AT_R_DOUBLE(SENSORS::cfg.mq135_r0);
+  } else if(p = at_cmd_check("AT+MQ135_R0=", atcmdline, cmd_len)){
+    double new_r0 = atof(p);
+    if(new_r0 < 1000.0 || new_r0 > 100000.0)
+      return AT_R("+ERROR: invalid R0 value (1000-100000)");
+    SENSORS::cfg.mq135_r0 = new_r0;
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+LOG_INTERVAL_", atcmdline, cmd_len)){
+    return at_cmd_handler_sensor(atcmdline, cmd_len);
+  } else if(p = at_cmd_check("AT+ENABLE_", atcmdline, cmd_len)){
+    return at_cmd_handler_sensor(atcmdline, cmd_len);
+  }
+  return AT_R("+ERROR: unknown command");
+}
+
+
 }
 
 namespace PLUGINS {
@@ -613,6 +617,13 @@ namespace PLUGINS {
     NOINLINE
     void loop_post(){
         SENSORS::sensors_loop();
+    }
+    NOINLINE
+    const char * at_cmd_handler(const char* atcmdline){
+        return SENSORS::at_cmd_handler_sensors(atcmdline);
+    }
+    NOINLINE
+    void at_cmd_help(){
     }
 }
 

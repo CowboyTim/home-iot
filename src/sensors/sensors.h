@@ -56,13 +56,9 @@
 #undef SUPPORT_TCP_SERVER
 #undef LOGUART
 
-#ifndef S8
-#define S8
-#endif
-#ifndef SE95
-#define SE95
-#endif
-#undef DHT11
+#undef S8
+#undef SE95
+#define DHT11
 #undef LDR
 #undef APDS9930   // TODO: implement software + hardware
 #undef MQ135
@@ -162,6 +158,7 @@ s_cfg_t cfg;
 
 unsigned long last_v_intv[SENSORS::nr] = {0};
 char out_buf[SENSORS::out_buf_size] = {0};
+
 
 } // namespace SENSORS
 #endif // _SENSORS_H

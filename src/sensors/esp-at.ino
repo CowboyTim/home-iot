@@ -4146,7 +4146,11 @@ const char* at_cmd_handler(const char* atcmdline) {
     return AT_R_S(String(addr_str));
   #endif // BLUETOOTH_UART_AT
   } else {
+  #ifdef SUPPORT_PLUGINS
+    return PLUGINS::at_cmd_handler(atcmdline);
+  #else
     return AT_R("+ERROR: unknown command");
+  #endif // SUPPORT_PLUGINS
   }
   return AT_R("+ERROR: unknown error");
 }
