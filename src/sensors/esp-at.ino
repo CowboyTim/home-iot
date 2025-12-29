@@ -5283,7 +5283,6 @@ void log_esp_info() {
   LOG("[ESP] Chip Revision: %d", ESP.getChipRevision());
   LOG("[ESP] CPU Frequency: %d MHz", ESP.getCpuFreqMHz());
   LOG("[ESP] Flash Size: %d MB", ESP.getFlashChipSize() / (1024 * 1024));
-  LOG("[ESP] Free Heap: %d bytes", ESP.getFreeHeap());
   LOG("[ESP] Sketch Size: %d bytes", ESP.getSketchSize());
   LOG("[ESP] Sketch Free Space: %d bytes", ESP.getFreeSketchSpace());
   LOG("[ESP] ESP Core Version: %s", ESP.getCoreVersion());
@@ -5292,10 +5291,6 @@ void log_esp_info() {
   LOG("[ESP] Boot Flash Mode: %d", ESP.getFlashChipMode());
   LOG("[ESP] CPU Cores: %d", ESP.getChipCores());
   LOG("[ESP] SDK Version: %s", ESP.getSdkVersion());
-  LOG("[ESP] Minimum Free Heap: %d bytes", ESP.getMinFreeHeap());
-  LOG("[ESP] PSRAM Size: %d bytes", ESP.getPsramSize());
-  LOG("[ESP] Free PSRAM: %d bytes", ESP.getFreePsram());
-  LOG("[ESP] Minimum Free PSRAM: %d bytes", ESP.getMinFreePsram());
   LOG("[ESP] Uptime: %lu seconds", millis() / 1000);
 
   #if defined(BLUETOOTH_UART_AT) && defined(BT_BLE)
@@ -5384,6 +5379,12 @@ void log_esp_info() {
 
   // log heap information
   LOG("[ESP] === Heap Information ===");
+  LOG("[ESP] Minimum Free Heap: %d bytes", ESP.getMinFreeHeap());
+  LOG("[ESP] PSRAM Size: %d bytes", ESP.getPsramSize());
+  LOG("[ESP] Free PSRAM: %d bytes", ESP.getFreePsram());
+  LOG("[ESP] Minimum Free PSRAM: %d bytes", ESP.getMinFreePsram());
+  LOG("[ESP] Total Heap: %d bytes", ESP.getHeapSize());
+  LOG("[ESP] Free Heap: %d bytes", ESP.getFreeHeap());
   size_t hs = heap_caps_get_free_size(MALLOC_CAP_8BIT);
   LOG("[ESP] Free heap size (8BIT): %d bytes", hs);
   hs = heap_caps_get_free_size(MALLOC_CAP_32BIT);
