@@ -3940,7 +3940,13 @@ const char* at_cmd_handler(const char* atcmdline) {
     stop_networking();
     #endif // SUPPORT_WIFI
 
+    // Clear WIFI config if enabled
     CFG_CLEAR();
+
+    // Clear PLUGINS config if enabled
+    #ifdef SUPPORT_PLUGINS
+    PLUGINS::clear_config();
+    #endif // SUPPORT_PLUGINS
 
     // Clear the config struct in memory
     memset(&cfg, 0, sizeof(cfg));

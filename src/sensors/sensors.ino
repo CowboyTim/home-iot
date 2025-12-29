@@ -40,6 +40,22 @@
 
 namespace SENSORS {
 
+NOINLINE
+void CFG_SAVE() {
+    CFG::SAVE("esp-at", "sensors", "sensors", (void *)&SENSORS::cfg, sizeof(SENSORS::cfg));
+}
+
+NOINLINE
+void CFG_INIT() {
+  if(!CFG::INIT("esp-at", "sensors")){
+    LOGE("[CFG] Failed to initialize NVS storage for sensors");
+    ESP.restart();
+  } else {
+    LOG("[CFG] NVS storage initialized for sensors");
+  }
+  CFG::LOAD("esp-at", "sensors", "sensors", (void *)&SENSORS::cfg, sizeof(SENSORS::cfg));
+}
+
 
 #ifdef SUPPORT_DHT11
 #define DHTPIN  A0     // GPIO_NUM_0/A0 pin for DHT11
@@ -429,6 +445,9 @@ sensors_cfg_t cfg = {
 NOINLINE
 void sensors_setup(){
 
+  // load config
+  CFG_INIT();
+
   // sensors check
   for(int i = 0; i < NR_OF_SENSORS; i++)
     SENSORS::cfg.sensors[i].l_intv = millis();
@@ -573,6 +592,7 @@ const char* at_cmd_handler_sensor(const char *at_cmd, unsigned short at_len){
                 return AT_R("+ERROR: Enable must be 0 or 1");
             }
             s->enabled = val;
+            CFG_SAVE();
             return AT_R_OK;
         } else if (p = at_cmd_check("AT+LOG_INTERVAL_", at_cmd, at_len)){
             // move pointer past "AT+LOG_INTERVAL_"
@@ -600,6 +620,7 @@ const char* at_cmd_handler_sensor(const char *at_cmd, unsigned short at_len){
               return AT_R("+ERROR: Log interval must be at least 100ms");
             }
             s->v_intv = new_interval;
+            CFG_SAVE();
             return AT_R_OK;
         } else {
             continue; // continue to next sensor
@@ -617,6 +638,7 @@ const char* at_cmd_handler_sensors(const char* atcmdline){
     if(sz > 16)
       return AT_R("+ERROR: Location max 16 chars");
     strncpy((char *)&SENSORS::cfg.kvmkey, p, sz);
+    CFG_SAVE();
     return AT_R_OK;
   } else if(p = at_cmd_check("AT+KVMKEY?", atcmdline, cmd_len)){
     return AT_R(SENSORS::cfg.kvmkey);
@@ -641,6 +663,11 @@ const char* at_cmd_handler_sensors(const char* atcmdline){
 } // namespace SENSORS
 
 namespace PLUGINS {
+    NOINLINE
+    void clear_config(){
+        memset((void *)&SENSORS::cfg, 0, sizeof(SENSORS::cfg));
+        CFG_SAVE();
+    }
     NOINLINE
     void setup(){
         SENSORS::sensors_setup();
