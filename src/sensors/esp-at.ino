@@ -5383,6 +5383,7 @@ void log_esp_info() {
   }
 
   // log heap information
+  LOG("[ESP] === Heap Information ===");
   size_t hs = heap_caps_get_free_size(MALLOC_CAP_8BIT);
   LOG("[ESP] Free heap size (8BIT): %d bytes", hs);
   hs = heap_caps_get_free_size(MALLOC_CAP_32BIT);
@@ -5401,6 +5402,26 @@ void log_esp_info() {
   LOG("[ESP] Free heap size (IRAM_8BIT): %d bytes", hs);
   hs = heap_caps_get_free_size(MALLOC_CAP_RTCRAM);
   LOG("[ESP] Free heap size (RTCRAM): %d bytes", hs);
+
+  LOG("[ESP] === MISC Information ===");
+  // log the size of cfg_t
+  LOG("[ESP] Size of cfg: %d bytes", sizeof(cfg_t));
+  // log the size of global buffers
+  LOG("[ESP] Size of inbuf: %d bytes", sizeof(inbuf));
+  LOG("[ESP] Size of outbuf: %d bytes", sizeof(outbuf));
+  #ifdef UART_AT
+  LOG("[ESP] Size of AT cmd buffer: %d bytes", sizeof(atscbu));
+  LOG("[ESP] Size of AT object: %d bytes", sizeof(ATSc));
+  #endif
+  #ifdef BT_CLASSIC
+  LOG("[ESP] Size of BT Classic cmd buffer: %d bytes", sizeof(atscbt));
+  LOG("[ESP] Size of BT Classic AT object: %d bytes", sizeof(ATScBT));
+  LOG("[ESP] Size of BT Classic SPP object: %d bytes", sizeof(SerialBT));
+  #endif
+  #ifdef SUPPORT_WIFI
+  LOG("[ESP] Size of WiFi object: %d bytes", sizeof(WiFi));
+  LOG("[ESP] Size of WiFiClass object: %d bytes", sizeof(WiFiClass));
+  #endif
 
   LOG("[ESP] === End of ESP Information ===");
 }
