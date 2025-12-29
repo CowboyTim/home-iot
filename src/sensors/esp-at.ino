@@ -50,6 +50,7 @@
 #include <nvs.h>
 #include <esp_partition.h>
 #include <esp_spiffs.h>
+#include <esp_heap_caps.h>
 #include <SPIFFS.h>
 #include <esp_bt.h>
 #include <esp_system.h>
@@ -5381,7 +5382,37 @@ void log_esp_info() {
         nvs_keys_partition->label, nvs_keys_partition->size / 1024, nvs_keys_partition->address);
   }
 
+  // log heap information
+  size_t hs = heap_caps_get_free_size(MALLOC_CAP_8BIT);
+  LOG("[ESP] Free heap size (8BIT): %d bytes", hs);
+  hs = heap_caps_get_free_size(MALLOC_CAP_32BIT);
+  LOG("[ESP] Free heap size (32BIT): %d bytes", hs);
+  hs = heap_caps_get_free_size(MALLOC_CAP_DMA);
+  LOG("[ESP] Free heap size (DMA): %d bytes", hs);
+  hs = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+  LOG("[ESP] Free heap size (INTERNAL): %d bytes", hs);
+  hs = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+  LOG("[ESP] Free heap size (SPIRAM): %d bytes", hs);
+  hs = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
+  LOG("[ESP] Free heap size (DEFAULT): %d bytes", hs);
+  hs = heap_caps_get_free_size(MALLOC_CAP_EXEC);
+  LOG("[ESP] Free heap size (EXEC): %d bytes", hs);
+  hs = heap_caps_get_free_size(MALLOC_CAP_IRAM_8BIT);
+  LOG("[ESP] Free heap size (IRAM_8BIT): %d bytes", hs);
+  hs = heap_caps_get_free_size(MALLOC_CAP_RTCRAM);
+  LOG("[ESP] Free heap size (RTCRAM): %d bytes", hs);
+
   LOG("[ESP] === End of ESP Information ===");
+}
+
+void esp_heap_trace_alloc_hook(void *ptr, size_t size, uint8_t alloc_type) {
+  size_t free_heap = ESP.getFreeHeap();
+  LOG("[ESP] Heap allocation hook triggered, ptr: %p, free heap: %d bytes, cap: ", ptr, free_heap, alloc_type);
+}
+
+void esp_heap_trace_free_hook(void *ptr) {
+  size_t free_heap = ESP.getFreeHeap();
+  LOG("[ESP] Heap free hook triggered, ptr: %p, free heap: %d bytes", ptr, free_heap);
 }
 #endif // SUPPORT_ESP_LOG_INFO
 
