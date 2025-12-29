@@ -63,18 +63,7 @@
 #undef APDS9930   // TODO: implement software + hardware
 #undef MQ135
 
-#define NR_OF_SENSORS 9
-#define HUMIDITY          0 // DHT11 humidity sensor
-#define TEMPERATURE       1 // DHT11 temperature sensor
-#define PRESSURE          2 // BMP280 pressure sensor
-#define LDR_ILLUMINANCE   3 // LDR illuminance sensor
-#define AIR_QUALITY       4 // MQ-135 air quality sensor
-#define APDS_ILLUMINANCE  5 // APDS-9930 illuminance sensor
-#define APDS_COLOR        6 // APDS-9930 color sensor
-#define SE95_TEMPERATURE  7 // SE95 temperature sensor
-#define S8_CO2            8 // S8 CO2 sensor
-
-
+#define NR_OF_SENSORS 8
 #define SENSORS_OUTBUFFER_SIZE  128
 
 #ifdef SE95
@@ -110,58 +99,27 @@ extern size_t inlen;
 
 namespace SENSORS {
 
-const int nr = NR_OF_SENSORS;
-const int out_buf_size  = SENSORS_OUTBUFFER_SIZE;
-
-
 #ifdef SE95
 // re-export Wire for sensors.cpp in this SENSORS namespace, note that "Wire"
 // is a global extern object
 TwoWire Wire = Wire;
 #endif // SE95
 
-const char *v_key[SENSORS::nr] = {
-  "humidity",
-  "temperature",
-  "pressure",
-  "ldr_illuminance",
-  "air_quality",
-  "apds_illuminance",
-  "apds_color",
-  "se95_temperature",
-  "s8_co2"
-};
-
-const char *v_unit[SENSORS::nr] = {
-  "%s:%s*%%,%.0f\r\n",             // HUMIDITY
-  "%s:%s*°C,%.2f\r\n",             // TEMPERATURE
-  "%s:%s*hPa,%.0f\r\n",            // PRESSURE
-  "%s:%s*lx,%.0f\r\n",             // LDR ILLUMINANCE
-  "%s:%s*ppm,%.0f\r\n",            // AIR_QUALITY
-  "%s:%s*lx,%.0f\r\n",             // APDS ILLUMINANCE
-  "%s:%s*rgbc,%lu,%lu,%lu,%lu\r\n",// APDS COLOR (R,G,B,C)
-  "%s:%s*°C,%.5f\r\n",             // SE95_TEMPERATURE
-  "%s:%s*ppm,%.0f\r\n"             // S8_CO2
-};
-
-/* main config */
-typedef struct s_cfg_t {
-  // 16 chars + null terminator, default "unknown"
-  char kvmkey[17]      = "unknown";
-  uint8_t log_uart     = 0;
-  unsigned long v_intv[SENSORS::nr]  = {1000};
-  uint8_t       enabled[SENSORS::nr] = {0};
-  // Default R0, configurable via AT command
-  #ifdef MQ135
-  double mq135_r0 = 10000.0;
-  #endif // MQ135
-
-};
-s_cfg_t cfg;
-
-unsigned long last_v_intv[SENSORS::nr] = {0};
-char out_buf[SENSORS::out_buf_size] = {0};
-
+typedef struct sensor_t {
+  const char name[32] = {0};
+  const char unit_fmt[24] = {0};
+  const char key[32] = {0};
+  const char out_buf[32] = {0};
+  uint8_t  enabled = 0;
+  void *userdata = NULL;
+  unsigned long v_intv = 1000;
+  unsigned long l_intv = 0;
+  void   (*init_function)(const sensor_t*);
+  void   (*pre_function)(const sensor_t*);
+  double (*value_function)(const sensor_t*);
+  void   (*post_function)(const sensor_t*);
+  void   (*destroy_function)(const sensor_t*);
+} sensor_t;
 
 } // namespace SENSORS
 #endif // _SENSORS_H

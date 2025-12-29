@@ -45,7 +45,7 @@ namespace SENSORS {
 #define DHTPIN  A0     // GPIO2/A0 pin for DHT11
 DFRobot_DHT11 DHT;
 uint8_t did_dht11 = 0; // DHT11 read flag, to avoid multiple reads
-double dht11_fetch_humidity(){
+double dht11_fetch_humidity(const sensor_t *cfg){
   // fetch humidity from DHT11
   if(!did_dht11){
     DHT.read(DHTPIN);
@@ -60,7 +60,7 @@ double dht11_fetch_humidity(){
   return h;
 }
 
-double dht11_fetch_temperature(){
+double dht11_fetch_temperature(const sensor_t *cfg){
   // fetch temperature from DHT11
   if(!did_dht11){
     DHT.read(DHTPIN);
@@ -75,18 +75,19 @@ double dht11_fetch_temperature(){
   return t;
 }
 
-void pre_dht11(){
+void pre_dht11(const sensor_t *cfg){
   did_dht11 = 0;
 }
 
-void post_dht11(){
+void post_dht11(const sensor_t *cfg){
   did_dht11 = 0;
 }
+
 #endif // DHT11
 
 #ifdef LDR
 #define LDRPIN    A1 // GPIO3/A1 pin for LDR
-double fetch_ldr_adc(){
+double fetch_ldr_adc(const sensor_t *cfg){
   // fetch LDR ADC value
   int ldr_adc = analogReadMilliVolts(A1); // assuming LDR is connected to A0
   LOG("[LDR/ADC] value: %d mV", ldr_adc);
@@ -94,7 +95,7 @@ double fetch_ldr_adc(){
   return ldr_value;
 }
 
-void init_ldr_adc(){
+void init_ldr_adc(const sensor_t *cfg){
   // initialize LDR ADC pin
   pinMode(A1, INPUT); // assuming LDR is connected to A1
   LOG("[LDR/ADC] initialized on A1");
@@ -108,31 +109,46 @@ void init_ldr_adc(){
 #define MQ135_VCC 5.0    // Sensor powered by 5V
 #define MQ135_ADC_REF 3.3 // ESP32 ADC reference voltage
 
-double mq135_adc_to_ppm(int adc_value) {
+double mq135_adc_to_ppm(double mq135_r0, int adc_value) {
   float voltage = (float)adc_value * MQ135_ADC_REF / 4095.0;
   float RS = (MQ135_VCC - voltage) * MQ135_RL / voltage;
-  float ratio = RS / SENSORS::cfg.mq135_r0;
+  float ratio = RS / mq135_r0;
   // For CO2: a = 110.47, b = -2.862 (from datasheet)
   float ppm = pow(10, (log10(ratio) - log10(110.47)) / -2.862);
   return ppm;
 }
 
-double fetch_mq135_adc(){
+double fetch_mq135_adc(const sensor_t *cfg){
+  double mq135_r0 = 10000.0; // default R0 value
+  if(cfg->userdata != NULL)
+    mq135_r0 = *((double*)cfg->userdata);
   // fetch MQ-135 ADC value
   int mq135_adc = analogRead(MQ135PIN); // raw ADC value (0-4095)
   LOG("[MQ-135] ADC value: %d", mq135_adc);
-  double ppm = mq135_adc_to_ppm(mq135_adc);
+  double ppm = mq135_adc_to_ppm(mq135_r0, mq135_adc);
   LOG("[MQ-135] CO2 ppm: %.2f", ppm);
   return ppm;
 }
 
-void init_mq135_adc(){
+void init_mq135_adc(const sensor_t *cfg){
   // initialize MQ-135 ADC pin
   pinMode(MQ135PIN, INPUT);
   analogSetPinAttenuation(MQ135PIN, ADC_11db);
   analogReadResolution(12);
+  cfg->userdata = malloc(sizeof(double));
+  if(cfg->userdata == NULL)
+    LOG("[MQ-135] ERROR: unable to allocate memory for userdata, using default R0 of 10k Ohm");
   LOG("[MQ-135] ADC initialized on A2");
 }
+
+void destroy_mq135_adc(const sensor_t *cfg){
+  // free userdata
+  if(cfg->userdata != NULL){
+    free(cfg->userdata);
+    cfg->userdata = NULL;
+  }
+}
+
 #endif // MQ135
 
 #ifdef APDS9930
@@ -141,7 +157,7 @@ void init_mq135_adc(){
 #define APDS9930_I2C_ADDRESS 0x39 // default I2C address for APDS-9930
 Adafruit_APDS9930 apds(APDS9930_I2C_ADDRESS);
 uint16_t apds_r = 0, apds_g = 0, apds_b = 0, apds_c = 0;
-double fetch_apds_illuminance() {
+double fetch_apds_illuminance(const sensor_t *cfg){{
   // fetch APDS-9930 illuminance (lux)
   float lux = 0;
   apds.getLux(&lux);
@@ -149,7 +165,7 @@ double fetch_apds_illuminance() {
   return (double)lux;
 }
 
-double fetch_apds_color() {
+double fetch_apds_color(const sensor_t *cfg){{
   // fetch APDS-9930 color (returns C, but logs R,G,B,C)
   apds.getRGB(&apds_r, &apds_g, &apds_b, &apds_c);
   LOG("[APDS-9930] RGB: %d,%d,%d,%d", apds_r, apds_g, apds_b, apds_c);
@@ -157,7 +173,7 @@ double fetch_apds_color() {
   return (double)apds_c;
 }
 
-void init_apds9930() {
+void init_apds9930(const sensor_t *cfg){{
   if(!apds.begin()) {
     LOG("[APDS-9930] not found");
     return;
@@ -172,7 +188,7 @@ void init_apds9930() {
 #ifdef S8
 S8_UART *sensor_S8 = NULL;
 S8_sensor sensor;
-void init_s8() {
+void init_s8(const sensor_t *cfg) {
   Serial1.begin(S8_BAUDRATE, SERIAL_8N1, 1, 0);
   sensor_S8 = new S8_UART(Serial1);
 
@@ -183,7 +199,7 @@ void init_s8() {
     LOG("[S8] CO2 sensor not found!");
     delete sensor_S8;
     sensor_S8 = NULL;
-    SENSORS::cfg.enabled[S8_CO2] = 0; // Disable in config
+    cfg->enabled = 0; // Disable in config
     return;
   }
 
@@ -237,7 +253,7 @@ void init_s8() {
   return;
 }
 
-double fetch_s8_co2() {
+double fetch_s8_co2(const sensor_t *cfg){{
   // Fetch CO2 value from S8 sensor
   if(sensor_S8 == NULL) {
     LOG("[S8] sensor not initialized");
@@ -251,7 +267,7 @@ double fetch_s8_co2() {
 #endif // S8
 
 #ifdef SE95
-void init_se95() {
+void init_se95(const sensor_t *cfg) {
   // Initialize SE95 temperature sensor
   Wire.begin();
   #if defined(ARDUINO_ARCH_ESP32) || defined(ARDUINO_ARCH_ESP8266)
@@ -260,7 +276,7 @@ void init_se95() {
   // Fetch temperature from SE95 sensor
   Wire.beginTransmission(SE95_I2C_ADDRESS);
   if(Wire.endTransmission() != ESP_OK){
-      SENSORS::cfg.enabled[SE95_TEMPERATURE] = 0; // Disable in config
+      cfg->enabled = 0 ; // Disable in config
     LOG("[SE95] sensor not found");
     return;
   }
@@ -268,7 +284,7 @@ void init_se95() {
   return;
 }
 
-double fetch_se95_temperature() {
+double fetch_se95_temperature(const sensor_t *cfg) {
   Wire.beginTransmission(SE95_I2C_ADDRESS);
   Wire.write(SE95_TEMPERATURE);
   Wire.endTransmission();
@@ -305,141 +321,137 @@ double fetch_se95_temperature() {
 }
 #endif // SE95
 
-double (*v_value_function[SENSORS::nr])() = {
-#ifdef DHT11
-    &dht11_fetch_humidity,    // HUMIDITY
-    &dht11_fetch_temperature, // TEMPERATURE
-#else
-    NULL,                     // HUMIDITY
-    NULL,                     // TEMPERATURE
-#endif
-    NULL,                     // PRESSURE
-#ifdef LDR
-    &fetch_ldr_adc,           // LDR ILLUMINANCE
-#else
-    NULL,                     // LDR ILLUMINANCE
-#endif
-#ifdef MQ135
-    &fetch_mq135_adc,         // AIR_QUALITY
-#else
-    NULL,                     // AIR_QUALITY
-#endif
-#ifdef APDS9930
-    &fetch_apds_illuminance,  // APDS ILLUMINANCE
-    &fetch_apds_color,        // APDS COLOR
-#else
-    NULL,                     // APDS ILLUMINANCE
-    NULL,                     // APDS COLOR
-#endif
-#ifdef SE95
-    &fetch_se95_temperature,  // SE95_TEMPERATURE
-#else
-    NULL,                     // SE95_TEMPERATURE
-#endif
-#ifdef S8
-    &fetch_s8_co2             // S8 CO2
-#else
-    NULL                      // S8 CO2
-#endif
-};
+/* main config */
+typedef struct s_cfg_t {
+  // 16 chars + null terminator, default "unknown"
+  char kvmkey[17]      = "unknown";
+  uint8_t log_uart     = 0;
+  sensor_t sensors[NR_OF_SENSORS] = {
+    #ifdef DHT11
+    {
+      .name = "DHT11 Humidity",
+      .unit_fmt = "%s:%s*%%,%.0f\r\n",
+      .key  = "humidity",
+      .pre_function = pre_dht11,
+      .value_function = dht11_fetch_humidity,
+      .post_function = post_dht11,
+    },
+    {
+      .name = "DHT11 Temperature",
+      .unit_fmt = "%s:%s*°C,%.2f\r\n",
+      .key  = "temperature",
+      .pre_function = pre_dht11,
+      .value_function = dht11_fetch_temperature,
+      .post_function = post_dht11,
+    },
+    #else
+    {},
+    {},
+    #endif // DHT11
+    #ifdef LDR
+    {
+      .name = "LDR Illuminance",
+      .key  = "ldr_illuminance",
+      .unit_fmt = "%s:%s*lx,%.0f\r\n",
+      .init_function = init_ldr_adc,
+      .value_function = fetch_ldr_adc,
+    },
+    #else
+    {},
+    #endif // LDR
+    #ifdef MQ135
+    {
+      .name = "MQ-135 Air Quality",
+      .key  = "air_quality",
+      .unit_fmt = "%s:%s*ppm,%.0f\r\n",
+      .init_function = init_mq135_adc,
+      .value_function = fetch_mq135_adc,
+      .destroy_function = destroy_mq135_adc,
+    },
+    #else
+    {},
+    #endif // MQ135
+    #ifdef APDS9930
+    {
+      .name = "APDS-9930 Illuminance",
+      .unit_fmt = "%s:%s*lx,%.0f\r\n",
+      .key  = "apds_illuminance",
+      .init_function = init_apds9930,
+      .value_function = fetch_apds_illuminance,
+    },
+    {
+      .name = "APDS-9930 Color",
+      .unit_fmt = "%s:%s*C,%.0f\r\n",
+      .key  = "apds_color",
+      .init_function = init_apds9930,
+      .value_function = fetch_apds_color,
+    },
+    #else
+    {},
+    {},
+    #endif // APDS
+    #ifdef S8
+    {
+      .name = "S8 CO2",
+      .unit_fmt = "%s:%s*ppm,%.0f\r\n",
+      .key  = "s8_co2",
+      .init_function = init_s8,
+      .value_function = fetch_s8_co2,
+    },
+    #else
+    {},
+    #endif // S8
+    #ifdef SE95
+    {
+      .name = "SE95 Temperature",
+      .unit_fmt = "%s:%s*°C,%.5f\r\n",
+      .key  = "se95_temperature",
+      .init_function = init_se95,
+      .value_function = fetch_se95_temperature,
+    },
+    #else
+    {},
+    #endif // SE95
+  };
 
-void (*v_init_function[SENSORS::nr])() = {
-    NULL,               // HUMIDITY
-    NULL,               // TEMPERATURE
-    NULL,               // PRESSURE
-#ifdef LDR
-    &init_ldr_adc,      // LDR ILLUMINANCE
-#else
-    NULL,               // LDR ILLUMINANCE
-#endif
-#ifdef MQ135
-    &init_mq135_adc,    // AIR_QUALITY
-#else
-    NULL,               // AIR_QUALITY
-#endif
-#ifdef APDS9930
-    &init_apds9930,     // APDS ILLUMINANCE
-    &init_apds9930,     // APDS COLOR
-#else
-    NULL,               // APDS ILLUMINANCE
-    NULL,               // APDS COLOR
-#endif
-#ifdef SE95
-    &init_se95,         // SE95_TEMPERATURE
-#else
-    NULL,               // SE95_TEMPERATURE
-#endif
-#ifdef S8
-    &init_s8            // S8 CO2
-#else
-    NULL                // S8 CO2
-#endif
 };
+s_cfg_t cfg;
 
-void (*v_pre_function[SENSORS::nr])() = {
-#ifdef DHT11
-    &pre_dht11,        // HUMIDITY
-    &pre_dht11,        // TEMPERATURE
-#else
-    NULL,              // HUMIDITY
-    NULL,              // TEMPERATURE
-#endif
-    NULL,              // PRESSURE
-    NULL,              // LDR ILLUMINANCE
-    NULL,              // AIR_QUALITY
-    NULL,              // APDS ILLUMINANCE
-    NULL,              // APDS COLOR
-    NULL,              // SE95_TEMPERATURE
-    NULL               // S8 CO2
-};
-
-void (*v_post_function[SENSORS::nr])() = {
-#ifdef DHT11
-    &post_dht11,        // HUMIDITY
-    &post_dht11,        // TEMPERATURE
-#else
-    NULL,               // HUMIDITY
-    NULL,               // TEMPERATURE
-#endif
-    NULL,               // PRESSURE
-    NULL,               // LDR ILLUMINANCE
-    NULL,               // AIR_QUALITY
-    NULL,               // APDS ILLUMINANCE
-    NULL,               // APDS COLOR
-    NULL,               // SE95_TEMPERATURE
-    NULL                // S8 CO2
-};
 
 NOINLINE
 void sensors_setup(){
 
   // sensors check
-  for(int i = 0; i < SENSORS::nr; i++)
-    last_v_intv[i] = millis();
+  for(int i = 0; i < NR_OF_SENSORS; i++)
+    SENSORS::cfg.sensors[i].l_intv = millis();
 
   // sensors config check for interval, when 0, assume 1000ms
-  for(int i = 0; i < SENSORS::nr; i++){
-    if(SENSORS::cfg.v_intv[i] == 0)
-      SENSORS::cfg.v_intv[i] = 1000;
-    if(SENSORS::cfg.v_intv[i] < 100)
-      SENSORS::cfg.v_intv[i] = 100;
+  for(int i = 0; i < NR_OF_SENSORS; i++){
+    sensor_t *s = &SENSORS::cfg.sensors[i];
+    if(s->v_intv == 0)
+      s->v_intv = 1000;
+    if(s->v_intv < 100)
+      s->v_intv = 100;
   }
 
   // setup sensors
-  for(int i = 0; i < SENSORS::nr; i++){
-    if(v_init_function[i] != NULL){
-      v_init_function[i]();
+  for(int i = 0; i < NR_OF_SENSORS; i++){
+    const sensor_t *s = &SENSORS::cfg.sensors[i];
+    if(s->init_function != NULL){
+      // call function
+      s->init_function(s);
     } else {
-      LOG("[SENSORS] Sensor index %d Sensor name %s not configured, skipping setup", i, v_key[i]);
+      LOG("[SENSORS] Sensor index %d Sensor name %s not configured, skipping setup", i, s->name);
     }
   }
 
   // config log on UART when VERBOSE=1
   DO_VERBOSE(
-    for(int i = 0; i < SENSORS::nr; i++){
-      LOG("[SENSORS] Sensor %s log interval (ms): %lu", v_key[i], (unsigned long)SENSORS::cfg.v_intv[i]);
-      if(v_value_function[i] == NULL)
-        LOG("[SENSORS] Sensor index %d Sensor name %s not configured, skipping", i, v_key[i]);
+    for(int i = 0; i < NR_OF_SENSORS; i++){
+      const sensor_t *s = &SENSORS::cfg.sensors[i];
+      LOG("[SENSORS] Sensor %s log interval (ms): %lu", s->name, s->v_intv);
+      if(s->value_function == NULL)
+        LOG("[SENSORS] Sensor index %d Sensor name %s not configured, skipping", i, s->name);
     }
   )
 
@@ -448,29 +460,33 @@ void sensors_setup(){
 NOINLINE
 void sensors_loop(){
   // loop through sensors and call pre function
-  for(int i = 0; i < SENSORS::nr; i++){
-    if(SENSORS::cfg.enabled[i] == 0) continue;
-    doYIELD;
-    if(v_pre_function[i] == NULL)
+  for(int i = 0; i < NR_OF_SENSORS; i++){
+    sensor_t *s = &SENSORS::cfg.sensors[i];
+    if(s->enabled == 0)
       continue;
-    v_pre_function[i]();
+    doYIELD;
+    if(s->pre_function == NULL)
+      continue;
+    s->pre_function(s);
   }
 
   // loop through sensors and check if we need to fetch & log
-  for(int i = 0; i < SENSORS::nr; i++){
-    if(SENSORS::cfg.enabled[i] == 0) continue;
-    doYIELD;
-    if(v_value_function[i] == NULL)
+  for(int i = 0; i < NR_OF_SENSORS; i++){
+    sensor_t *s = &SENSORS::cfg.sensors[i];
+    if(s->enabled == 0)
       continue;
-    if(millis() - last_v_intv[i] > SENSORS::cfg.v_intv[i]){
-      double current_v = v_value_function[i]();
-      memset((char*)&SENSORS::out_buf, 0, SENSORS::out_buf_size);
-      int h_strl = snprintf((char *)&SENSORS::out_buf, SENSORS::out_buf_size, v_unit[i], SENSORS::cfg.kvmkey, v_key[i], current_v);
+    doYIELD;
+    if(s->value_function == NULL)
+      continue;
+    if(millis() - s->l_intv > s->v_intv){
+      double current_v = s->value_function(s);
+      memset((char*)s->out_buf, 0, sizeof(s->out_buf));
+      int h_strl = snprintf((char *)s->out_buf, sizeof(s->out_buf), s->unit_fmt, SENSORS::cfg.kvmkey, s->key, current_v);
       if(h_strl > 0){
         // output over UART?
         if(SENSORS::cfg.log_uart){
             for(size_t i = 0; i < h_strl; i++)
-              Serial.write((uint8_t)SENSORS::out_buf[i]);
+              Serial.write((uint8_t)s->out_buf[i]);
             Serial.flush();
         }
         // copy over to "inbuf" from esp-at.ino
@@ -482,23 +498,25 @@ void sensors_loop(){
         } else {
           LOG("[SENSORS] ERROR: only %d bytes to inbuf, had %d bytes for sensor %d", copy_len_max, h_strl, i);
         }
-        LOG("[SENSORS] copying %d bytes to inbuf for sensor %s", copy_len_max, v_key[i]);
-        memcpy(b_new, (uint8_t *)SENSORS::out_buf, copy_len_max);
+        LOG("[SENSORS] copying %d bytes to inbuf for sensor %s", copy_len_max, s->key);
+        memcpy(b_new, (uint8_t *)s->out_buf, copy_len_max);
         ::inlen += copy_len_max;
       } else {
-        LOG("[SENSORS] ERROR: snprintf failed for sensor %s: %s", v_key[i], strerror(errno));
+        LOG("[SENSORS] ERROR: snprintf failed for sensor %s: %s", s->key, strerror(errno));
       }
-      last_v_intv[i] = millis();
+      s->l_intv = millis();
     }
   }
 
   // loop through sensors and call post function
-  for(int i = 0; i < SENSORS::nr; i++){
-    if(SENSORS::cfg.enabled[i] == 0) continue;
-    doYIELD;
-    if(v_post_function[i] == NULL)
+  for(int i = 0; i < NR_OF_SENSORS; i++){
+    sensor_t *s = &SENSORS::cfg.sensors[i];
+    if(s->enabled == 0)
       continue;
-    v_post_function[i]();
+    doYIELD;
+    if(s->post_function == NULL)
+      continue;
+    s->post_function(s);
   }
 }
 
@@ -518,22 +536,23 @@ char* at_cmd_check(const char *cmd, const char *at_cmd, unsigned short at_len) {
 NOINLINE
 const char* at_cmd_handler_sensor(const char *at_cmd, unsigned short at_len){
     const char *p = NULL;
-    for (int i = 0; i < SENSORS::nr; i++) {
+    for (int i = 0; i < NR_OF_SENSORS; i++) {
+        sensor_t *s = &SENSORS::cfg.sensors[i];
         if (p = at_cmd_check("AT+ENABLE_", at_cmd, at_len)) {
             // move pointer past "AT+ENABLE_"
             p += strlen("AT+ENABLE_");
             // AT+ENABLE_<sensor>=<0|1> or AT+ENABLE_<sensor>?
             // match sensor?
-            if(strncasecmp(v_key[i], p, strlen(v_key[i])) != 0)
+            LOG("[SENSORS] at_cmd_handler_sensor: checking sensor key '%s' to '%s'", s->key, p);
+            if(strncasecmp(s->key, p, strlen(s->key)) != 0)
                 continue; // not matching sensor key
-            if(v_value_function[i] == NULL) {
+            if(s->value_function == NULL)
                 return AT_R("+ERROR: Sensor not supported in this build");
-            }
             // move pointer to the = or ? part
-            p += strlen(v_key[i]);
+            p += strlen(s->key);
             if(*p == '?') {
                 // query enable status
-                return AT_R_INT(SENSORS::cfg.enabled[i]);
+                return AT_R_INT(s->enabled);
             }
             if(*p != '=') {
                 // error handle
@@ -545,18 +564,23 @@ const char* at_cmd_handler_sensor(const char *at_cmd, unsigned short at_len){
             if (val != 0 && val != 1) {
                 return AT_R("+ERROR: Enable must be 0 or 1");
             }
-            SENSORS::cfg.enabled[i] = val;
+            s->enabled = val;
             return AT_R_OK;
         } else if (p = at_cmd_check("AT+LOG_INTERVAL_", at_cmd, at_len)){
             // move pointer past "AT+LOG_INTERVAL_"
             p += strlen("AT+LOG_INTERVAL_");
             // AT+LOG_INTERVAL_<sensor>=<interval>
             // match sensor?
-            if(strncasecmp(v_key[i], p, strlen(v_key[i])) != 0) {
+            if(strncasecmp(s->key, p, strlen(s->key)) != 0)
                 continue; // not matching sensor key
-            }
+            if(s->value_function == NULL)
+                return AT_R("+ERROR: Sensor not supported in this build");
             // move pointer to the = part
-            p += strlen(v_key[i]);
+            p += strlen(s->key);
+            if(*p == '?') {
+                // query enable status
+                return AT_R_INT(s->v_intv);
+            }
             if(*p != '=') {
                 // error handle
                 return AT_R("+ERROR: Log interval command must end with =<interval>");
@@ -567,7 +591,7 @@ const char* at_cmd_handler_sensor(const char *at_cmd, unsigned short at_len){
             if(new_interval < 100){
               return AT_R("+ERROR: Log interval must be at least 100ms");
             }
-            SENSORS::cfg.v_intv[i] = new_interval;
+            s->v_intv = new_interval;
             return AT_R_OK;
         } else {
             continue; // continue to next sensor
