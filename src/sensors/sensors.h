@@ -114,12 +114,26 @@ typedef struct sensor_t {
   void *userdata = NULL;
   unsigned long v_intv = 1000;
   unsigned long l_intv = 0;
-  void   (*init_function)(const sensor_t*);
-  void   (*pre_function)(const sensor_t*);
-  double (*value_function)(const sensor_t*);
-  void   (*post_function)(const sensor_t*);
-  void   (*destroy_function)(const sensor_t*);
+  void   (*init_function)(sensor_t*);
+  void   (*pre_function)(sensor_t*);
+  double (*value_function)(sensor_t*);
+  void   (*post_function)(sensor_t*);
+  void   (*destroy_function)(sensor_t*);
 } sensor_t;
+
+/* sensors/plugin config */
+typedef struct s_cfg_t {
+  // 16 chars + null terminator, default "unknown"
+  char kvmkey[17]      = "unknown";
+  uint8_t log_uart     = 0;
+  #ifdef MQ135
+  double mq135_r0      = 10000.0; // default R0 for MQ-135
+  #endif // MQ135
+  sensor_t sensors[NR_OF_SENSORS] = {0};
+} sensors_cfg_t;
+
+extern sensors_cfg_t cfg;
+
 
 } // namespace SENSORS
 #endif // _SENSORS_H

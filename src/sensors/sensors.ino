@@ -45,7 +45,7 @@ namespace SENSORS {
 #define DHTPIN  A0     // GPIO2/A0 pin for DHT11
 DFRobot_DHT11 DHT;
 uint8_t did_dht11 = 0; // DHT11 read flag, to avoid multiple reads
-double dht11_fetch_humidity(const sensor_t *cfg){
+double dht11_fetch_humidity(sensor_t *cfg){
   // fetch humidity from DHT11
   if(!did_dht11){
     DHT.read(DHTPIN);
@@ -60,7 +60,7 @@ double dht11_fetch_humidity(const sensor_t *cfg){
   return h;
 }
 
-double dht11_fetch_temperature(const sensor_t *cfg){
+double dht11_fetch_temperature(sensor_t *cfg){
   // fetch temperature from DHT11
   if(!did_dht11){
     DHT.read(DHTPIN);
@@ -75,11 +75,11 @@ double dht11_fetch_temperature(const sensor_t *cfg){
   return t;
 }
 
-void pre_dht11(const sensor_t *cfg){
+void pre_dht11(sensor_t *cfg){
   did_dht11 = 0;
 }
 
-void post_dht11(const sensor_t *cfg){
+void post_dht11(sensor_t *cfg){
   did_dht11 = 0;
 }
 
@@ -87,7 +87,7 @@ void post_dht11(const sensor_t *cfg){
 
 #ifdef LDR
 #define LDRPIN    A1 // GPIO3/A1 pin for LDR
-double fetch_ldr_adc(const sensor_t *cfg){
+double fetch_ldr_adc(sensor_t *cfg){
   // fetch LDR ADC value
   int ldr_adc = analogReadMilliVolts(A1); // assuming LDR is connected to A0
   LOG("[LDR/ADC] value: %d mV", ldr_adc);
@@ -95,7 +95,7 @@ double fetch_ldr_adc(const sensor_t *cfg){
   return ldr_value;
 }
 
-void init_ldr_adc(const sensor_t *cfg){
+void init_ldr_adc(sensor_t *cfg){
   // initialize LDR ADC pin
   pinMode(A1, INPUT); // assuming LDR is connected to A1
   LOG("[LDR/ADC] initialized on A1");
@@ -118,7 +118,7 @@ double mq135_adc_to_ppm(double mq135_r0, int adc_value) {
   return ppm;
 }
 
-double fetch_mq135_adc(const sensor_t *cfg){
+double fetch_mq135_adc(sensor_t *cfg){
   double mq135_r0 = 10000.0; // default R0 value
   if(cfg->userdata != NULL)
     mq135_r0 = *((double*)cfg->userdata);
@@ -130,7 +130,7 @@ double fetch_mq135_adc(const sensor_t *cfg){
   return ppm;
 }
 
-void init_mq135_adc(const sensor_t *cfg){
+void init_mq135_adc(sensor_t *cfg){
   // initialize MQ-135 ADC pin
   pinMode(MQ135PIN, INPUT);
   analogSetPinAttenuation(MQ135PIN, ADC_11db);
@@ -138,10 +138,11 @@ void init_mq135_adc(const sensor_t *cfg){
   cfg->userdata = malloc(sizeof(double));
   if(cfg->userdata == NULL)
     LOG("[MQ-135] ERROR: unable to allocate memory for userdata, using default R0 of 10k Ohm");
+  memcpy(cfg->userdata, (void *)&SENSORS::cfg.mq135_r0, sizeof(double));
   LOG("[MQ-135] ADC initialized on A2");
 }
 
-void destroy_mq135_adc(const sensor_t *cfg){
+void destroy_mq135_adc(sensor_t *cfg){
   // free userdata
   if(cfg->userdata != NULL){
     free(cfg->userdata);
@@ -157,7 +158,7 @@ void destroy_mq135_adc(const sensor_t *cfg){
 #define APDS9930_I2C_ADDRESS 0x39 // default I2C address for APDS-9930
 Adafruit_APDS9930 apds(APDS9930_I2C_ADDRESS);
 uint16_t apds_r = 0, apds_g = 0, apds_b = 0, apds_c = 0;
-double fetch_apds_illuminance(const sensor_t *cfg){{
+double fetch_apds_illuminance(sensor_t *cfg){
   // fetch APDS-9930 illuminance (lux)
   float lux = 0;
   apds.getLux(&lux);
@@ -165,7 +166,7 @@ double fetch_apds_illuminance(const sensor_t *cfg){{
   return (double)lux;
 }
 
-double fetch_apds_color(const sensor_t *cfg){{
+double fetch_apds_color(sensor_t *cfg){
   // fetch APDS-9930 color (returns C, but logs R,G,B,C)
   apds.getRGB(&apds_r, &apds_g, &apds_b, &apds_c);
   LOG("[APDS-9930] RGB: %d,%d,%d,%d", apds_r, apds_g, apds_b, apds_c);
@@ -173,7 +174,7 @@ double fetch_apds_color(const sensor_t *cfg){{
   return (double)apds_c;
 }
 
-void init_apds9930(const sensor_t *cfg){{
+void init_apds9930(sensor_t *cfg){
   if(!apds.begin()) {
     LOG("[APDS-9930] not found");
     return;
@@ -188,7 +189,7 @@ void init_apds9930(const sensor_t *cfg){{
 #ifdef S8
 S8_UART *sensor_S8 = NULL;
 S8_sensor sensor;
-void init_s8(const sensor_t *cfg) {
+void init_s8(sensor_t *cfg) {
   Serial1.begin(S8_BAUDRATE, SERIAL_8N1, 1, 0);
   sensor_S8 = new S8_UART(Serial1);
 
@@ -253,7 +254,7 @@ void init_s8(const sensor_t *cfg) {
   return;
 }
 
-double fetch_s8_co2(const sensor_t *cfg){{
+double fetch_s8_co2(sensor_t *cfg){
   // Fetch CO2 value from S8 sensor
   if(sensor_S8 == NULL) {
     LOG("[S8] sensor not initialized");
@@ -267,7 +268,7 @@ double fetch_s8_co2(const sensor_t *cfg){{
 #endif // S8
 
 #ifdef SE95
-void init_se95(const sensor_t *cfg) {
+void init_se95(sensor_t *cfg) {
   // Initialize SE95 temperature sensor
   Wire.begin();
   #if defined(ARDUINO_ARCH_ESP32) || defined(ARDUINO_ARCH_ESP8266)
@@ -284,7 +285,7 @@ void init_se95(const sensor_t *cfg) {
   return;
 }
 
-double fetch_se95_temperature(const sensor_t *cfg) {
+double fetch_se95_temperature(sensor_t *cfg) {
   Wire.beginTransmission(SE95_I2C_ADDRESS);
   Wire.write(SE95_TEMPERATURE);
   Wire.endTransmission();
@@ -322,11 +323,13 @@ double fetch_se95_temperature(const sensor_t *cfg) {
 #endif // SE95
 
 /* main config */
-typedef struct s_cfg_t {
-  // 16 chars + null terminator, default "unknown"
-  char kvmkey[17]      = "unknown";
-  uint8_t log_uart     = 0;
-  sensor_t sensors[NR_OF_SENSORS] = {
+sensors_cfg_t cfg = {
+  .kvmkey    = "unknown",
+  .log_uart  = 0,
+  #ifdef MQ135
+  .mq135_r0  = 10000.0, // default R0 for MQ-135
+  #endif // MQ135
+  .sensors = {
     #ifdef DHT11
     {
       .name = "DHT11 Humidity",
@@ -351,8 +354,8 @@ typedef struct s_cfg_t {
     #ifdef LDR
     {
       .name = "LDR Illuminance",
-      .key  = "ldr_illuminance",
       .unit_fmt = "%s:%s*lx,%.0f\r\n",
+      .key  = "ldr_illuminance",
       .init_function = init_ldr_adc,
       .value_function = fetch_ldr_adc,
     },
@@ -362,8 +365,8 @@ typedef struct s_cfg_t {
     #ifdef MQ135
     {
       .name = "MQ-135 Air Quality",
-      .key  = "air_quality",
       .unit_fmt = "%s:%s*ppm,%.0f\r\n",
+      .key  = "air_quality",
       .init_function = init_mq135_adc,
       .value_function = fetch_mq135_adc,
       .destroy_function = destroy_mq135_adc,
@@ -412,11 +415,8 @@ typedef struct s_cfg_t {
     #else
     {},
     #endif // SE95
-  };
-
+  },
 };
-s_cfg_t cfg;
-
 
 NOINLINE
 void sensors_setup(){
@@ -436,7 +436,7 @@ void sensors_setup(){
 
   // setup sensors
   for(int i = 0; i < NR_OF_SENSORS; i++){
-    const sensor_t *s = &SENSORS::cfg.sensors[i];
+    sensor_t *s = &SENSORS::cfg.sensors[i];
     if(s->init_function != NULL){
       // call function
       s->init_function(s);
@@ -448,7 +448,7 @@ void sensors_setup(){
   // config log on UART when VERBOSE=1
   DO_VERBOSE(
     for(int i = 0; i < NR_OF_SENSORS; i++){
-      const sensor_t *s = &SENSORS::cfg.sensors[i];
+      sensor_t *s = &SENSORS::cfg.sensors[i];
       LOG("[SENSORS] Sensor %s log interval (ms): %lu", s->name, s->v_intv);
       if(s->value_function == NULL)
         LOG("[SENSORS] Sensor index %d Sensor name %s not configured, skipping", i, s->name);
@@ -630,8 +630,7 @@ const char* at_cmd_handler_sensors(const char* atcmdline){
   return AT_R("+ERROR: unknown command");
 }
 
-
-}
+} // namespace SENSORS
 
 namespace PLUGINS {
     NOINLINE
