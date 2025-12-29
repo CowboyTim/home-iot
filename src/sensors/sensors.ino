@@ -582,12 +582,13 @@ const char* at_cmd_handler_sensors(const char* atcmdline){
   char *p = NULL;
   if(p = at_cmd_check("AT+KVMKEY=", atcmdline, cmd_len)){
     size_t sz = (atcmdline+cmd_len)-p+1;
-    if(sz > 15)
-      return AT_R("+ERROR: Location max 15 chars");
+    if(sz > 16)
+      return AT_R("+ERROR: Location max 16 chars");
     strncpy((char *)&SENSORS::cfg.kvmkey, p, sz);
     return AT_R_OK;
   } else if(p = at_cmd_check("AT+KVMKEY?", atcmdline, cmd_len)){
     return AT_R(SENSORS::cfg.kvmkey);
+  #ifdef MQ135
   } else if(p = at_cmd_check("AT+MQ135_R0?", atcmdline, cmd_len)){
     return AT_R_DOUBLE(SENSORS::cfg.mq135_r0);
   } else if(p = at_cmd_check("AT+MQ135_R0=", atcmdline, cmd_len)){
@@ -596,6 +597,7 @@ const char* at_cmd_handler_sensors(const char* atcmdline){
       return AT_R("+ERROR: invalid R0 value (1000-100000)");
     SENSORS::cfg.mq135_r0 = new_r0;
     return AT_R_OK;
+  #endif // MQ135
   } else if(p = at_cmd_check("AT+LOG_INTERVAL_", atcmdline, cmd_len)){
     return at_cmd_handler_sensor(atcmdline, cmd_len);
   } else if(p = at_cmd_check("AT+ENABLE_", atcmdline, cmd_len)){

@@ -146,12 +146,15 @@ const char *v_unit[SENSORS::nr] = {
 
 /* main config */
 typedef struct s_cfg_t {
-  char kvmkey[16]      = "unknown";
+  // 16 chars + null terminator, default "unknown"
+  char kvmkey[17]      = "unknown";
+  uint8_t log_uart     = 0;
   unsigned long v_intv[SENSORS::nr]  = {1000};
   uint8_t       enabled[SENSORS::nr] = {0};
   // Default R0, configurable via AT command
-  double mq135_r0      = 10000.0;
-  uint8_t log_uart     = 0;
+  #ifdef MQ135
+  double mq135_r0 = 10000.0;
+  #endif // MQ135
 
 };
 s_cfg_t cfg;
