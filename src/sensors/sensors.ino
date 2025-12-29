@@ -42,7 +42,7 @@ namespace SENSORS {
 
 
 #ifdef DHT11
-#define DHTPIN  A0     // GPIO0/A0 pin for DHT11
+#define DHTPIN  A0     // GPIO_NUM_0/A0 pin for DHT11
 DFRobot_DHT11 DHT;
 uint8_t did_dht11 = 0; // DHT11 read flag, to avoid multiple reads
 double dht11_fetch_humidity(sensor_t *cfg){
@@ -86,7 +86,7 @@ void post_dht11(sensor_t *cfg){
 #endif // DHT11
 
 #ifdef LDR
-#define LDRPIN    A1 // GPIO1/A1 pin for LDR
+#define LDRPIN    A1 // GPIO_NUM_1/A1 pin for LDR
 double fetch_ldr_adc(sensor_t *cfg){
   // fetch LDR ADC value
   int ldr_adc = analogReadMilliVolts(A1); // assuming LDR is connected to A0
@@ -104,7 +104,7 @@ void init_ldr_adc(sensor_t *cfg){
 
 // MQ-135 Air Quality Sensor
 #ifdef MQ135
-#define MQ135PIN  A2 // GPIO2/A2 pin for MQ-135
+#define MQ135PIN  A2 // GPIO_NUM_2/A2 pin for MQ-135
 #define MQ135_RL 10000.0 // 10k Ohm load resistor
 #define MQ135_VCC 5.0    // Sensor powered by 5V
 #define MQ135_ADC_REF 3.3 // ESP32 ADC reference voltage
