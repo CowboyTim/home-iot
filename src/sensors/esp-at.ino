@@ -2647,6 +2647,13 @@ BLE Commands:
   AT+BLE_UART1_PASS?            - Get passthrough mode status)EOF"
 #endif // BLUETOOTH_UART_AT
 
+#ifdef SUPPORT_PLUGINS
+R"EOF(
+Plugin Commands:
+  AT+PLUGINS?                   - Show plugin command help
+)EOF"
+#endif // SUPPORT_PLUGINS
+
 R"EOF(
 
 Note: Commands with '?' are queries, commands with '=' set values
@@ -3993,6 +4000,10 @@ const char* at_cmd_handler(const char* atcmdline) {
     return AT_R_F(AT_help_string);
   } else if(p = at_cmd_check("AT+?", atcmdline, cmd_len)) {
     return AT_R_F(AT_short_help_string);
+  #ifdef SUPPORT_PLUGINS
+  } else if(p = at_cmd_check("AT+PLUGINS?", atcmdline, cmd_len)){
+    return AT_R_F(PLUGINS::at_get_help_string());
+  #endif // SUPPORT_PLUGINS
   #ifdef BLUETOOTH_UART_AT
   } else if(p = at_cmd_check("AT+BLE_PIN=", atcmdline, cmd_len)) {
     if(strlen(p) != 6)

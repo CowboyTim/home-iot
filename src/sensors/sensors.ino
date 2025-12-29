@@ -623,7 +623,72 @@ namespace PLUGINS {
         return SENSORS::at_cmd_handler_sensors(atcmdline);
     }
     NOINLINE
-    void at_cmd_help(){
+    const char * at_get_help_string(){
+        return R"EOF(
+Sensor Commands:
+  AT+KVMKEY=<location>          - Set KVM key/location identifier (max 15 chars)
+  AT+KVMKEY?                    - Get KVM key/location identifier
+)EOF"
+
+#ifdef MQ135
+        R"EOF(
+  AT+MQ135_R0=<value>           - Set MQ-135 R0 resistance value (1000-100000 Ohms)
+  AT+MQ135_R0?                  - Get MQ-135 R0 resistance value
+)EOF"
+#endif // MQ135
+
+        R"EOF(
+  AT+ENABLE_<sensor>=<0|1>      - Enable/disable sensor (1=enable, 0=disable)
+  AT+ENABLE_<sensor>?           - Get sensor enable status
+  AT+LOG_INTERVAL_<sensor>=<ms> - Set sensor logging interval (minimum 100ms)
+
+Available sensors:
+)EOF"
+
+#ifdef DHT11
+        R"EOF(
+  - HUMIDITY                    - DHT11 humidity sensor
+  - TEMPERATURE                 - DHT11 temperature sensor
+)EOF"
+#endif // DHT11
+
+#ifdef LDR
+        R"EOF(
+  - LDR_ILLUMINANCE             - LDR light sensor
+)EOF"
+#endif // LDR
+
+#ifdef MQ135
+        R"EOF(
+  - AIR_QUALITY                 - MQ-135 air quality/CO2 sensor
+)EOF"
+#endif // MQ135
+
+#ifdef APDS9930
+        R"EOF(
+  - APDS_ILLUMINANCE            - APDS-9930 light sensor
+  - APDS_COLOR                  - APDS-9930 RGB color sensor
+)EOF"
+#endif // APDS9930
+
+#ifdef SE95
+        R"EOF(
+  - SE95_TEMPERATURE            - SE95 I2C temperature sensor
+)EOF"
+#endif // SE95
+
+#ifdef S8
+        R"EOF(
+  - S8_CO2                      - SenseAir S8 CO2 sensor
+)EOF"
+#endif // S8
+
+        R"EOF(
+Examples:
+  AT+ENABLE_HUMIDITY=1          - Enable DHT11 humidity sensor
+  AT+LOG_INTERVAL_TEMPERATURE=5000 - Set temperature logging to 5 seconds
+  AT+KVMKEY=livingroom          - Set location to "livingroom"
+)EOF";
     }
 }
 
