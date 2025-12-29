@@ -127,4 +127,96 @@ const char* get_errno_string(int err) {
   }
 }
 
+} // namespace COMMON
+
+namespace CFG {
+
+nvs_handle_t nvs_c;
+
+NOINLINE
+bool INIT(const char *pa, const char *ns) {
+  LOG("[NVS] Setting up NVS in partition %s", pa);
+  esp_err_t err = nvs_open_from_partition(pa, ns, NVS_READWRITE, &nvs_c);
+  if (err != ESP_OK) {
+    LOG("[NVS] Failed to open NVS partition %s: %s", pa, esp_err_to_name(err));
+    LOG("[NVS] Attempting to initialize NVS partition %s", pa);
+    err = nvs_flash_init_partition(pa);
+    if(err != ESP_OK) {
+      LOG("[NVS] Failed to initialize NVS partition %s: %s", pa, esp_err_to_name(err));
+      return false;
+    } else {
+      LOG("[NVS] initialized successfully");
+      err = nvs_open_from_partition(pa, ns, NVS_READWRITE, &nvs_c);
+      if (err) {
+        LOG("[NVS] Failed to open NVS partition %s after init: %s", pa, esp_err_to_name(err));
+        return false;
+      } else {
+        LOG("[NVS] opened successfully after init");
+      }
+    }
+  } else {
+    LOG("[NVS] NVS partition %s opened successfully", pa);
+  }
+  return true;
 }
+
+NOINLINE
+void SAVE(const char *pa, const char *ns, const char *st, void *cfg, size_t rs) {
+  LOG("[NVS] Saving config to NVS.., size: %d bytes", rs);
+  esp_err_t err;
+  err = nvs_open_from_partition(pa, ns, NVS_READWRITE, &nvs_c);
+  if (err != ESP_OK) {
+    LOG("[NVS] Error (%d) opening NVS handle! %s", err, esp_err_to_name(err));
+    return;
+  }
+  err = nvs_set_blob(nvs_c, st, cfg, rs);
+  if (err != ESP_OK) {
+    LOG("[NVS] Error (%d) setting blob in NVS! %s", err, esp_err_to_name(err));
+  }
+  err = nvs_commit(nvs_c);
+  if (err != ESP_OK) {
+    LOG("[NVS] Error (%d) committing blob to NVS! %s", err, esp_err_to_name(err));
+  }
+  LOG("[NVS] Config saved to NVS");
+}
+
+NOINLINE
+void CLEAR(const char *pa) {
+  LOG("[NVS] Clearing config from NVS...");
+
+  // Erase the entire NVS partition used by config
+  esp_err_t err;
+  err = nvs_flash_erase_partition(pa);
+  if (err != ESP_OK) {
+    LOG("[NVS] Error (%d) erasing NVS! %s", err, esp_err_to_name(err));
+  }
+
+  // Erase the main "nvs" partition as well, to clear any other data
+  err = nvs_flash_erase_partition("nvs");
+  if (err != ESP_OK) {
+    LOG("[NVS] Error (%d) erasing main NVS! %s", err, esp_err_to_name(err));
+  }
+
+  LOG("[NVS] NVS cleared");
+}
+
+NOINLINE
+void LOAD(const char *pa, const char *ns, const char *st, void *cfg, size_t rs) {
+  LOG("[NVS] Loading config from NVS...");
+  esp_err_t err;
+  err = nvs_open_from_partition(pa, ns, NVS_READONLY, &nvs_c);
+  if (err != ESP_OK) {
+    LOG("[NVS] Error (%d) opening NVS handle! %s", err, esp_err_to_name(err));
+    return;
+  }
+  err = nvs_get_blob(nvs_c, st, cfg, &rs);
+  if (err == ESP_ERR_NVS_NOT_FOUND) {
+    LOG("[NVS] No config found in NVS, using defaults");
+    return;
+  } else if (err != ESP_OK) {
+    LOG("[NVS] Error (%d) reading config from NVS! %s", err, esp_err_to_name(err));
+    return;
+  }
+  LOG("[NVS] Config loaded from NVS, size: %d bytes", rs);
+}
+} // namespace CFG

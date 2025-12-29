@@ -59,6 +59,8 @@
 #include <errno.h>
 #include <sys/time.h>
 #include "time.h"
+#include <nvs_flash.h>
+#include <nvs.h>
 
 /*
  * Function attributes, for common functions
@@ -316,5 +318,16 @@ void _debug_e(const char *fmt, ...) {
 NOINLINE
 extern char* at_cmd_check(const char* cmd, const char* at_cmd, unsigned short at_len);
 
-}
+} // namespace COMMON
+
+namespace CFG {
+
+extern NOINLINE bool INIT(const char* pa, const char* ns);
+extern NOINLINE void SAVE(const char* pa, const char* ns, const char* st, void* cfg, size_t rs);
+extern NOINLINE void CLEAR(const char* pa);
+extern NOINLINE void LOAD(const char* pa, const char* ns, const char* st, void* cfg, size_t rs);
+
+
+} // namespace CFG
+
 #endif // _COMMON_H

@@ -2176,68 +2176,32 @@ void ble_uart1_at_mode(uint8_t enable) {
 #define CFG_PARTITION "esp-at"
 #define CFG_NAMESPACE "esp-at"
 #define CFG_STORAGE   "config"
-nvs_handle_t nvs_c;
 
 NOINLINE
 void CFG_SAVE() {
-  LOG("[NVS] Saving config to NVS.., size: %d bytes", sizeof(cfg));
-  esp_err_t err;
-  err = nvs_open_from_partition(CFG_PARTITION, CFG_NAMESPACE, NVS_READWRITE, &nvs_c);
-  if (err != ESP_OK) {
-    LOG("[NVS] Error (%d) opening NVS handle! %s", err, esp_err_to_name(err));
-    return;
-  }
-  err = nvs_set_blob(nvs_c, CFG_STORAGE, &cfg, sizeof(cfg));
-  if (err != ESP_OK) {
-    LOG("[NVS] Error (%d) setting blob in NVS! %s", err, esp_err_to_name(err));
-  }
-  err = nvs_commit(nvs_c);
-  if (err != ESP_OK) {
-    LOG("[NVS] Error (%d) committing blob to NVS! %s", err, esp_err_to_name(err));
-  }
-  LOG("[NVS] Config saved to NVS");
+  CFG::SAVE(CFG_PARTITION, CFG_NAMESPACE, CFG_STORAGE, (void*)&cfg, sizeof(cfg));
 }
 
 NOINLINE
 void CFG_CLEAR() {
-  LOG("[NVS] Clearing config from NVS...");
-
-  // Erase the entire NVS partition used by config
-  esp_err_t err;
-  err = nvs_flash_erase_partition(CFG_PARTITION);
-  if (err != ESP_OK) {
-    LOG("[NVS] Error (%d) erasing NVS! %s", err, esp_err_to_name(err));
-  }
-
-  // Erase the main "nvs" partition as well, to clear any other data
-  err = nvs_flash_erase_partition("nvs");
-  if (err != ESP_OK) {
-    LOG("[NVS] Error (%d) erasing main NVS! %s", err, esp_err_to_name(err));
-  }
-
-  LOG("[NVS] NVS cleared");
+  CFG::CLEAR(CFG_PARTITION);
 }
 
 NOINLINE
 void CFG_LOAD() {
-  LOG("[NVS] Loading config from NVS...");
-  esp_err_t err;
-  err = nvs_open_from_partition(CFG_PARTITION, CFG_NAMESPACE, NVS_READONLY, &nvs_c);
-  if (err != ESP_OK) {
-    LOG("[NVS] Error (%d) opening NVS handle! %s", err, esp_err_to_name(err));
-    return;
-  }
-  size_t required_size = sizeof(cfg);
-  err = nvs_get_blob(nvs_c, CFG_STORAGE, &cfg, &required_size);
-  if (err == ESP_ERR_NVS_NOT_FOUND) {
-    LOG("[NVS] No config found in NVS, using defaults");
-    return;
-  } else if (err != ESP_OK) {
-    LOG("[NVS] Error (%d) reading config from NVS! %s", err, esp_err_to_name(err));
-    return;
-  }
-  LOG("[NVS] Config loaded from NVS, size: %d bytes", required_size);
+  CFG::LOAD(CFG_PARTITION, CFG_NAMESPACE, CFG_STORAGE, (void*)&cfg, sizeof(cfg));
 }
+
+NOINLINE
+void setup_nvs(){
+  if(!CFG::INIT(CFG_PARTITION, CFG_NAMESPACE)){
+    LOGE("[CFG] Failed to initialize NVS storage");
+    ESP.restart();
+  } else {
+    LOG("[CFG] NVS storage initialized");
+  }
+}
+
 
 #include <esp32-hal-cpu.h>
 NOINLINE
@@ -5882,31 +5846,6 @@ void setup_button() {
   #endif // USE_BUTTON
   pinMode(current_button, INPUT_PULLUP);
   LOG("[BUTTON] Pin %d configured as INPUT_PULLUP", current_button);
-}
-
-void setup_nvs() {
-  LOG("[NVS] Setting up NVS in partition %s", CFG_PARTITION);
-  esp_err_t err = nvs_open_from_partition(CFG_PARTITION, CFG_NAMESPACE, NVS_READWRITE, &nvs_c);
-  if (err != ESP_OK) {
-    LOG("[NVS] Failed to open NVS partition %s: %s", CFG_PARTITION, esp_err_to_name(err));
-    LOG("[NVS] Attempting to initialize NVS partition %s", CFG_PARTITION);
-    err = nvs_flash_init_partition(CFG_PARTITION);
-    if(err != ESP_OK) {
-      LOG("[NVS] Failed to initialize NVS partition %s: %s", CFG_PARTITION, esp_err_to_name(err));
-      ESP.restart();
-    } else {
-      LOG("[NVS] initialized successfully");
-      err = nvs_open_from_partition(CFG_PARTITION, CFG_NAMESPACE, NVS_READWRITE, &nvs_c);
-      if (err) {
-        LOG("[NVS] Failed to open NVS partition %s after init: %s", CFG_PARTITION, esp_err_to_name(err));
-        ESP.restart();
-      } else {
-        LOG("[NVS] opened successfully after init");
-      }
-    }
-  } else {
-    LOG("[NVS] NVS partition %s opened successfully", CFG_PARTITION);
-  }
 }
 
 RTC_DATA_ATTR int boot_count = 0;
