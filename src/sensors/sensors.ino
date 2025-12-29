@@ -153,7 +153,7 @@ void destroy_mq135_adc(const sensor_t *cfg){
 
 #ifdef APDS9930
 #include <Wire.h>
-#include <Adafruit_APDS9930.h>
+#include <Adafruit_APDS9960.h>
 #define APDS9930_I2C_ADDRESS 0x39 // default I2C address for APDS-9930
 Adafruit_APDS9930 apds(APDS9930_I2C_ADDRESS);
 uint16_t apds_r = 0, apds_g = 0, apds_b = 0, apds_c = 0;
