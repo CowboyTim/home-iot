@@ -91,7 +91,7 @@ void init_dht11(sensor_t *cfg){
 
 #endif // SUPPORT_DHT11
 
-#ifdef LDR
+#ifdef SUPPORT_LDR
 #define LDRPIN    A1 // GPIO_NUM_1/A1 pin for LDR
 double fetch_ldr_adc(sensor_t *cfg){
   // fetch LDR ADC value
@@ -106,10 +106,10 @@ void init_ldr_adc(sensor_t *cfg){
   pinMode(A1, INPUT); // assuming LDR is connected to A1
   LOG("[LDR/ADC] initialized on A1");
 }
-#endif // LDR
+#endif // SUPPORT_LDR
 
 // MQ-135 Air Quality Sensor
-#ifdef MQ135
+#ifdef SUPPORT_MQ135
 #define MQ135PIN  A2 // GPIO_NUM_2/A2 pin for MQ-135
 #define MQ135_RL 10000.0 // 10k Ohm load resistor
 #define MQ135_VCC 5.0    // Sensor powered by 5V
@@ -156,7 +156,7 @@ void destroy_mq135_adc(sensor_t *cfg){
   }
 }
 
-#endif // MQ135
+#endif // SUPPORT_MQ135
 
 #ifdef APDS9930
 #include <Wire.h>
@@ -192,7 +192,7 @@ void init_apds9930(sensor_t *cfg){
 }
 #endif // APDS-9930
 
-#ifdef S8
+#ifdef SUPPORT_S8
 S8_UART *sensor_S8 = NULL;
 S8_sensor sensor;
 void init_s8(sensor_t *cfg) {
@@ -271,9 +271,9 @@ double fetch_s8_co2(sensor_t *cfg){
   LOG("[S8] CO2 ppm: %d", sensor.co2);
   return (double)sensor.co2;
 }
-#endif // S8
+#endif // SUPPORT_S8
 
-#ifdef SE95
+#ifdef SUPPORT_SE95
 void init_se95(sensor_t *cfg) {
   // Initialize SE95 temperature sensor
   Wire.begin();
@@ -326,15 +326,15 @@ double fetch_se95_temperature(sensor_t *cfg) {
   LOG("[SE95] temperature: %.2f °C", temp);
   return (double)temp;
 }
-#endif // SE95
+#endif // SUPPORT_SE95
 
 /* main config */
 sensors_cfg_t cfg = {
   .kvmkey    = "unknown",
   .log_uart  = 0,
-  #ifdef MQ135
+  #ifdef SUPPORT_MQ135
   .mq135_r0  = 10000.0, // default R0 for MQ-135
-  #endif // MQ135
+  #endif // SUPPORT_MQ135
   .sensors = {
     #ifdef SUPPORT_DHT11
     {
@@ -359,7 +359,7 @@ sensors_cfg_t cfg = {
     {},
     {},
     #endif // SUPPORT_DHT11
-    #ifdef LDR
+    #ifdef SUPPORT_LDR
     {
       .name = "LDR Illuminance",
       .unit_fmt = "%s:%s*lx,%.0f\r\n",
@@ -369,8 +369,8 @@ sensors_cfg_t cfg = {
     },
     #else
     {},
-    #endif // LDR
-    #ifdef MQ135
+    #endif // SUPPORT_LDR
+    #ifdef SUPPORT_MQ135
     {
       .name = "MQ-135 Air Quality",
       .unit_fmt = "%s:%s*ppm,%.0f\r\n",
@@ -381,7 +381,7 @@ sensors_cfg_t cfg = {
     },
     #else
     {},
-    #endif // MQ135
+    #endif // SUPPORT_MQ135
     #ifdef APDS9930
     {
       .name = "APDS-9930 Illuminance",
@@ -401,7 +401,7 @@ sensors_cfg_t cfg = {
     {},
     {},
     #endif // APDS
-    #ifdef S8
+    #ifdef SUPPORT_S8
     {
       .name = "S8 CO2",
       .unit_fmt = "%s:%s*ppm,%.0f\r\n",
@@ -411,8 +411,8 @@ sensors_cfg_t cfg = {
     },
     #else
     {},
-    #endif // S8
-    #ifdef SE95
+    #endif // SUPPORT_S8
+    #ifdef SUPPORT_SE95
     {
       .name = "SE95 Temperature",
       .unit_fmt = "%s:%s*°C,%.5f\r\n",
@@ -422,7 +422,7 @@ sensors_cfg_t cfg = {
     },
     #else
     {},
-    #endif // SE95
+    #endif // SUPPORT_SE95
   },
 };
 
@@ -620,7 +620,7 @@ const char* at_cmd_handler_sensors(const char* atcmdline){
     return AT_R_OK;
   } else if(p = at_cmd_check("AT+KVMKEY?", atcmdline, cmd_len)){
     return AT_R(SENSORS::cfg.kvmkey);
-  #ifdef MQ135
+  #ifdef SUPPORT_MQ135
   } else if(p = at_cmd_check("AT+MQ135_R0?", atcmdline, cmd_len)){
     return AT_R_DOUBLE(SENSORS::cfg.mq135_r0);
   } else if(p = at_cmd_check("AT+MQ135_R0=", atcmdline, cmd_len)){
@@ -629,7 +629,7 @@ const char* at_cmd_handler_sensors(const char* atcmdline){
       return AT_R("+ERROR: invalid R0 value (1000-100000)");
     SENSORS::cfg.mq135_r0 = new_r0;
     return AT_R_OK;
-  #endif // MQ135
+  #endif // SUPPORT_MQ135
   } else if(p = at_cmd_check("AT+LOG_INTERVAL_", atcmdline, cmd_len)){
     return at_cmd_handler_sensor(atcmdline, cmd_len);
   } else if(p = at_cmd_check("AT+ENABLE_", atcmdline, cmd_len)){
@@ -665,12 +665,12 @@ Sensor Commands:
   AT+KVMKEY?                    - Get KVM key/location identifier
 )EOF"
 
-#ifdef MQ135
+#ifdef SUPPORT_MQ135
         R"EOF(
   AT+MQ135_R0=<value>           - Set MQ-135 R0 resistance value (1000-100000 Ohms)
   AT+MQ135_R0?                  - Get MQ-135 R0 resistance value
 )EOF"
-#endif // MQ135
+#endif // SUPPORT_MQ135
 
         R"EOF(
   AT+ENABLE_<sensor>=<0|1>      - Enable/disable sensor (1=enable, 0=disable)
@@ -687,17 +687,17 @@ Available sensors:
 )EOF"
 #endif // SUPPORT_DHT11
 
-#ifdef LDR
+#ifdef SUPPORT_LDR
         R"EOF(
   - LDR_ILLUMINANCE             - LDR light sensor
 )EOF"
-#endif // LDR
+#endif // SUPPORT_LDR
 
-#ifdef MQ135
+#ifdef SUPPORT_MQ135
         R"EOF(
   - AIR_QUALITY                 - MQ-135 air quality/CO2 sensor
 )EOF"
-#endif // MQ135
+#endif // SUPPORT_MQ135
 
 #ifdef APDS9930
         R"EOF(
@@ -706,17 +706,17 @@ Available sensors:
 )EOF"
 #endif // APDS9930
 
-#ifdef SE95
+#ifdef SUPPORT_SE95
         R"EOF(
   - SE95_TEMPERATURE            - SE95 I2C temperature sensor
 )EOF"
-#endif // SE95
+#endif // SUPPORT_SE95
 
-#ifdef S8
+#ifdef SUPPORT_S8
         R"EOF(
   - S8_CO2                      - SenseAir S8 CO2 sensor
 )EOF"
-#endif // S8
+#endif // SUPPORT_S8
 
         R"EOF(
 Examples:

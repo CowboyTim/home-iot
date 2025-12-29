@@ -56,17 +56,17 @@
 #undef SUPPORT_TCP_SERVER
 #undef LOGUART
 
-#define S8
-#define SE95
+#define SUPPORT_S8
+#define SUPPORT_SE95
 #define SUPPORT_DHT11
-#define LDR
+#define SUPPORT_LDR
 #undef APDS9930   // TODO: implement software + hardware
-#define MQ135
+#define SUPPORT_MQ135
 
 #define NR_OF_SENSORS 8
 #define SENSORS_OUTBUFFER_SIZE  128
 
-#ifdef SE95
+#ifdef SUPPORT_SE95
 #include <Wire.h>
 #define I2C_DAT   6
 #define I2C_CLK   7
@@ -76,12 +76,12 @@
 #define SE95_THYST            0x02 // Command to store the hysteresis threshold
 #define SE95_TOS              0x03 // Command to store the overtemperature shutdown threshold
 #define SE95_ID               0x05 // Command to read the ID of the SE95 sensor
-#endif // SE95
+#endif // SUPPORT_SE95
 
-#ifdef S8
+#ifdef SUPPORT_S8
 /* Sensair S8 LP sensor for CO2 */
 #include "s8_uart.h"
-#endif // S8
+#endif // SUPPORT_S8
        //
 #ifdef SUPPORT_DHT11
 #define DHTTYPE DHT11
@@ -100,11 +100,11 @@ extern size_t inlen;
 
 namespace SENSORS {
 
-#ifdef SE95
+#ifdef SUPPORT_SE95
 // re-export Wire for sensors.cpp in this SENSORS namespace, note that "Wire"
 // is a global extern object
 TwoWire Wire = Wire;
-#endif // SE95
+#endif // SUPPORT_SE95
 
 typedef struct sensor_t {
   const char name[32] = {0};
@@ -127,9 +127,9 @@ typedef struct s_cfg_t {
   // 16 chars + null terminator, default "unknown"
   char kvmkey[17]      = "unknown";
   uint8_t log_uart     = 0;
-  #ifdef MQ135
+  #ifdef SUPPORT_MQ135
   double mq135_r0      = 10000.0; // default R0 for MQ-135
-  #endif // MQ135
+  #endif // SUPPORT_MQ135
   sensor_t sensors[NR_OF_SENSORS] = {0};
 } sensors_cfg_t;
 
