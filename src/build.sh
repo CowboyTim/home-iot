@@ -26,6 +26,8 @@ function do_update(){
         arduino-cli --additional-urls "$DEV_URLS" lib update-index
         arduino-cli --additional-urls "$DEV_URLS" lib install 'SerialCommands'
         arduino-cli --additional-urls "$DEV_URLS" lib install 'DFRobot_DHT11'
+        arduino-cli --additional-urls "$DEV_URLS" lib install 'DHT sensor library'
+        arduino-cli --additional-urls "$DEV_URLS" lib install 'Adafruit Unified Sensor'
         arduino-cli --additional-urls "$DEV_URLS" lib install 'S8_UART'
         arduino-cli --additional-urls "$DEV_URLS" lib install 'I2C Temperature Sensors derived from the LM75'
         arduino-cli --additional-urls "$DEV_URLS" lib install 'Adafruit APDS9960 Library'

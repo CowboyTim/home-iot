@@ -41,18 +41,18 @@
 namespace SENSORS {
 
 
-#ifdef DHT11
+#ifdef SUPPORT_DHT11
 #define DHTPIN  A0     // GPIO_NUM_0/A0 pin for DHT11
-DFRobot_DHT11 DHT;
+DHT dht = DHT(DHTPIN, DHT11);
 uint8_t did_dht11 = 0; // DHT11 read flag, to avoid multiple reads
 double dht11_fetch_humidity(sensor_t *cfg){
   // fetch humidity from DHT11
   if(!did_dht11){
-    DHT.read(DHTPIN);
+    dht.read();
     did_dht11 = 1;
   }
-  LOG("[DHT11] humidity: %d %%", DHT.humidity);
-  double h = (double)DHT.humidity;
+  double h = (double)dht.readHumidity();
+  LOG("[DHT11] humidity: %d %%", h);
   if(h < 0.0 || h > 100.0){
     LOG("[DHT11] humidity out of range, returning 0: %.2f", h);
     h = 0.0;
@@ -63,11 +63,11 @@ double dht11_fetch_humidity(sensor_t *cfg){
 double dht11_fetch_temperature(sensor_t *cfg){
   // fetch temperature from DHT11
   if(!did_dht11){
-    DHT.read(DHTPIN);
+    dht.read();
     did_dht11 = 1;
   }
-  LOG("[DHT11] temperature: %d °C", DHT.temperature);
-  double t = (double)DHT.temperature;
+  double t = (double)dht.readTemperature();
+  LOG("[DHT11] temperature: %d °C", t);
   if(t < -40.0 || t > 80.0){
     LOG("[DHT11] temperature out of range, returning 0: %.2f", t);
     t = 0.0;
@@ -85,11 +85,11 @@ void post_dht11(sensor_t *cfg){
 
 void init_dht11(sensor_t *cfg){
   // initialize DHT11 sensor
-  pinMode(DHTPIN, INPUT);
-  LOG("[DHT11] initialized on A0");
+  dht.begin();
+  LOG("[DHT11] initialized on pin %d", DHTPIN);
 }
 
-#endif // DHT11
+#endif // SUPPORT_DHT11
 
 #ifdef LDR
 #define LDRPIN    A1 // GPIO_NUM_1/A1 pin for LDR
@@ -336,7 +336,7 @@ sensors_cfg_t cfg = {
   .mq135_r0  = 10000.0, // default R0 for MQ-135
   #endif // MQ135
   .sensors = {
-    #ifdef DHT11
+    #ifdef SUPPORT_DHT11
     {
       .name = "DHT11 Humidity",
       .unit_fmt = "%s:%s*%%,%.0f\r\n",
@@ -358,7 +358,7 @@ sensors_cfg_t cfg = {
     #else
     {},
     {},
-    #endif // DHT11
+    #endif // SUPPORT_DHT11
     #ifdef LDR
     {
       .name = "LDR Illuminance",
@@ -680,12 +680,12 @@ Sensor Commands:
 Available sensors:
 )EOF"
 
-#ifdef DHT11
+#ifdef SUPPORT_DHT11
         R"EOF(
   - HUMIDITY                    - DHT11 humidity sensor
   - TEMPERATURE                 - DHT11 temperature sensor
 )EOF"
-#endif // DHT11
+#endif // SUPPORT_DHT11
 
 #ifdef LDR
         R"EOF(

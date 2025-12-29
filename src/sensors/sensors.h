@@ -58,7 +58,7 @@
 
 #define S8
 #define SE95
-#define DHT11
+#define SUPPORT_DHT11
 #define LDR
 #undef APDS9930   // TODO: implement software + hardware
 #define MQ135
@@ -83,9 +83,10 @@
 #include "s8_uart.h"
 #endif // S8
        //
-#ifdef DHT11
-#include <DFRobot_DHT11.h>
-#endif // DHT11
+#ifdef SUPPORT_DHT11
+#define DHTTYPE DHT11
+#include <DHT.h>
+#endif // SUPPORT_DHT11
 
 namespace PLUGINS {
   extern void setup();
