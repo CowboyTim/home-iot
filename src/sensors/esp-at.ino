@@ -3587,18 +3587,18 @@ const char* at_cmd_handler(const char* atcmdline) {
     }
     return AT_R_OK;
   } else if(p = at_cmd_check("AT+TCP_SERVER_STATUS?", atcmdline, cmd_len)) {
-    String response = "";
     if(tcp_server_sock != -1) {
+      String response = "";
       response += "ACTIVE,port=";
       response += cfg.tcp_server_port;
       response += ",clients=";
       response += get_tcp_server_client_count();
       response += "/";
       response += cfg.tcp_server_max_clients;
+      return AT_R_S(response);
     } else {
-      response = "INACTIVE";
+      return AT_R("INACTIVE");
     }
-    return AT_R_S(response);
   } else if(p = at_cmd_check("AT+TCP_SERVER_START", atcmdline, cmd_len)) {
     if(cfg.tcp_server_port == 0)
       return AT_R("+ERROR: TCP server port not configured");
@@ -3739,10 +3739,10 @@ const char* at_cmd_handler(const char* atcmdline) {
     reset_networking();
     return AT_R_OK;
   } else if(p = at_cmd_check("AT+IPV4?", atcmdline, cmd_len)) {
-    String response;
     if(cfg.ip_mode & IPV4_DHCP) {
-      response = "DHCP";
+      return AT_R("DHCP");
     } else if(cfg.ip_mode & IPV4_STATIC) {
+      String response;
       response = String(cfg.ipv4_addr[0]) + "." + String(cfg.ipv4_addr[1]) + "." +
                  String(cfg.ipv4_addr[2]) + "." + String(cfg.ipv4_addr[3]) + "," +
                  String(cfg.ipv4_mask[0]) + "." + String(cfg.ipv4_mask[1]) + "." +
@@ -3751,10 +3751,10 @@ const char* at_cmd_handler(const char* atcmdline) {
                  String(cfg.ipv4_gw[2]) + "." + String(cfg.ipv4_gw[3]) + "," +
                  String(cfg.ipv4_dns[0]) + "." + String(cfg.ipv4_dns[1]) + "." +
                  String(cfg.ipv4_dns[2]) + "." + String(cfg.ipv4_dns[3]);
+      return AT_R_S(response);
     } else {
-      response = "DISABLED";
+      return AT_R("DISABLED");
     }
-    return AT_R_S(response);
   } else if(p = at_cmd_check("AT+IPV6=", atcmdline, cmd_len)) {
     String params = String(p);
     params.trim();
@@ -3829,13 +3829,13 @@ const char* at_cmd_handler(const char* atcmdline) {
     return AT_R_S(response);
   #ifdef SUPPORT_TCP
   } else if(p = at_cmd_check("AT+TCP_STATUS?", atcmdline, cmd_len)) {
-    String response = "";
     if(strlen(cfg.tcp_host_ip) == 0 || cfg.tcp_port == 0) {
-      response = "TCP not configured";
+      return AT_R("TCP not configured");
     } else {
+      String response = "";
       response = "TCP Host: " + String(cfg.tcp_host_ip) + ":" + String(cfg.tcp_port);
+      return AT_R_S(response);
     }
-    return AT_R_S(response);
   #endif // SUPPORT_TCP
   #ifdef SUPPORT_TLS
   } else if(p = at_cmd_check("AT+TLS_ENABLE?", atcmdline, cmd_len)) {
@@ -3940,12 +3940,12 @@ const char* at_cmd_handler(const char* atcmdline) {
     else
       return AT_R_STR("NOT_SET");
   } else if(p = at_cmd_check("AT+TLS_STATUS?", atcmdline, cmd_len)) {
-    String response = "";
     if(!cfg.tls_enabled) {
-      response = "TLS disabled";
+      return AT_R("TLS disabled");
     } else if(strlen(cfg.tcp_host_ip) == 0 || (cfg.tcp_port == 0 && cfg.tls_port == 0)) {
-      response = "TLS not configured";
+      return AT_R("TLS not configured");
     } else {
+      String response = "";
       uint16_t port_to_use = cfg.tls_port ? cfg.tls_port : cfg.tcp_port;
       response = "TLS Host: " + String(cfg.tcp_host_ip) + ":" + String(port_to_use);
       response += ", Status: " + String(tls_connected ? "connected" : "disconnected");
@@ -3953,8 +3953,8 @@ const char* at_cmd_handler(const char* atcmdline) {
         response += ", Secure: yes";
         // Note: Cipher suite info varies by platform and may not be available
       }
+      return AT_R_S(response);
     }
-    return AT_R_S(response);
   } else if(p = at_cmd_check("AT+TLS_CONNECT", atcmdline, cmd_len)) {
     if(!cfg.tls_enabled)
       return AT_R("+ERROR: TLS is disabled");
