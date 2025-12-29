@@ -83,6 +83,12 @@ void post_dht11(sensor_t *cfg){
   did_dht11 = 0;
 }
 
+void init_dht11(sensor_t *cfg){
+  // initialize DHT11 sensor
+  pinMode(DHTPIN, INPUT);
+  LOG("[DHT11] initialized on A0");
+}
+
 #endif // DHT11
 
 #ifdef LDR
@@ -335,6 +341,7 @@ sensors_cfg_t cfg = {
       .name = "DHT11 Humidity",
       .unit_fmt = "%s:%s*%%,%.0f\r\n",
       .key  = "humidity",
+      .init_function = init_dht11,
       .pre_function = pre_dht11,
       .value_function = dht11_fetch_humidity,
       .post_function = post_dht11,
@@ -343,6 +350,7 @@ sensors_cfg_t cfg = {
       .name = "DHT11 Temperature",
       .unit_fmt = "%s:%s*°C,%.2f\r\n",
       .key  = "temperature",
+      .init_function = init_dht11,
       .pre_function = pre_dht11,
       .value_function = dht11_fetch_temperature,
       .post_function = post_dht11,
