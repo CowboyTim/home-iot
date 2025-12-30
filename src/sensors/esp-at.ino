@@ -6664,12 +6664,18 @@ uint8_t super_sleepy(const unsigned long sleep_ms) {
     WiFi.mode(WIFI_STA);
     LOG("[SLEEP] Waiting for WiFi to be ready");
     unsigned long start_wait = millis();
-    while(WiFi.status() != WL_CONNECTED && WiFi.status() != WL_IDLE_STATUS) {
+    while(WiFi.status() != WL_CONNECTED) {
       doYIELD;
+      delay(5);
       if(millis() - start_wait > 5000) {
         LOG("[SLEEP] Timeout waiting for WiFi to connect after wakeup");
         break;
       }
+    }
+    if(WiFi.status() == WL_CONNECTED) {
+      LOG("[SLEEP] WiFi reconnected after wakeup, IP: %s", WiFi.localIP().toString().c_str());
+    } else {
+      LOG("[SLEEP] WiFi not connected after wakeup, status: %d", WiFi.status());
     }
   }
   #endif // SUPPORT_WIFI
