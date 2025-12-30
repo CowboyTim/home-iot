@@ -6521,6 +6521,7 @@ uint8_t super_sleepy(const unsigned long sleep_ms) {
   LOGFLUSH();
   if(1){
     D("[SLEEP] Enabling light sleep for %d ms", sleep_ms);
+    LOGFLUSH();
     err = esp_light_sleep_start();
     if(err != ESP_OK) {
       LOG("[SLEEP] Failed to enter light sleep: %s", esp_err_to_name(err));
@@ -6709,6 +6710,11 @@ void do_loop_delay() {
     ));
   }
   #endif // TIMELOG
+  #ifdef SUPPORT_PLUGINS
+  long plugin_delay = PLUGINS::max_sleep_time();
+  D("[LOOP] Plugins check, current delay time: %d ms, plugin max sleep: %lu", delay_time, plugin_delay);
+  delay_time = min(delay_time, (long int)plugin_delay);
+  #endif // SUPPORT_PLUGINS
 
   // add 5ms, so we don't go to sleep for 1,2,.. ms as we woke up too early
   D("[LOOP] Calculated delay time: %d ms", delay_time);

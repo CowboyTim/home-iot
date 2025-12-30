@@ -664,6 +664,38 @@ const char* at_cmd_handler_sensors(const char* atcmdline){
   return AT_R("+ERROR: unknown command");
 }
 
+NOINLINE
+long max_sleep_time(){
+  // using the current time in millis() together with the sensor intervals,
+  // and the last run time, calculate the maxium sleep time
+  long cur_time = millis();
+  long min_time = LONG_MAX;
+  for(int i = 0; i < NR_OF_SENSORS; i++){
+    sensor_t *s = &SENSORS::cfg.sensors[i];
+    if(s->enabled == 0)
+      continue;
+    if(s->v_intv == 0)
+      continue;
+    if(s->value_function == NULL)
+      continue;
+    if(s->l_intv == 0){
+      if(s->v_intv < min_time)
+        min_time = s->v_intv;
+    } else {
+      unsigned long time_since_last = cur_time - s->l_intv;
+      if(time_since_last >= s->v_intv)
+        // sensor is due now, return 0
+        return 0;
+      unsigned long time_to_next = s->v_intv - time_since_last;
+      // check if this is the minimum time
+      if(time_to_next < min_time)
+        min_time = time_to_next;
+    }
+  }
+  return min_time;
+}
+
+
 } // namespace SENSORS
 
 namespace PLUGINS {
@@ -683,6 +715,10 @@ namespace PLUGINS {
     NOINLINE
     void loop_post(){
         SENSORS::sensors_loop();
+    }
+    NOINLINE
+    long max_sleep_time(){
+        return SENSORS::max_sleep_time();
     }
     NOINLINE
     const char * at_cmd_handler(const char* atcmdline){
