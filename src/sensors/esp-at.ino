@@ -704,9 +704,8 @@ void setup_wifi() {
   }
 
   // lower the WiFi power save mode if enabled
-  esp_err_t err = ESP_OK;
   if(cfg.wifi_enabled == 1) {
-    err = esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+    esp_err_t err = esp_wifi_set_ps(WIFI_PS_MAX_MODEM);
     if(err != ESP_OK)
       LOGE("[WiFi] esp_wifi_set_ps() failed: %s", esp_err_to_name(err));
   }
@@ -2200,6 +2199,32 @@ void setup_nvs(){
   } else {
     LOG("[CFG] NVS storage initialized");
   }
+}
+
+#define SUPPORT_POWER_MANAGEMENT
+#ifdef SUPPORT_POWER_MANAGEMENT
+#include "esp_pm.h"
+#endif
+NOINLINE
+void setup_power_management(){
+  #ifdef SUPPORT_POWER_MANAGEMENT
+  LOG("[PM] Enabling power management");
+  esp_pm_config_esp32_t pm_config;
+  pm_config.max_freq_mhz = 160;
+  pm_config.min_freq_mhz = 80;
+  pm_config.light_sleep_enable = true;
+  esp_err_t err = esp_pm_configure(&pm_config);
+  if(err != ESP_OK) {
+    LOG("[PM] Failed to configure power management, error: %d, %s", err, esp_err_to_name(err));
+  } else {
+    LOG("[PM] Power management configured: min %d MHz, max %d MHz, light sleep: %s",
+    pm_config.min_freq_mhz,
+    pm_config.max_freq_mhz,
+    pm_config.light_sleep_enable ? "enabled" : "disabled");
+  }
+  #else
+  LOG("[PM] Power management support not compiled in");
+  #endif
 }
 
 
@@ -5935,6 +5960,9 @@ void do_setup() {
   // Button setup
   setup_button();
 
+  // setup power management
+  setup_power_management();
+
   // set CPU to 160 MHz if possible
   setup_cpu_speed(160);
 }
@@ -6718,6 +6746,7 @@ void do_sleep(const unsigned long sleep_ms) {
     if(super_sleepy(sleep_ms) == 1)
       return; // successfully slept
 
+  LOG("[SLEEP] Falling back to delay sleep for %d ms", sleep_ms);
   uint32_t c_cpu_f = getCpuFrequencyMhz();
   unsigned long start = millis();
   do {
