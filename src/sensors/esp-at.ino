@@ -882,6 +882,8 @@ void reconfigure_network_connections() {
 void stop_network_connections() {
   LOG("[WiFi] stop network connections");
 
+  errno = 0;
+
   #ifdef SUPPORT_TCP
   close_tcp_socket();
   #endif // SUPPORT_TCP
