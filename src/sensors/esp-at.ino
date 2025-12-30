@@ -5759,6 +5759,7 @@ void determine_button_state() {
       // reset button pressed flag
       LOG("[BUTTON] Normal press detected (%lu ms)", press_duration);
       #ifdef SUPPORT_BLE_UART1
+      LOG("[BUTTON] Checking BLE UART1 bridge mode for normal press");
       if (cfg.ble_uart1_bridge == 1) {
         // BLE UART1 bridge is enabled and in bridge mode
         if(at_mode == BRIDGE_MODE) {
@@ -5790,7 +5791,7 @@ void determine_button_state() {
         }
       }
       #else
-      #ifdef SUPPORT_BLE_UART1
+      LOG("[BUTTON] Checking BLE for normal press");
       // Normal press - toggle BLE advertising as before
       if (ble_advertising_start == 0) {
         start_advertising_ble();
@@ -5806,7 +5807,6 @@ void determine_button_state() {
         set_led_blink(LED_BLINK_OFF);
         #endif // LED
       }
-      #endif // SUPPORT_BLE_UART1
       #endif
     } else if (BUTTON_LONG_PRESS_1_MS <= press_duration && press_duration < BUTTON_LONG_PRESS_2_MS) {
       // Long press - handle WPS
