@@ -6533,7 +6533,6 @@ uint8_t super_sleepy(const unsigned long sleep_ms) {
       check_wakeup_reason();
     }
   } else {
-    // TODO: fix button wakeup for deep sleep, note that deep sleep is probably not worth it now
     D("[SLEEP] Enabling deep sleep for %d ms", sleep_ms);
     LOGFLUSH();
     esp_deep_sleep_start();
