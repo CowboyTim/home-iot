@@ -79,11 +79,8 @@
 #define SUPPORT_LED_BRIGHTNESS
 #endif
 
-#ifndef BUTTON
 #ifndef BUTTON_BUILTIN
 #define BUTTON_BUILTIN  GPIO_NUM_9
-#endif
-#define BUTTON GPIO_NUM_3
 #endif
 uint8_t current_button = BUTTON_BUILTIN;
 
@@ -2645,6 +2642,7 @@ const char* at_cmd_handler(const char* atcmdline) {
       cfg.main_loop_delay = new_c;
       CFG_SAVE();
     }
+    setup_button();
     return AT_R_OK;
   } else if(p = at_cmd_check("AT+LOOP_DELAY?", atcmdline, cmd_len)) {
     return AT_R_INT(cfg.main_loop_delay);
@@ -2966,7 +2964,7 @@ const char* at_cmd_handler(const char* atcmdline) {
       reset_networking();
       return AT_R_OK;
     }
-    strncpy((char *)&cfg.wifi_ssid, p, sizeof(cfg.wifi_ssid) - 1);
+    strncpy((char *)&cfg.wifi_ssid, p, strlen(p));
     cfg.wifi_ssid[sizeof(cfg.wifi_ssid) - 1] = '\0';
     CFG_SAVE();
     reset_networking();
@@ -2987,7 +2985,7 @@ const char* at_cmd_handler(const char* atcmdline) {
       reset_networking();
       return AT_R_OK;
     }
-    strncpy((char *)&cfg.wifi_pass, p, sizeof(cfg.wifi_pass) - 1);
+    strncpy((char *)&cfg.wifi_pass, p, strlen(p));
     cfg.wifi_pass[sizeof(cfg.wifi_pass) - 1] = '\0';
     CFG_SAVE();
     reset_networking();
@@ -3067,7 +3065,7 @@ const char* at_cmd_handler(const char* atcmdline) {
       CFG_SAVE();
       return AT_R_OK;
     }
-    strncpy((char *)&cfg.ntp_host, p, sizeof(cfg.ntp_host) - 1);
+    strncpy((char *)&cfg.ntp_host, p, strlen(p));
     cfg.ntp_host[sizeof(cfg.ntp_host) - 1] = '\0';
     CFG_SAVE();
     return AT_R_OK;
@@ -3591,7 +3589,7 @@ const char* at_cmd_handler(const char* atcmdline) {
   } else if(p = at_cmd_check("AT+HOSTNAME=", atcmdline, cmd_len)) {
     if(strlen(p) > 63)
       return AT_R("+ERROR: hostname max 63 chars");
-    strncpy((char *)&cfg.hostname, p, sizeof(cfg.hostname) - 1);
+    strncpy((char *)&cfg.hostname, p, strlen(p));
     cfg.hostname[sizeof(cfg.hostname) - 1] = '\0';
     CFG_SAVE();
     reset_networking();
@@ -3621,7 +3619,7 @@ const char* at_cmd_handler(const char* atcmdline) {
   } else if(p = at_cmd_check("AT+MDNS_HOSTNAME=", atcmdline, cmd_len)) {
     if(strlen(p) > 63)
       return AT_R("+ERROR: mDNS hostname max 63 chars");
-    strncpy((char *)&cfg.mdns_hostname, p, sizeof(cfg.mdns_hostname) - 1);
+    strncpy((char *)&cfg.mdns_hostname, p, strlen(p));
     cfg.mdns_hostname[sizeof(cfg.mdns_hostname) - 1] = '\0';
     CFG_SAVE();
     if(WiFi.status() == WL_CONNECTED && cfg.mdns_enabled) {
@@ -7026,8 +7024,12 @@ void loop() {
   #ifdef LOOP_DELAY
   // Do delay at the end of the loop, for sleep/power save, this is "smart",
   // when not possible no sleep is done (connections, BLE, WPS,..)
+  #ifdef SUPPORT_UART1
   if(!UART1.available())
     do_loop_delay();
+  #else
+  do_loop_delay();
+  #endif // SUPPORT_UART1
 
   // Handle button press AFTER
   determine_button_state();
