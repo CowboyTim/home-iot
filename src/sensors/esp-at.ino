@@ -2040,11 +2040,12 @@ void close_udp_socket(FD &fd, const char* tag) {
 
   // close()
   FD fd_orig = fd;
-  if(errno != 0) {
+  if (errno != 0) {
     LOGE("%s closing UDP socket fd:%d, as we got an error", tag, fd);
   } else {
     LOG("%s closing UDP socket fd:%d", tag, fd);
   }
+  errno = 0;
   if (close(fd) == -1)
     if (errno && errno != EBADF)
       LOGE("%s Failed to close socket fd:%d", tag, fd_orig);
@@ -2085,17 +2086,15 @@ int send_udp_data(FD &fd, const uint8_t* data, size_t len, char *d_ip, uint16_t 
     }
   }
   size_t n = sendto(fd, data, len, 0, s_sa, s_sa_sz);
+  doYIELD;
   if (n == -1) {
     LOGE("%s sendto failed to %s, len:%d, port:%hu on fd:%d", tag, d_ip, len, port, fd);
     close_udp_socket(fd, "[UDP]");
-    doYIELD;
     return -1;
   } else if (n == 0) {
     D("%s send returned 0 bytes, no data sent", tag);
-    doYIELD;
     return 0;
   } else {
-    doYIELD;
     D("%s send_udp_data len: %d, sent: %d", tag, len, n);
   }
   doYIELD;
