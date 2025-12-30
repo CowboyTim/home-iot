@@ -4304,8 +4304,10 @@ class MyCallbacks: public BLECharacteristicCallbacks {
         // Add character to command buffer
         *ble_ptr++ = (char)*ble_rx_buf++;
       }
-      if(bleCommandReady)
+      if(bleCommandReady){
         D("[BLE] Command Ready: %d, %d, %s", bleCommandReady, strlen(ble_cmd_buffer), ble_cmd_buffer);
+        handle_ble_command();
+      }
     }
 };
 
@@ -5107,8 +5109,20 @@ void WiFiEvent(WiFiEvent_t event) {
       case ARDUINO_EVENT_WIFI_READY:
           LOG("[WiFi] ready");
           break;
-      case ARDUINO_EVENT_WIFI_STA_START:
-          LOG("[WiFi] STA started");
+      case ARDUINO_EVENT_WIFI_STA_START: {
+          if(cfg.wifi_enabled == 0) {
+            LOG("[WiFi] WiFi is disabled in config, not connecting");
+            break;
+          }
+          if(strlen((char*)cfg.wifi_ssid) == 0) {
+            LOG("[WiFi] No SSID configured, cannot connect");
+            break;
+          }
+          LOG("[WiFi] STA started, connecting to %s", cfg.wifi_ssid);
+          esp_err_t err = esp_wifi_connect();
+          if (err != ESP_OK)
+            LOG("[WiFi] Failed to initiate connection: %s", esp_err_to_name(err));
+          }
           break;
       case ARDUINO_EVENT_WIFI_STA_STOP:
           LOG("[WiFi] STA stopped");
@@ -6116,6 +6130,99 @@ void do_tcp_server_check() {
 #endif // SUPPORT_TCP_SERVER
 
 #ifdef SUPPORT_UDP
+
+NOINLINE
+bool have_ip_address(bool do_log = false){
+  // check if we have an IP address, ipv4 or ipv6
+  #ifdef SUPPORT_WIFI
+  LOG("[WIFI] checking for IPv4 address: ", WiFi.localIP().toString().c_str());
+  if(WiFi.localIP() != IPAddress((uint32_t)0))
+    return true;
+  if(cfg.ip_mode & IPV6_SLAAC) {
+    LOG("[WIFI] checking for IPv6 address");
+    IPAddress _ip6 = WiFi.globalIPv6();
+    if(_ip6 != IPAddress((uint32_t)0))
+      return true;
+    LOG("[WIFI] checking for link-local IPv6 address");
+    _ip6 = WiFi.linkLocalIPv6();
+    if(_ip6 != IPAddress((uint32_t)0))
+      return true;
+  } else {
+    LOG("[WIFI] IPv6 SLAAC not enabled, skipping IPv6 address check");
+  }
+  #endif // SUPPORT_WIFI
+  return false;
+}
+
+NOINLINE
+bool wifi_connected(bool do_log = false) {
+  #ifdef SUPPORT_WIFI
+  if(do_log)
+    D("[WIFI] checking WiFi connection status: %d", WiFi.status());
+  if(WiFi.status() != WL_CONNECTED && WiFi.status() != WL_IDLE_STATUS)
+    return false;
+  return true;
+  #else
+  return false;
+  #endif // SUPPORT_WIFI
+}
+
+NOINLINE
+bool fd_write_ok(const char *m, int sock, bool do_log = false) {
+  // check for valid socket
+  if(sock < 0) {
+    if(do_log)
+      LOGE("%sinvalid socket -1", m);
+    return false;
+  }
+  // check if wifi is connected
+  if(!wifi_connected(do_log)) {
+    if(do_log)
+      D("%sWiFi not connected, socket %d not writable", m, sock);
+    return false;
+  }
+  // check if we have an IP address, ipv4 or ipv6
+  if(!have_ip_address(do_log)) {
+    if(do_log)
+      D("%sNo IP address assigned, socket %d not writable", m, sock);
+    return false;
+  }
+
+  // check socket for writability via select()
+  fd_set writefds;
+  fd_set errfds;
+  FD_ZERO(&writefds);
+  FD_ZERO(&errfds);
+  FD_SET(sock, &writefds);
+  FD_SET(sock, &errfds);
+
+  struct timeval timeout;
+  timeout.tv_sec = 0;
+  timeout.tv_usec = 0;
+
+  D("%schecking if socket %d is writable", m, sock);
+  int ready = select(sock + 1, NULL, &writefds, &errfds, &timeout);
+  if (ready < 0) {
+    LOGE("%sselect error on socket %d", m, sock);
+    return false;
+  }
+  return FD_ISSET(sock, &writefds) && !FD_ISSET(sock, &errfds) && ready > 0;
+}
+
+NOINLINE
+void wait_for_wifi_connection(const char *m, int sock) {
+  bool ok_to_send = fd_write_ok(m, sock, true);
+  unsigned long start_wait = millis();
+  while(!ok_to_send) {
+    doYIELD;
+    ok_to_send = fd_write_ok(m, sock, false);
+    if(millis() - start_wait > 5000) {
+      LOGE("%sTimeout waiting for WiFi connection on socket %d", m, sock);
+      break;
+    }
+  }
+}
+
 INLINE
 void do_udp_check() {
   // recreate UDP socks if config changed or -1
@@ -6145,7 +6252,12 @@ void do_udp_check() {
   // UDP send
   LOOP_D("[LOOP] Check for outgoing UDP data fd: %d: inlen: %d", udp_sock, inlen);
   if(inlen > 0) {
-    if (udp_sock != -1) {
+    // in/out UDP socket send 
+    if (udp_sock != -1){
+      // wait for wifi connection
+      wait_for_wifi_connection("[UDP] ", udp_sock);
+
+      // send data
       int sent = send_udp_data(udp_sock, (const uint8_t*)inbuf, inlen, cfg.udp_host_ip, cfg.udp_port, "[UDP]");
       if (sent > 0) {
         #ifdef LED
@@ -6159,7 +6271,13 @@ void do_udp_check() {
         D("[UDP] Sent 0 bytes, total: %d", inlen);
       }
     }
-    if (udp_out_sock != -1) {
+
+    // out UDP socket send
+    if (udp_out_sock != -1){
+      // wait for wifi connection
+      wait_for_wifi_connection("[UDP_SEND] ", udp_out_sock);
+
+      // send data
       int sent = send_udp_data(udp_out_sock, (const uint8_t*)inbuf, inlen, cfg.udp_send_ip, cfg.udp_send_port, "[UDP_SEND]");
       if (sent > 0) {
         #ifdef LED
@@ -6432,28 +6550,19 @@ uint8_t super_sleepy(const unsigned long sleep_ms) {
       }
   }
 
-      // Wake up on UART activity
-      err = esp_sleep_enable_uart_wakeup(UART_NUM_1);
-      if(err != ESP_OK) {
-        LOG("[SLEEP] Failed to enable UART wakeup: %s", esp_err_to_name(err));
-        return 0;
-      }
+  // Wake up on UART activity
+  err = esp_sleep_enable_uart_wakeup(UART_NUM_1);
+  if(err != ESP_OK) {
+    LOG("[SLEEP] Failed to enable UART wakeup: %s", esp_err_to_name(err));
+    return 0;
+  }
 
-      // Wake up on BT activity
-      /*
-      err = esp_sleep_enable_bt_wakeup();
-      if(err != ESP_OK) {
-        LOG("[SLEEP] Failed to enable BT wakeup: %s", esp_err_to_name(err));
-        return 0;
-      }
-      */
-
-      // Wake up n WiFi activity
-      err = esp_sleep_enable_wifi_wakeup();
-      if(err != ESP_OK) {
-        LOG("[SLEEP] Failed to enable WiFi wakeup: %s", esp_err_to_name(err));
-        return 0;
-      }
+  // Wake up n WiFi activity
+  err = esp_sleep_enable_wifi_wakeup();
+  if(err != ESP_OK) {
+    LOG("[SLEEP] Failed to enable WiFi wakeup: %s", esp_err_to_name(err));
+    return 0;
+  }
 
   // Wake up on button press: TODO: won't work with GPIO9 isn't a RTC GPIO
   // on esp32c3, we use GPIO3
@@ -6496,27 +6605,33 @@ uint8_t super_sleepy(const unsigned long sleep_ms) {
   }
 
   #ifdef BT_BLE
-  // disable wifi and bt controller to save power
+  // disable bt controller to save power
   err = esp_bt_controller_disable();
   if(err != ESP_OK) {
     LOG("[SLEEP] Failed to disable BT controller: %s", esp_err_to_name(err));
   }
   #endif // BT_BLE
+
   #ifdef SUPPORT_WIFI
-  stop_network_connections();
-  /*
-  wifi_mode_t current_mode;
-  err = esp_wifi_get_mode(&current_mode);
-  if(err == ESP_OK) {
-    err = esp_wifi_stop();
-    if(err != ESP_OK) {
-      LOG("[SLEEP] Failed to stop WiFi: %s", esp_err_to_name(err));
+  if(cfg.wifi_enabled && strlen(cfg.wifi_ssid) != 0) {
+    // stop network connections
+    stop_network_connections();
+
+    // stop wifi to save power
+    wifi_mode_t current_mode;
+    err = esp_wifi_get_mode(&current_mode);
+    if(err == ESP_OK) {
+      err = esp_wifi_stop();
+      if(err != ESP_OK) {
+        LOG("[SLEEP] Failed to stop WiFi: %s", esp_err_to_name(err));
+      } else {
+        LOG("[SLEEP] WiFi stopped from mode %d", current_mode);
+      }
     }
   }
-  */
   #endif // SUPPORT_WIFI
 
-  // Enable wakeup from UART, BT, WiFi activity, and BUTTON
+  // Enable wakeup from UART, WiFi activity, and BUTTON
   sleep_duration = millis();
   LOGFLUSH();
   if(1){
@@ -6541,12 +6656,25 @@ uint8_t super_sleepy(const unsigned long sleep_ms) {
   // Re-enable WiFi and BT controller after wakeup
   #ifdef SUPPORT_WIFI
   if(cfg.wifi_enabled && strlen(cfg.wifi_ssid) != 0) {
+    LOG("[SLEEP] Re-enabling WiFi after wakeup");
     err = esp_wifi_start();
     if(err != ESP_OK && err != ESP_ERR_WIFI_NOT_STARTED) {
       LOG("[SLEEP] Failed to start WiFi: %s", esp_err_to_name(err));
     }
+    WiFi.mode(WIFI_STA);
+    LOG("[SLEEP] Waiting for WiFi to be ready");
+    unsigned long start_wait = millis();
+    while(WiFi.status() != WL_CONNECTED && WiFi.status() != WL_IDLE_STATUS) {
+      doYIELD;
+      if(millis() - start_wait > 5000) {
+        LOG("[SLEEP] Timeout waiting for WiFi to connect after wakeup");
+        break;
+      }
+    }
   }
   #endif // SUPPORT_WIFI
+
+  // Re-enable BT controller
   #ifdef BT_BLE
   err = esp_bt_controller_enable(ESP_BT_MODE_BLE);
   if(err != ESP_OK) {
@@ -6873,10 +7001,6 @@ void loop() {
         if(cfg.wifi_enabled == 1)
           esp_wifi_start();
         #endif
-    } else {
-        // Handle pending BLE commands, we are in AT mode
-        if(deviceConnected == 1)
-            handle_ble_command();
     }
   } else {
     if(ble_advertising_start == 0
@@ -6911,10 +7035,6 @@ void loop() {
       esp_wifi_start();
     #endif
   }
-
-  // Handle pending BLE commands
-  if(deviceConnected == 1)
-    handle_ble_command();
 
   #endif // SUPPORT_BLE_UART1
 
