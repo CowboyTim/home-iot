@@ -101,8 +101,11 @@ void post_dht11(sensor_t *cfg){
 
 void init_dht11(sensor_t *cfg){
   // initialize DHT11 sensor
-  dht.begin();
-  LOG("[DHT11] initialized on pin %d", DHTPIN);
+  if(did_dht11 == 0){
+    dht.begin();
+    LOG("[DHT11] initialized on pin %d", DHTPIN);
+    did_dht11 = 1;
+  }
 }
 
 #endif // SUPPORT_DHT11
@@ -120,7 +123,7 @@ double fetch_ldr_adc(sensor_t *cfg){
 void init_ldr_adc(sensor_t *cfg){
   // initialize LDR ADC pin
   pinMode(LDRPIN, INPUT); // assuming LDR is connected to LDRPIN
-  LOG("[LDR/ADC] initialized on %d", LDRPIN);
+  LOG("[LDR/ADC] initialized on pin %d", LDRPIN);
 }
 #endif // SUPPORT_LDR
 
@@ -212,6 +215,7 @@ void init_apds9930(sensor_t *cfg){
 S8_UART *sensor_S8 = NULL;
 S8_sensor sensor;
 void init_s8(sensor_t *cfg) {
+  LOG("[S8] Initializing SenseAir S8 NDIR CO2 sensor");
   Serial1.begin(S8_BAUDRATE, SERIAL_8N1, 1, 0);
   sensor_S8 = new S8_UART(Serial1);
 
