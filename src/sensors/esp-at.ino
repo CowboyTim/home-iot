@@ -628,7 +628,7 @@ void setup_wifi() {
 
   WiFi.mode(WIFI_MODE_STA);
   WiFi.setAutoReconnect(true);
-  WiFi.setSleep(false);
+  WiFi.setSleep(true);
   if(cfg.hostname) {
     WiFi.setHostname(cfg.hostname);
   } else {
@@ -1196,6 +1196,7 @@ int send_tcp_data(const uint8_t* data, size_t len) {
     close_tcp_socket();
     return 0;
   }
+  doYIELD;
   return result;
 }
 
@@ -2092,6 +2093,7 @@ int send_udp_data(FD &fd, const uint8_t* data, size_t len, char *d_ip, uint16_t 
     doYIELD;
     return 0;
   } else {
+    doYIELD;
     D("%s send_udp_data len: %d, sent: %d", tag, len, n);
   }
   doYIELD;
