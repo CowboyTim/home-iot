@@ -56,12 +56,12 @@
 #undef SUPPORT_TCP_SERVER
 #undef LOGUART
 
-#define SUPPORT_S8
-#define SUPPORT_SE95
+#undef SUPPORT_S8
+#undef SUPPORT_SE95
 #define SUPPORT_DHT11
-#define SUPPORT_LDR
+#undef SUPPORT_LDR
 #undef APDS9930   // TODO: implement software + hardware
-#define SUPPORT_MQ135
+#undef SUPPORT_MQ135
 
 #define NR_OF_SENSORS 8
 #define SENSORS_OUTBUFFER_SIZE  128
