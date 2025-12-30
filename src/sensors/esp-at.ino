@@ -6135,7 +6135,7 @@ NOINLINE
 bool have_ip_address(bool do_log = false){
   // check if we have an IP address, ipv4 or ipv6
   #ifdef SUPPORT_WIFI
-  LOG("[WIFI] checking for IPv4 address: ", WiFi.localIP().toString().c_str());
+  LOG("[WIFI] checking for IPv4 address: '%s'", WiFi.localIP().toString().c_str());
   if(WiFi.localIP() != IPAddress((uint32_t)0))
     return true;
   if(cfg.ip_mode & IPV6_SLAAC) {
