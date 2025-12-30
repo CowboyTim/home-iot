@@ -111,7 +111,7 @@ void init_dht11(sensor_t *cfg){
 #define LDRPIN    A1 // GPIO_NUM_1/A1 pin for LDR
 double fetch_ldr_adc(sensor_t *cfg){
   // fetch LDR ADC value
-  int ldr_adc = analogReadMilliVolts(A1); // assuming LDR is connected to A0
+  int ldr_adc = analogReadMilliVolts(LDRPIN); // assuming LDR is connected to LDRPIN
   LOG("[LDR/ADC] value: %d mV", ldr_adc);
   double ldr_value = (double)ldr_adc; // convert to double for consistency
   return ldr_value;
@@ -119,17 +119,17 @@ double fetch_ldr_adc(sensor_t *cfg){
 
 void init_ldr_adc(sensor_t *cfg){
   // initialize LDR ADC pin
-  pinMode(A1, INPUT); // assuming LDR is connected to A1
-  LOG("[LDR/ADC] initialized on A1");
+  pinMode(LDRPIN, INPUT); // assuming LDR is connected to LDRPIN
+  LOG("[LDR/ADC] initialized on %d", LDRPIN);
 }
 #endif // SUPPORT_LDR
 
 // MQ-135 Air Quality Sensor
 #ifdef SUPPORT_MQ135
-#define MQ135PIN  A2 // GPIO_NUM_2/A2 pin for MQ-135
-#define MQ135_RL 10000.0 // 10k Ohm load resistor
-#define MQ135_VCC 5.0    // Sensor powered by 5V
-#define MQ135_ADC_REF 3.3 // ESP32 ADC reference voltage
+#define MQ135PIN           A2 // GPIO_NUM_2/A2 pin for MQ-135
+#define MQ135_RL      10000.0 // 10k Ohm load resistor
+#define MQ135_VCC         5.0 // Sensor powered by 5V
+#define MQ135_ADC_REF     3.3 // ESP32 ADC reference voltage
 
 double mq135_adc_to_ppm(double mq135_r0, int adc_value) {
   float voltage = (float)adc_value * MQ135_ADC_REF / 4095.0;
@@ -161,7 +161,7 @@ void init_mq135_adc(sensor_t *cfg){
   if(cfg->userdata == NULL)
     LOG("[MQ-135] ERROR: unable to allocate memory for userdata, using default R0 of 10k Ohm");
   memcpy(cfg->userdata, (void *)&SENSORS::cfg.mq135_r0, sizeof(double));
-  LOG("[MQ-135] ADC initialized on A2");
+  LOG("[MQ-135] ADC initialized on %d", MQ135PIN);
 }
 
 void destroy_mq135_adc(sensor_t *cfg){
