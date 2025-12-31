@@ -155,8 +155,6 @@ size_t outlen = 0;
 
 uint8_t sent_ok = 0;
 
-#define LOOP_SLEEP_CUTOFF 100 // sleep smaller: delay(), longer: power save
-
 #ifdef LOOP_DEBUG
 #define LOOP_D D
 #define LOOP_R R
@@ -723,7 +721,7 @@ void setup_wifi() {
 
   // lower the WiFi power save mode if enabled
   if(cfg.wifi_enabled == 1) {
-    esp_err_t err = esp_wifi_set_ps(WIFI_PS_MAX_MODEM);
+    esp_err_t err = esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
     if(err != ESP_OK)
       LOGE("[WiFi] esp_wifi_set_ps() failed: %s", esp_err_to_name(err));
   }
@@ -1990,7 +1988,7 @@ void out_socket_udp(FD &fd, int16_t port, const char* ip) {
   if(fd != -1)
     return;
 
-  // Setup sending socket, no need to bind, we just prepare sa6/sa4/sa for sendto()
+  // Setup sending socket, no need to bind, we just prepare sa6/sa4/sa
   LOG("[UDP_SEND] setting up UDP sending to: %s:%hu", ip, port);
   if(is_ipv6_addr(ip)) {
     // IPv6
@@ -2112,6 +2110,7 @@ int send_udp_data(FD &fd, const uint8_t* data, size_t len, char *d_ip, uint16_t 
     D("%s send returned 0 bytes, no data sent", tag);
     return 0;
   } else {
+    vTaskDelay(pdMS_TO_TICKS(1000));
     D("%s send_udp_data len: %d, sent: %d", tag, len, n);
   }
   doYIELD;
@@ -5168,12 +5167,38 @@ const char* get_wps_status() {
 #endif // SUPPORT_WIFI && WIFI_WPS
 
 #ifdef SUPPORT_WIFI
+NOINLINE
+void on_wifi_stop(){
+  #ifdef SUPPORT_NTP
+  if(esp_sntp_enabled()){
+    LOG("[NTP] Stopping NTP client due to WiFi disconnection");
+    esp_sntp_stop();
+  }
+  #endif // SUPPORT_NTP
+
+  #ifdef SUPPORT_MDNS
+  stop_mdns();
+  #endif // SUPPORT_MDNS
+}
+
+NOINLINE
+void on_wifi_start(){
+  #ifdef SUPPORT_MDNS
+  setup_mdns();
+  #endif // SUPPORT_MDNS
+
+  #ifdef SUPPORT_NTP
+  setup_ntp();
+  #endif // SUPPORT_NTP
+}
+
 void WiFiEvent(WiFiEvent_t event) {
   doYIELD;
   switch(event) {
-      case ARDUINO_EVENT_WIFI_READY:
+      case ARDUINO_EVENT_WIFI_READY: {
           LOG("[WiFi] ready");
           break;
+      }
       case ARDUINO_EVENT_WIFI_STA_START: {
           if(cfg.wifi_enabled == 0) {
             LOG("[WiFi] WiFi is disabled in config, not connecting");
@@ -5187,49 +5212,45 @@ void WiFiEvent(WiFiEvent_t event) {
           esp_err_t err = esp_wifi_connect();
           if (err != ESP_OK)
             LOG("[WiFi] Failed to initiate connection: %s", esp_err_to_name(err));
-          }
           break;
-      case ARDUINO_EVENT_WIFI_STA_STOP:
+      }
+      case ARDUINO_EVENT_WIFI_STA_STOP: {
           LOG("[WiFi] STA stopped");
+          on_wifi_stop();
           break;
-      case ARDUINO_EVENT_WIFI_STA_CONNECTED:
+      }
+      case ARDUINO_EVENT_WIFI_STA_CONNECTED: {
           LOG("[WiFi] STA connected to %s", WiFi.SSID().c_str());
+          on_wifi_start();
           break;
-      case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+      }
+      case ARDUINO_EVENT_WIFI_STA_DISCONNECTED: {
           LOG("[WiFi] STA disconnected");
-          #ifdef SUPPORT_MDNS
-          stop_mdns();
-          #endif // SUPPORT_MDNS
+          on_wifi_stop();
           break;
-      case ARDUINO_EVENT_WIFI_STA_AUTHMODE_CHANGE:
+      }
+      case ARDUINO_EVENT_WIFI_STA_AUTHMODE_CHANGE: {
           LOG("[WiFi] STA auth mode changed");
           break;
-      case ARDUINO_EVENT_WIFI_STA_GOT_IP6:
-          {
-            LOGT("[WiFi] STA got IPV6: ga: %s", WiFi.globalIPv6().toString().c_str());
-            LOGR(", ll: %s", WiFi.linkLocalIPv6().toString().c_str());
-            LOGR("\n");
-            reconfigure_network_connections();
-            #ifdef SUPPORT_MDNS
-            setup_mdns();
-            #endif // SUPPORT_MDNS
-          }
+      }
+      case ARDUINO_EVENT_WIFI_STA_GOT_IP6: {
+          LOGT("[WiFi] STA got IPV6: ga: %s", WiFi.globalIPv6().toString().c_str());
+          LOGR(", ll: %s", WiFi.linkLocalIPv6().toString().c_str());
+          LOGR("\n");
+          on_wifi_start();
           break;
-      case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+      }
+      case ARDUINO_EVENT_WIFI_STA_GOT_IP: {
           LOG("[WiFi] STA got IP: %s", WiFi.localIP().toString().c_str());
-          reconfigure_network_connections();
-          #ifdef SUPPORT_MDNS
-          setup_mdns();
-          #endif // SUPPORT_MDNS
+          on_wifi_start();
           break;
-      case ARDUINO_EVENT_WIFI_STA_LOST_IP:
+      }
+      case ARDUINO_EVENT_WIFI_STA_LOST_IP: {
           LOG("[WiFi] STA lost IP");
-          #ifdef SUPPORT_MDNS
-          stop_mdns();
-          #endif // SUPPORT_MDNS
-          stop_network_connections();
+          on_wifi_stop();
           break;
-      case ARDUINO_EVENT_WPS_ER_SUCCESS:
+      }
+      case ARDUINO_EVENT_WPS_ER_SUCCESS: {
           #ifdef WIFI_WPS
           LOG("[WPS] succeeded");
           wps_running = false;
@@ -5280,7 +5301,8 @@ void WiFiEvent(WiFiEvent_t event) {
           }
           #endif
           break;
-      case ARDUINO_EVENT_WPS_ER_FAILED:
+      }
+      case ARDUINO_EVENT_WPS_ER_FAILED: {
           #ifdef WIFI_WPS
           LOG("[WPS] failed");
           wps_running = false;
@@ -5288,7 +5310,8 @@ void WiFiEvent(WiFiEvent_t event) {
           esp_wifi_wps_disable();
           #endif
           break;
-      case ARDUINO_EVENT_WPS_ER_TIMEOUT:
+      }
+      case ARDUINO_EVENT_WPS_ER_TIMEOUT: {
           #ifdef WIFI_WPS
           LOG("[WPS] timed out");
           wps_running = false;
@@ -5296,11 +5319,13 @@ void WiFiEvent(WiFiEvent_t event) {
           esp_wifi_wps_disable();
           #endif
           break;
-      case ARDUINO_EVENT_WPS_ER_PIN:
+      }
+      case ARDUINO_EVENT_WPS_ER_PIN: {
           #ifdef WIFI_WPS
           LOG("[WPS] PIN received");
           #endif
           break;
+      }
       default:
           break;
   }
@@ -5489,8 +5514,8 @@ void esp_heap_trace_free_hook(void *ptr) {
 #endif // SUPPORT_ESP_LOG_INFO
 
 #ifdef SUPPORT_WIFI
-void log_wifi_info() {
-  LOG("[WiFi] status: %d, %s", WiFi.status(),
+void log_wifi_info(const char *msg) {
+  LOG("%s[WiFi] status: %d, %s", msg, WiFi.status(),
     WiFi.status() == WL_CONNECTED ? "connected" :
     WiFi.status() == WL_NO_SHIELD ? "no shield" :
     WiFi.status() == WL_IDLE_STATUS ? "idle" :
@@ -5500,13 +5525,13 @@ void log_wifi_info() {
     WiFi.status() == WL_CONNECTION_LOST ? "connection lost" :
     WiFi.status() == WL_DISCONNECTED ? "disconnected" : "unknown");
   if(WiFi.status() == WL_CONNECTED || WiFi.status() == WL_IDLE_STATUS) {
-    LOGT("[WiFi] connected: SSID:%s", WiFi.SSID().c_str());
+    LOGT("%s[WiFi] connected: SSID:%s", msg, WiFi.SSID().c_str());
     LOGR(", MAC:%s", WiFi.macAddress().c_str());
     LOGR(", RSSI:%hu", WiFi.RSSI());
     LOGR(", BSSID:%s", WiFi.BSSIDstr().c_str());
     LOGR(", CHANNEL:%d", WiFi.channel());
     LOGR("\n");
-    LOGT("[IPV4] ADDR:%s", WiFi.localIP().toString().c_str());
+    LOGT("%s[IPV4] ADDR:%s", msg, WiFi.localIP().toString().c_str());
     LOGR(", GW:%s", WiFi.gatewayIP().toString().c_str());
     LOGR(", NM:%s", WiFi.subnetMask().toString().c_str());
     LOGR(", DNS:%s", WiFi.dnsIP().toString().c_str());
@@ -5514,7 +5539,7 @@ void log_wifi_info() {
     if(cfg.ip_mode & IPV6_SLAAC) {
       IPAddress g_ip6 = WiFi.globalIPv6();
       IPAddress l_ip6 = WiFi.linkLocalIPv6();
-      LOGT("[IPV6] SLAAC:%s", g_ip6.toString().c_str());
+      LOGT("%s[IPV6] SLAAC:%s", msg, g_ip6.toString().c_str());
       LOGR(", LINK-LOCAL:%s", l_ip6.toString().c_str());
       LOGR("\n");
     }
@@ -6042,7 +6067,7 @@ void do_wifi_check() {
   if(cfg.wifi_enabled && strlen(cfg.wifi_ssid) != 0 && (last_wifi_info_log == 0 || millis() - last_wifi_info_log > WIFI_LOG_INTERVAL)) {
     last_wifi_info_log = millis();
     if(cfg.do_verbose)
-      log_wifi_info();
+      log_wifi_info("[LOOP]");
   }
 }
 #endif // SUPPORT_WIFI
@@ -6203,37 +6228,37 @@ NOINLINE
 bool have_ip_address(bool do_log = false){
   // check if we have an IP address, ipv4 or ipv6
   #ifdef SUPPORT_WIFI
+  IPAddress local_ip = WiFi.localIP();
   if(do_log)
-    LOG("[WIFI] checking for IPv4 address: '%s'", WiFi.localIP().toString().c_str());
-  IPAddress localIP = WiFi.localIP();
+    LOG("[WIFI] checking for IPv4 address: '%s'", local_ip.toString().c_str());
   // Check for valid IPv4 address (not 0.0.0.0 and not 127.0.0.1)
-  if(localIP != IPAddress((uint32_t)0) && localIP != IPAddress(127, 0, 0, 1))
-    return true;
+  if(local_ip == IPAddress(0,0,0,0) || local_ip == IPAddress(127, 0, 0, 1))
+    return false;
   if(cfg.ip_mode & IPV6_SLAAC) {
-    if(do_log)
-      LOG("[WIFI] checking for IPv6 address");
     IPAddress _ip6 = WiFi.globalIPv6();
-    if(_ip6 != IPAddress((uint32_t)0))
-      return true;
     if(do_log)
-      LOG("[WIFI] checking for link-local IPv6 address");
+      LOG("[WIFI] checking for IPv6 address: '%s'", _ip6.toString().c_str());
+    if(_ip6 == IPAddress((uint32_t)0))
+      return false;
     _ip6 = WiFi.linkLocalIPv6();
-    if(_ip6 != IPAddress((uint32_t)0))
-      return true;
+    if(do_log)
+      LOG("[WIFI] checking for link-local IPv6 address: '%s'", _ip6.toString().c_str());
+    if(_ip6 == IPAddress((uint32_t)0))
+      return false;
   } else {
     if(do_log)
       LOG("[WIFI] IPv6 SLAAC not enabled, skipping IPv6 address check");
   }
   #endif // SUPPORT_WIFI
-  return false;
+  return true;
 }
 
 NOINLINE
 bool wifi_connected(bool do_log = false) {
   #ifdef SUPPORT_WIFI
   if(do_log)
-    D("[WIFI] checking WiFi connection status: %d", WiFi.status());
-  if(WiFi.status() != WL_CONNECTED && WiFi.status() != WL_IDLE_STATUS)
+    LOG("[WIFI] checking WiFi connection status: %d ?= %d|%d", WiFi.status(), WL_CONNECTED, WL_IDLE_STATUS);
+  if(!(WiFi.status() == WL_CONNECTED || WiFi.status() == WL_IDLE_STATUS))
     return false;
   return true;
   #else
@@ -6624,20 +6649,6 @@ uint8_t super_sleepy(const unsigned long sleep_ms) {
       }
   }
 
-  // Wake up on UART activity
-  err = esp_sleep_enable_uart_wakeup(UART_NUM_1);
-  if(err != ESP_OK) {
-    LOG("[SLEEP] Failed to enable UART wakeup: %s", esp_err_to_name(err));
-    return 0;
-  }
-
-  // Wake up n WiFi activity
-  err = esp_sleep_enable_wifi_wakeup();
-  if(err != ESP_OK) {
-    LOG("[SLEEP] Failed to enable WiFi wakeup: %s", esp_err_to_name(err));
-    return 0;
-  }
-
   // Wake up on button press: TODO: won't work with GPIO9 isn't a RTC GPIO
   // on esp32c3, we use GPIO3
   bool ok_btn = esp_sleep_is_valid_wakeup_gpio((gpio_num_t)current_button);
@@ -6670,6 +6681,20 @@ uint8_t super_sleepy(const unsigned long sleep_ms) {
     return 0;
   }
 
+  // Wake up on UART activity
+  err = esp_sleep_enable_uart_wakeup(UART_NUM_1);
+  if(err != ESP_OK) {
+    LOG("[SLEEP] Failed to enable UART wakeup: %s", esp_err_to_name(err));
+    return 0;
+  }
+
+  // Wake up n WiFi activity
+  err = esp_sleep_enable_wifi_wakeup();
+  if(err != ESP_OK) {
+    LOG("[SLEEP] Failed to enable WiFi wakeup: %s", esp_err_to_name(err));
+    return 0;
+  }
+
   // Configure timer
   D("[SLEEP] Configuring timer wakeup for %d ms, configured: %d", sleep_ms, cfg.main_loop_delay);
   err = esp_sleep_enable_timer_wakeup((uint64_t)sleep_ms * 1000ULL);
@@ -6686,6 +6711,7 @@ uint8_t super_sleepy(const unsigned long sleep_ms) {
   }
   #endif // BT_BLE
 
+  /*
   #ifdef SUPPORT_WIFI
   if(cfg.wifi_enabled && strlen(cfg.wifi_ssid) != 0) {
     // stop network connections
@@ -6704,6 +6730,7 @@ uint8_t super_sleepy(const unsigned long sleep_ms) {
     }
   }
   #endif // SUPPORT_WIFI
+  */
 
   // Enable wakeup from UART, WiFi activity, and BUTTON
   sleep_duration = millis();
@@ -6728,6 +6755,7 @@ uint8_t super_sleepy(const unsigned long sleep_ms) {
   }
 
   // Re-enable WiFi and BT controller after wakeup
+  /*
   #ifdef SUPPORT_WIFI
   if(cfg.wifi_enabled && strlen(cfg.wifi_ssid) != 0) {
     LOG("[SLEEP] Re-enabling WiFi after wakeup");
@@ -6753,6 +6781,7 @@ uint8_t super_sleepy(const unsigned long sleep_ms) {
     }
   }
   #endif // SUPPORT_WIFI
+  */
 
   // Re-enable BT controller
   #ifdef BT_BLE
@@ -6761,6 +6790,11 @@ uint8_t super_sleepy(const unsigned long sleep_ms) {
     LOG("[SLEEP] Failed to enable BT controller: %s", esp_err_to_name(err));
   }
   #endif // BT_BLE
+  
+  #ifdef SUPPORT_WIFI
+  if(cfg.wifi_enabled && strlen(cfg.wifi_ssid) != 0)
+    log_wifi_info("[SLEEP]");
+  #endif // SUPPORT_WIFI
 
   D("[SLEEP] Releasing hold on LED pin %d", LED);
   err = gpio_hold_dis(LED);
@@ -6774,6 +6808,8 @@ uint8_t super_sleepy(const unsigned long sleep_ms) {
   return 1;
 }
 
+#undef LOOP_DELAY_NO_LIGHT_SLEEP
+#define LOOP_SLEEP_CUTOFF 100 // sleep smaller: delay(), longer: power save
 
 NOINLINE
 void do_sleep(const unsigned long sleep_ms) {
@@ -6785,38 +6821,19 @@ void do_sleep(const unsigned long sleep_ms) {
   // Use light sleep mode on ESP32 for better battery efficiency
   // Light sleep preserves RAM and allows faster wake-up
   // Light sleep disconnects WiFi/BLE
+  #ifndef LOOP_DELAY_NO_LIGHT_SLEEP
   if(sleep_ms >= LOOP_SLEEP_CUTOFF)
     if(super_sleepy(sleep_ms) == 1)
       return; // successfully slept
+  #endif // LOOP_DELAY_NO_LIGHT_SLEEP
 
-  LOG("[SLEEP] Falling back to delay sleep for %d ms", sleep_ms);
-  uint32_t c_cpu_f = getCpuFrequencyMhz();
+  LOG("[SLEEP] Falling back to regular sleep for %d ms", sleep_ms);
   unsigned long start = millis();
-  do {
-    // We have data in input buffer, break out of sleep
-    if(inlen > 0)
-      break;
+  delay(sleep_ms);
+  LOG("[SLEEP] Slept for %d ms (requested %d ms)", millis() - start, sleep_ms);
 
-    // If button state changed, break out of sleep early
-    #if defined(SUPPORT_BLE_UART1) || defined(BLUETOOTH_UART_AT)
-    if((ble_advertising_start != 0 && deviceConnected == 0) || deviceConnected == 1) {
-      if(deviceConnected == 1) {
-        LOOP_D("[SLEEP] Wake up early due to button BLE:%d, inbuf:%d, %d ms, connected:%d", ble_advertising_start, inlen, sleep_ms - (millis() - start), deviceConnected);
-      } else {
-        D("[SLEEP] Wake up early due to button BLE:%d, inbuf:%d, %d ms, connected:%d", ble_advertising_start, inlen, sleep_ms - (millis() - start), deviceConnected);
-      }
-      break;
-    }
-    #endif
-
-    // Sleep in small increments to allow wake-up, at low CPU freq
-    setCpuFrequencyMhz(10);
-    delayMicroseconds(100);
-    setCpuFrequencyMhz(c_cpu_f);
-
-    // Yield to allow background tasks to run
-    doYIELD;
-  } while (millis() - start < sleep_ms);
+  // Final yield
+  doYIELD;
 }
 
 unsigned long loop_start_millis = 0;
@@ -6867,6 +6884,19 @@ void do_loop_delay() {
     return;
   if(inlen != 0)
     return;
+
+  // If WiFi is enabled, but no IP address yet, don't sleep
+  #ifdef SUPPORT_WIFI
+  if(cfg.wifi_enabled && strlen(cfg.wifi_ssid) != 0) {
+    // check if wifi is connected
+    if(!wifi_connected(false))
+      return;
+    // check if we have an IP address, ipv4 or ipv6
+    if(!have_ip_address(false))
+      return;
+  }
+  #endif // SUPPORT_WIFI
+
 
   // delay and yield, check the loop_start_millis on how long we
   // should still sleep
