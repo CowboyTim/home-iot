@@ -6203,22 +6203,26 @@ NOINLINE
 bool have_ip_address(bool do_log = false){
   // check if we have an IP address, ipv4 or ipv6
   #ifdef SUPPORT_WIFI
-  LOG("[WIFI] checking for IPv4 address: '%s'", WiFi.localIP().toString().c_str());
+  if(do_log)
+    LOG("[WIFI] checking for IPv4 address: '%s'", WiFi.localIP().toString().c_str());
   IPAddress localIP = WiFi.localIP();
   // Check for valid IPv4 address (not 0.0.0.0 and not 127.0.0.1)
   if(localIP != IPAddress((uint32_t)0) && localIP != IPAddress(127, 0, 0, 1))
     return true;
   if(cfg.ip_mode & IPV6_SLAAC) {
-    LOG("[WIFI] checking for IPv6 address");
+    if(do_log)
+      LOG("[WIFI] checking for IPv6 address");
     IPAddress _ip6 = WiFi.globalIPv6();
     if(_ip6 != IPAddress((uint32_t)0))
       return true;
-    LOG("[WIFI] checking for link-local IPv6 address");
+    if(do_log)
+      LOG("[WIFI] checking for link-local IPv6 address");
     _ip6 = WiFi.linkLocalIPv6();
     if(_ip6 != IPAddress((uint32_t)0))
       return true;
   } else {
-    LOG("[WIFI] IPv6 SLAAC not enabled, skipping IPv6 address check");
+    if(do_log)
+      LOG("[WIFI] IPv6 SLAAC not enabled, skipping IPv6 address check");
   }
   #endif // SUPPORT_WIFI
   return false;
