@@ -280,6 +280,7 @@ typedef struct cfg_t {
   char wifi_pass[64]   = {0}; // nax 63 + 1
 
   #ifdef SUPPORT_NTP
+  uint8_t ntp_enabled  = 1;    // NTP enabled by default
   char ntp_host[64]    = {0}; // max hostname + 1
   #endif // SUPPORT_NTP
 
@@ -378,7 +379,20 @@ void cb_ntp_synced(struct timeval *tv) {
   ntp_is_synced = 1;
 }
 
+NOINLINE
 void setup_ntp() {
+  // Check if NTP is enabled
+  if(cfg.ntp_enabled == 0) {
+    LOG("[NTP] NTP is disabled");
+    if(esp_sntp_enabled())
+      esp_sntp_stop();
+    return;
+  }
+  // Default to DEFAULT_NTP_SERVER if ntp_host isn't set
+  if(strlen(cfg.ntp_host) == 0) {
+    strcpy((char *)&cfg.ntp_host, (char *)DEFAULT_NTP_SERVER);
+    LOG("[NTP] no NTP host configured, defaulting to: %s", DEFAULT_NTP_SERVER);
+  }
   // if we have a NTP host configured, sync
   if(strlen(cfg.ntp_host)) {
     LOG("[NTP] setting up NTP with host: %s, interval: %d, timezone: UTC", cfg.ntp_host, 4 * 3600);
@@ -402,6 +416,10 @@ void setup_ntp() {
     time(&now);
     localtime_r(&now, &timeinfo);
     last_hour = timeinfo.tm_hour;
+  } else {
+    LOG("[NTP] no NTP host configured, skipping NTP setup");
+    if(esp_sntp_enabled())
+      esp_sntp_stop();
   }
 }
 #endif // SUPPORT_WIFI && SUPPORT_NTP
@@ -2340,7 +2358,8 @@ AT+UDP_SEND=|?
 #endif
 
 #if defined(SUPPORT_WIFI) && defined(SUPPORT_NTP)
-R"EOF(AT+NTP_HOST=|?
+R"EOF(AT+NTP_ENABLED=|?
+AT+NTP_HOST=|?
 AT+NTP_STATUS?
 )EOF"
 #endif
@@ -2530,6 +2549,8 @@ UDP Commands (Legacy):
 #ifdef SUPPORT_NTP
 R"EOF(
 NTP Commands:
+  AT+NTP_ENABLED=<1|0>          - Enable/disable NTP (1=enable, 0=disable)
+  AT+NTP_ENABLED?               - Get NTP enable status
   AT+NTP_HOST=<host>            - Set NTP server hostname
   AT+NTP_HOST?                  - Get NTP server hostname
   AT+NTP_STATUS?                - Get NTP sync status)EOF"
@@ -3083,19 +3104,35 @@ const char* at_cmd_handler(const char* atcmdline) {
   } else if(p = at_cmd_check("AT+WIFI_ENABLED?", atcmdline, cmd_len)) {
     return AT_R_INT(cfg.wifi_enabled);
   #ifdef SUPPORT_NTP
+  } else if(p = at_cmd_check("AT+NTP_ENABLED=1", atcmdline, cmd_len)) {
+    cfg.ntp_enabled = 1;
+    CFG_SAVE();
+    setup_ntp();
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+NTP_ENABLED=0", atcmdline, cmd_len)) {
+    cfg.ntp_enabled = 0;
+    CFG_SAVE();
+    setup_ntp();
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+NTP_ENABLED?", atcmdline, cmd_len)) {
+    return AT_R_INT(cfg.ntp_enabled);
   } else if(p = at_cmd_check("AT+NTP_HOST=", atcmdline, cmd_len)) {
     if(strlen(p) > 63)
       return AT_R("+ERROR: NTP hostname max 63 chars");
     if(strlen(p) == 0) {
       // Empty hostname, clear it
+      LOG("[AT] Clearing NTP hostname, will be using default %s", DEFAULT_NTP_SERVER);
       memset((char *)&cfg.ntp_host, 0, sizeof(cfg.ntp_host));
       cfg.ntp_host[0] = '\0';
       CFG_SAVE();
+      setup_ntp();
       return AT_R_OK;
     }
     strncpy((char *)&cfg.ntp_host, p, strlen(p));
     cfg.ntp_host[sizeof(cfg.ntp_host) - 1] = '\0';
+    LOG("[AT] Setting NTP hostname to: %s", cfg.ntp_host);
     CFG_SAVE();
+    setup_ntp();
     return AT_R_OK;
   } else if(p = at_cmd_check("AT+NTP_HOST?", atcmdline, cmd_len)) {
     if(strlen(cfg.ntp_host) == 0)
@@ -4863,7 +4900,7 @@ void setup_cfg() {
     cfg.esp_log_interval  = 60000;
     #endif
     #if defined(SUPPORT_WIFI) && defined(SUPPORT_NTP)
-    strcpy((char *)&cfg.ntp_host, (char *)DEFAULT_NTP_SERVER);
+    cfg.ntp_enabled = 1;
     #endif // SUPPORT_WIFI && SUPPORT_NTP
     #ifdef SUPPORT_WIFI
     cfg.ip_mode = IPV4_DHCP | IPV6_SLAAC;
