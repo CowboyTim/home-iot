@@ -529,7 +529,7 @@ void sensors_loop(){
         } else {
           LOG("[SENSORS] ERROR: only %d bytes to inbuf, had %d bytes for sensor %d", copy_len_max, h_strl, i);
         }
-        LOG("[SENSORS] copying %d bytes to inbuf for sensor %s", copy_len_max, s->key);
+        D("[SENSORS] copying %d bytes to inbuf for sensor %s", copy_len_max, s->key);
         memcpy(b_new, (uint8_t *)s->out_buf, copy_len_max);
         ::inlen += copy_len_max;
       } else {
