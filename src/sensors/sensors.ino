@@ -68,7 +68,7 @@ double dht11_fetch_humidity(sensor_t *cfg){
     did_dht11 = 1;
   }
   double h = (double)dht.readHumidity();
-  LOG("[DHT11] humidity: %d %%", h);
+  LOG("[DHT11] humidity: %f %%", h);
   if(h < 0.0 || h > 100.0){
     LOG("[DHT11] humidity out of range, returning 0: %.2f", h);
     h = 0.0;
@@ -83,7 +83,7 @@ double dht11_fetch_temperature(sensor_t *cfg){
     did_dht11 = 1;
   }
   double t = (double)dht.readTemperature();
-  LOG("[DHT11] temperature: %d °C", t);
+  LOG("[DHT11] temperature: %f °C", t);
   if(t < -40.0 || t > 80.0){
     LOG("[DHT11] temperature out of range, returning 0: %.2f", t);
     t = 0.0;
