@@ -4363,7 +4363,9 @@ class MyCallbacks: public BLECharacteristicCallbacks {
         D("[BLE] RX CHAR: %02X '%c'", *ble_rx_buf, isprint(*ble_rx_buf) ? *ble_rx_buf : '.');
         if (*ble_rx_buf == '\n' || *ble_rx_buf == '\r') {
           // Command terminator found, mark command as ready
+          D("[BLE] Command Ready: %d, %d, %s", bleCommandReady, strlen(ble_cmd_buffer), ble_cmd_buffer);
           bleCommandReady = true;
+          handle_ble_command();
           break;
         }
 
@@ -4376,10 +4378,6 @@ class MyCallbacks: public BLECharacteristicCallbacks {
 
         // Add character to command buffer
         *ble_ptr++ = (char)*ble_rx_buf++;
-      }
-      if(bleCommandReady){
-        D("[BLE] Command Ready: %d, %d, %s", bleCommandReady, strlen(ble_cmd_buffer), ble_cmd_buffer);
-        handle_ble_command();
       }
     }
 };
