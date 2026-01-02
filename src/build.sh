@@ -41,7 +41,7 @@ function do_build(){
     if [ ! -z "${DEBUG}" -a "${DEBUG:-0}" = "1" ]; then
         DEV_EXTRA_FLAGS="$DEV_EXTRA_FLAGS -DDEBUG"
     fi
-    if [ ! -z "${VERBOSE}" ]; then
+    if [ ! -z "${VERBOSE}" -a "${VERBOSE:-1}" = "1" ]; then
         DEV_EXTRA_FLAGS="$DEV_EXTRA_FLAGS -DVERBOSE"
     fi
     if [ ! -z "${DEFAULT_NTP_SERVER}" ]; then
