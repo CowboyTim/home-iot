@@ -34,8 +34,6 @@
 #ifndef _SENSORS_H
 #define _SENSORS_H
 
-#include <Arduino.h>
-
 #define SUPPORT_PLUGINS
 #define UART_AT
 #define BLUETOOTH_UART_AT
@@ -66,6 +64,8 @@
 
 #define NR_OF_SENSORS 8
 #define SENSORS_OUTBUFFER_SIZE  128
+
+#include <Arduino.h>
 
 #ifdef SUPPORT_SE95
 #include <Wire.h>

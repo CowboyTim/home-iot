@@ -31,10 +31,6 @@
 
 // Logging setup for esp32c3
 
-#ifndef VERBOSE
-#define VERBOSE
-#endif // VERBOSE
-
 #include <sensors.h>
 #include <common.h>
 
@@ -481,7 +477,7 @@ void setup(){
     }
   }
 
-  // config log on UART when VERBOSE=1
+  // config log on UART when VERBOSE is defined
   DO_VERBOSE(
     for(int i = 0; i < NR_OF_SENSORS; i++){
       sensor_r_t *s = &SENSORS::all_sensors[i];

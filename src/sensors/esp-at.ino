@@ -31,10 +31,6 @@
 
 // Logging setup for esp32c3
 
-#ifndef VERBOSE
-#define VERBOSE
-#endif // VERBOSE
-
 #include "esp-at.h"
 #include "common.h"
 #include "plugins.h"
@@ -128,11 +124,6 @@ void sc_cmd_handler(SerialCommands* s, const char* atcmdline);
 #ifdef SUPPORT_WIFI
 void WiFiEvent(WiFiEvent_t event);
 #endif
-
-// DEBUG means all debug messages, so enable VERBOSE as well
-#ifdef DEBUG
-#define VERBOSE
-#endif // DEBUG
 
 #define UART1_READ_SIZE       64 // read bytes at a time from UART1
 #define UART1_WRITE_SIZE      64 // write bytes at a time to UART1
@@ -240,7 +231,7 @@ ALIGN(4) char atscbu[128] = {""};
 SerialCommands ATSc(&USBSERIAL0, atscbu, sizeof(atscbu), "\r\n", "\r\n");
 #endif // UART_AT
 
-#define CFGVERSION 0x01 // switch between 0x01/0x02/0x03 to reinit the config struct change
+#define CFGVERSION 0x02 // switch between 0x01/0x02/0x03 to reinit the config struct change
 #define CFGINIT    0x72 // at boot init check flag
 
 #define IPV4_DHCP    1
@@ -4939,7 +4930,9 @@ void setup_cfg() {
   // was (or needs) initialized?
   LOG("[CONFIG] init=%08X, version=%08X, size=%d", cfg.initialized, cfg.version, sizeof(cfg));
   if(cfg.initialized != CFGINIT || cfg.version != CFGVERSION) {
+    #ifdef VERBOSE
     cfg.do_verbose = 1;
+    #endif
     LOG("[CONFIG] reinitializing");
     // clear
     memset(&cfg, 0, sizeof(cfg));
@@ -6102,7 +6095,11 @@ void do_setup() {
 
 #ifdef SUPPORT_ESP_LOG_INFO
 void do_esp_log() {
-  if(cfg.do_verbose == 0 || cfg.esp_log_interval == 0)
+  #ifdef VERBOSE
+  if(cfg.do_verbose == 0)
+    return;
+  #endif
+  if(cfg.esp_log_interval == 0)
     return;
   // Log ESP info periodically when DEBUG is enabled
   LOOP_D("[LOOP] ESP info log check");
@@ -6136,8 +6133,10 @@ void do_wifi_check() {
 
   if(cfg.wifi_enabled && strlen(cfg.wifi_ssid) != 0 && (last_wifi_info_log == 0 || millis() - last_wifi_info_log > WIFI_LOG_INTERVAL)) {
     last_wifi_info_log = millis();
+    #ifdef VERBOSE
     if(cfg.do_verbose)
       log_wifi_info("[LOOP]");
+    #endif
   }
 }
 #endif // SUPPORT_WIFI

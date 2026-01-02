@@ -127,6 +127,142 @@ const char* get_errno_string(int err) {
   }
 }
 
+NOINLINE
+void do_vprintf(uint8_t t, const char *tf, const char *_fmt, va_list args) {
+  ALIGN(4) static char obuf[256] = {0};
+  if(_fmt == NULL && tf == NULL)
+    return;
+  if((t & 2) && tf != NULL)
+    _LOGPRINT(PT(tf));
+  if(_fmt == NULL)
+    return;
+  static int s = 0;
+  s = vsnprintf(obuf, sizeof(obuf), _fmt, args);
+  if(s < 0)
+    obuf[0] = 0;
+  else if(s >= sizeof(obuf))
+    obuf[sizeof(obuf) - 1] = 0;
+  else
+    obuf[s] = 0;
+
+  if(t & 1) {
+    _LOGPRINT(obuf);
+    _LOGPRINT("\n");
+  } else {
+    _LOGPRINT(obuf);
+  }
+}
+
+NOINLINE
+void do_printf(uint8_t t, const char *tf, const char *_fmt, ...) {
+  va_list args;
+  va_start(args, _fmt);
+  do_vprintf(t, tf, _fmt, args);
+  va_end(args);
+}
+
+NOINLINE
+void _log_flush() {
+    if(_do_verbose)
+        _LOGFLUSH();
+}
+
+NOINLINE
+void _log_setup() {
+    UART0.begin(115200);
+    delay(100);
+    UART0.setTimeout(0);
+    UART0.setTxBufferSize(512);
+    UART0.setRxBufferSize(512);
+    UART0.println();
+}
+
+NOINLINE
+void _log_l(const char *fmt, ...) {
+    if(_do_verbose) {
+        #ifdef DEBUG
+        do_printf(0, NULL, DEBUG_FILE_LINE);
+        #endif
+        va_list args;
+        va_start(args, fmt);
+        do_vprintf(3, LOG_TIME_FORMAT, fmt, args);
+        va_end(args);
+    }
+}
+
+NOINLINE
+void _log_t(const char *fmt, ...) {
+    if(_do_verbose) {
+        #ifdef DEBUG
+        do_printf(0, NULL, DEBUG_FILE_LINE);
+        #endif
+        va_list args;
+        va_start(args, fmt);
+        do_vprintf(2, LOG_TIME_FORMAT, fmt, args);
+        va_end(args);
+    }
+}
+
+NOINLINE
+void _log_r(const char *fmt, ...) {
+    if(_do_verbose) {
+        va_list args;
+        va_start(args, fmt);
+        do_vprintf(0, NULL, fmt, args);
+        va_end(args);
+    }
+}
+
+NOINLINE
+void _log_e(const char *fmt, ...) {
+    if(_do_verbose) {
+        #ifdef DEBUG
+        do_printf(0, NULL, DEBUG_FILE_LINE);
+        #endif
+        va_list args;
+        va_start(args, fmt);
+        do_vprintf(2, LOG_TIME_FORMAT, fmt, args);
+        va_end(args);
+        _log_r(", errno: %d (%s)\n", errno, get_errno_string(errno));
+    }
+}
+
+NOINLINE
+void _debug_l(const char *fmt, ...) {
+    do_printf(0, NULL, DEBUG_FILE_LINE);
+    va_list args;
+    va_start(args, fmt);
+    do_vprintf(3, DEBUG_TIME_FORMAT, fmt, args);
+    va_end(args);
+}
+
+NOINLINE
+void _debug_t(const char *fmt, ...) {
+    do_printf(0, NULL, DEBUG_FILE_LINE);
+    va_list args;
+    va_start(args, fmt);
+    do_vprintf(2, DEBUG_TIME_FORMAT, fmt, args);
+    va_end(args);
+}
+
+NOINLINE
+void _debug_r(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    do_vprintf(0, NULL, fmt, args);
+    va_end(args);
+}
+
+NOINLINE
+void _debug_e(const char *fmt, ...) {
+    do_printf(0, NULL, DEBUG_FILE_LINE);
+    va_list args;
+    va_start(args, fmt);
+    do_vprintf(2, DEBUG_TIME_FORMAT, fmt, args);
+    va_end(args);
+    _debug_r(", errno: %d (%s)\n", errno, get_errno_string(errno));
+}
+
 } // namespace COMMON
 
 namespace CFG {
@@ -219,4 +355,5 @@ void LOAD(const char *pa, const char *ns, const char *st, void *cfg, size_t rs) 
   }
   LOG("[NVS] Config loaded from NVS, size: %d bytes", rs);
 }
+
 } // namespace CFG

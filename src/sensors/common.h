@@ -34,6 +34,10 @@
 #ifndef _COMMON_H
 #define _COMMON_H
 
+#ifdef DEBUG
+#define VERBOSE
+#endif // DEBUG
+
 #ifndef UART_LOG_DEV_UART0
 #define UART_LOG_DEV_UART0 0
 #endif // UART_LOG_DEV_UART0
@@ -125,8 +129,8 @@ const char* get_errno_string(int err);
  * VERBOSE logging functions
  */
 #ifdef VERBOSE
- // flag, VERBOSE on/off
- extern uint8_t _do_verbose;
+// flag, VERBOSE on/off
+extern uint8_t _do_verbose;
 
  #ifdef DEBUG
   #define __FILE__            "esp-at.ino"
@@ -139,107 +143,6 @@ const char* get_errno_string(int err);
 
  #define _LOGFLUSH()           UART0.flush()
  #define _LOGPRINT(buf)        UART0.write(buf, strlen(buf));
-
-NOINLINE
-void do_vprintf(uint8_t t, const char *tf, const char *_fmt, va_list args) {
-  ALIGN(4) static char obuf[256] = {0};
-  if(_fmt == NULL && tf == NULL)
-    return;
-  if((t & 2) && tf != NULL)
-    _LOGPRINT(PT(tf));
-  if(_fmt == NULL)
-    return;
-  static int s = 0;
-  s = vsnprintf(obuf, sizeof(obuf), _fmt, args);
-  if(s < 0)
-    obuf[0] = 0;
-  else if(s >= sizeof(obuf))
-    obuf[sizeof(obuf) - 1] = 0;
-  else
-    obuf[s] = 0;
-
-  if(t & 1) {
-    _LOGPRINT(obuf);
-    _LOGPRINT("\n");
-  } else {
-    _LOGPRINT(obuf);
-  }
-}
-
-NOINLINE
-void do_printf(uint8_t t, const char *tf, const char *_fmt, ...) {
-  va_list args;
-  va_start(args, _fmt);
-  do_vprintf(t, tf, _fmt, args);
-  va_end(args);
-}
-
-NOINLINE
-void _log_flush() {
-    if(_do_verbose)
-        _LOGFLUSH();
-}
-
-NOINLINE
-void _log_setup() {
-    UART0.begin(115200);
-    delay(100);
-    UART0.setTimeout(0);
-    UART0.setTxBufferSize(512);
-    UART0.setRxBufferSize(512);
-    UART0.println();
-}
-
-NOINLINE
-void _log_l(const char *fmt, ...) {
-    if(_do_verbose) {
-        #ifdef DEBUG
-        do_printf(0, NULL, DEBUG_FILE_LINE);
-        #endif
-        va_list args;
-        va_start(args, fmt);
-        do_vprintf(3, LOG_TIME_FORMAT, fmt, args);
-        va_end(args);
-    }
-}
-
-NOINLINE
-void _log_t(const char *fmt, ...) {
-    if(_do_verbose) {
-        #ifdef DEBUG
-        do_printf(0, NULL, DEBUG_FILE_LINE);
-        #endif
-        va_list args;
-        va_start(args, fmt);
-        do_vprintf(2, LOG_TIME_FORMAT, fmt, args);
-        va_end(args);
-    }
-}
-
-NOINLINE
-void _log_r(const char *fmt, ...) {
-    if(_do_verbose) {
-        va_list args;
-        va_start(args, fmt);
-        do_vprintf(0, NULL, fmt, args);
-        va_end(args);
-    }
-}
-
-NOINLINE
-void _log_e(const char *fmt, ...) {
-    if(_do_verbose) {
-        #ifdef DEBUG
-        do_printf(0, NULL, DEBUG_FILE_LINE);
-        #endif
-        va_list args;
-        va_start(args, fmt);
-        do_vprintf(2, LOG_TIME_FORMAT, fmt, args);
-        va_end(args);
-        _log_r(", errno: %d (%s)\n", errno, get_errno_string(errno));
-    }
-}
-
  #define LOG(...)     COMMON::_log_l(__VA_ARGS__);
  #define LOGT(...)    COMMON::_log_t(__VA_ARGS__);
  #define LOGR(...)    COMMON::_log_r(__VA_ARGS__);
@@ -248,42 +151,42 @@ void _log_e(const char *fmt, ...) {
  #define LOGSETUP()   COMMON::_log_setup();
  #define DO_VERBOSE(code)  if(COMMON::_do_verbose){code;};
 
+NOINLINE
+void do_vprintf(uint8_t t, const char *tf, const char *_fmt, va_list args);
+
+NOINLINE
+void do_printf(uint8_t t, const char *tf, const char *_fmt, ...);
+
+NOINLINE
+void _log_flush();
+
+NOINLINE
+void _log_setup();
+
+NOINLINE
+void _log_l(const char *fmt, ...);
+
+NOINLINE
+void _log_t(const char *fmt, ...);
+
+NOINLINE
+void _log_r(const char *fmt, ...);
+
+NOINLINE
+void _log_e(const char *fmt, ...);
+
 #ifdef DEBUG
 NOINLINE
-void _debug_l(const char *fmt, ...) {
-    do_printf(0, NULL, DEBUG_FILE_LINE);
-    va_list args;
-    va_start(args, fmt);
-    do_vprintf(3, DEBUG_TIME_FORMAT, fmt, args);
-    va_end(args);
-}
+void _debug_l(const char *fmt, ...);
 
 NOINLINE
-void _debug_t(const char *fmt, ...) {
-    do_printf(0, NULL, DEBUG_FILE_LINE);
-    va_list args;
-    va_start(args, fmt);
-    do_vprintf(2, DEBUG_TIME_FORMAT, fmt, args);
-    va_end(args);
-}
+void _debug_t(const char *fmt, ...);
 
 NOINLINE
-void _debug_r(const char *fmt, ...) {
-    va_list args;
-    va_start(args, fmt);
-    do_vprintf(0, NULL, fmt, args);
-    va_end(args);
-}
+void _debug_r(const char *fmt, ...);
 
 NOINLINE
-void _debug_e(const char *fmt, ...) {
-    do_printf(0, NULL, DEBUG_FILE_LINE);
-    va_list args;
-    va_start(args, fmt);
-    do_vprintf(2, DEBUG_TIME_FORMAT, fmt, args);
-    va_end(args);
-    _debug_r(", errno: %d (%s)\n", errno, get_errno_string(errno));
-}
+void _debug_e(const char *fmt, ...);
 
  #define D(...)       COMMON::_debug_l(__VA_ARGS__);
  #define T(...)       COMMON::_debug_t(__VA_ARGS__);
