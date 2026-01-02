@@ -48,6 +48,7 @@
 #define DEFAULT_HOSTNAME "sensors"
 #endif // DEFAULT_HOSTNAME
 
+#undef LOOP_DELAY
 #undef SUPPORT_UART1
 #undef SUPPORT_BLE_UART1
 #define SUPPORT_UDP
