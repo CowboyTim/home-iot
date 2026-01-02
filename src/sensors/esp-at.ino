@@ -6756,6 +6756,8 @@ uint8_t super_sleepy(const unsigned long sleep_ms) {
   if(err != ESP_OK) {
     LOG("[SLEEP] Failed to enable UART wakeup: %s", esp_err_to_name(err));
     return 0;
+  } else {
+    D("[SLEEP] UART wakeup enabled");
   }
 
   // Wake up n WiFi activity
@@ -6763,6 +6765,8 @@ uint8_t super_sleepy(const unsigned long sleep_ms) {
   if(err != ESP_OK) {
     LOG("[SLEEP] Failed to enable WiFi wakeup: %s", esp_err_to_name(err));
     return 0;
+  } else {
+    D("[SLEEP] WiFi wakeup enabled");
   }
 
   // Configure timer
@@ -6771,6 +6775,8 @@ uint8_t super_sleepy(const unsigned long sleep_ms) {
   if(err != ESP_OK) {
     LOG("[SLEEP] Failed to enable timer wakeup: %s", esp_err_to_name(err));
     return 0;
+  } else {
+    D("[SLEEP] Timer wakeup enabled for %d ms", sleep_ms);
   }
 
   #ifdef BT_BLE
@@ -6778,6 +6784,8 @@ uint8_t super_sleepy(const unsigned long sleep_ms) {
   err = esp_bt_controller_disable();
   if(err != ESP_OK) {
     LOG("[SLEEP] Failed to disable BT controller: %s", esp_err_to_name(err));
+  } else {
+    D("[SLEEP] BT controller disabled to save power");
   }
   #endif // BT_BLE
 
@@ -6878,6 +6886,8 @@ uint8_t super_sleepy(const unsigned long sleep_ms) {
   err = esp_bt_controller_enable(ESP_BT_MODE_BLE);
   if(err != ESP_OK) {
     LOG("[SLEEP] Failed to enable BT controller: %s", esp_err_to_name(err));
+  } else {
+    D("[SLEEP] BT controller re-enabled after wakeup");
   }
   #endif // BT_BLE
   
@@ -6890,6 +6900,8 @@ uint8_t super_sleepy(const unsigned long sleep_ms) {
   err = gpio_hold_dis(LED);
   if(err != ESP_OK) {
     D("[SLEEP] Failed to release hold on LED pin %d: %s", LED, esp_err_to_name(err));
+  } else {
+    D("[SLEEP] Released hold on LED pin %d", LED);
   }
 
   // woke up
