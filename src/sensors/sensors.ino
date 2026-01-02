@@ -71,8 +71,8 @@ double dht11_fetch_humidity(sensor_r_t *s){
   }
   double h = (double)dht.readHumidity();
   LOG("[DHT11] humidity: %f %%", h);
-  if(h < 0.0 || h > 100.0){
-    LOG("[DHT11] humidity out of range, returning 0: %.2f", h);
+  if(isnan(h) || isinf(h) || h < 0.0 || h > 100.0){
+    LOG("[DHT11] humidity invalid or out of range, returning 0: %.2f", h);
     h = 0.0;
   }
   return h;
@@ -86,8 +86,8 @@ double dht11_fetch_temperature(sensor_r_t *s){
   }
   double t = (double)dht.readTemperature();
   LOG("[DHT11] temperature: %f °C", t);
-  if(t < -40.0 || t > 80.0){
-    LOG("[DHT11] temperature out of range, returning 0: %.2f", t);
+  if(isnan(t) || isinf(t) || t < -40.0 || t > 80.0){
+    LOG("[DHT11] temperature invalid or out of range, returning 0: %.2f", t);
     t = 0.0;
   }
   return t;
@@ -517,6 +517,12 @@ void sensors_loop(){
       continue;
     if(millis() - l_intv_counters[i] > s->cfg->v_intv){
       double current_v = s->value_function(s);
+      // Validate the value - reject NaN and infinity
+      if(isnan(current_v) || isinf(current_v)){
+        LOG("[SENSORS] ERROR: invalid value (NaN or infinity) for sensor %s, skipping", s->key);
+        l_intv_counters[i] = millis();
+        continue;
+      }
       memset((char*)s->out_buf, 0, sizeof(s->out_buf));
       int h_strl = snprintf((char *)s->out_buf, sizeof(s->out_buf), s->unit_fmt, SENSORS::cfg.kvmkey, s->key, current_v);
       if(h_strl > 0){
@@ -652,6 +658,13 @@ const char* at_cmd_handler_sensor(const char *at_cmd, unsigned short at_len){
                 s->pre_function(s);
             // fetch current sensor value
             double current_value = s->value_function(s);
+            // Validate the value - reject NaN and infinity
+            if(isnan(current_value) || isinf(current_value)){
+                // Call post function if available
+                if(s->post_function != NULL)
+                    s->post_function(s);
+                return AT_R("+ERROR: invalid sensor value (NaN or infinity)");
+            }
             // Call post function if available
             if(s->post_function != NULL)
                 s->post_function(s);
