@@ -40,6 +40,8 @@
 
 namespace SENSORS {
 
+RTC_DATA_ATTR long l_intv_counters[NR_OF_SENSORS] = {0};
+
 NOINLINE
 void CFG_SAVE() {
     CFG::SAVE("esp-at", "sensors", "sensors", (void *)&SENSORS::cfg, sizeof(SENSORS::cfg));
@@ -452,9 +454,9 @@ void sensors_setup(){
   // load config
   CFG_INIT();
 
-  // sensors check
+  // sensors timer init on first boot
   for(int i = 0; i < NR_OF_SENSORS; i++)
-    SENSORS::cfg.sensors[i].l_intv = millis();
+    l_intv_counters[i] = millis();
 
   // sensors config check for interval, when 0, assume 1000ms
   for(int i = 0; i < NR_OF_SENSORS; i++){
@@ -509,7 +511,7 @@ void sensors_loop(){
     doYIELD;
     if(s->value_function == NULL)
       continue;
-    if(millis() - s->l_intv > s->v_intv){
+    if(millis() - l_intv_counters[i] > s->v_intv){
       double current_v = s->value_function(s);
       memset((char*)s->out_buf, 0, sizeof(s->out_buf));
       int h_strl = snprintf((char *)s->out_buf, sizeof(s->out_buf), s->unit_fmt, SENSORS::cfg.kvmkey, s->key, current_v);
@@ -535,7 +537,7 @@ void sensors_loop(){
       } else {
         LOG("[SENSORS] ERROR: snprintf failed for sensor %s: %s", s->key, strerror(errno));
       }
-      s->l_intv = millis();
+      l_intv_counters[i] = millis();
     }
   }
 
@@ -678,11 +680,11 @@ long max_sleep_time(){
       continue;
     if(s->value_function == NULL)
       continue;
-    if(s->l_intv == 0){
+    if(l_intv_counters[i] == 0){
       if(s->v_intv < min_time)
         min_time = s->v_intv;
     } else {
-      unsigned long time_since_last = cur_time - s->l_intv;
+      unsigned long time_since_last = cur_time - l_intv_counters[i];
       if(time_since_last >= s->v_intv)
         // sensor is due now, return 0
         return 0;

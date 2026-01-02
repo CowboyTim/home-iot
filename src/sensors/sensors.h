@@ -114,7 +114,6 @@ typedef struct sensor_t {
   uint8_t  enabled = 0;
   void *userdata = NULL;
   unsigned long v_intv = 1000;
-  unsigned long l_intv = 0;
   void   (*init_function)(sensor_t*);
   void   (*pre_function)(sensor_t*);
   double (*value_function)(sensor_t*);
