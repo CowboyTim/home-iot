@@ -683,7 +683,7 @@ long max_sleep_time(){
   long min_time = LONG_MAX;
   for(int i = 0; i < NR_OF_SENSORS; i++){
     sensor_t *s = &SENSORS::cfg.sensors[i];
-    LOG("[SENSORS] Sensor %s enabled: %d, interval: %lu ms, last run: %lu ms", s->key, s->enabled, s->v_intv, l_intv_counters[i]);
+    D("[SENSORS] Sensor %s enabled: %d, interval: %lu ms, last run: %lu ms", s->key, s->enabled, s->v_intv, l_intv_counters[i]);
     if(s->enabled == 0)
       continue;
     if(s->v_intv == 0)
@@ -699,7 +699,7 @@ long max_sleep_time(){
         // sensor is due now, return 0
         return 0;
       unsigned long time_to_next = s->v_intv - time_since_last;
-      LOG("[SENSORS] Sensor %s time to next: %lu ms", s->key, time_to_next);
+      D("[SENSORS] Sensor %s time to next: %lu ms", s->key, time_to_next);
       // check if this is the minimum time
       if(time_to_next < min_time)
         min_time = time_to_next;
