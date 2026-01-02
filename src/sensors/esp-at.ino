@@ -6639,7 +6639,7 @@ void check_wakeup_reason() {
 }
 
 #ifdef LOOP_DELAY
-#define USE_LIGHT_SLEEP 0
+#define USE_LIGHT_SLEEP 1 // allows for button press wakeup
 #undef SUPPORT_DEEP_SLEEP
 RTC_DATA_ATTR uint8_t sleepy_is_setup = 1;
 RTC_DATA_ATTR unsigned long sleep_duration = 0;
@@ -7249,6 +7249,7 @@ void loop() {
   #endif
 
   #if defined(SUPPORT_WIFI) && defined(SUPPORT_NTP)
+  LOOP_D("[NTP] NTP time sync check");
   do_ntp_check();
   #endif // SUPPORT_WIFI && SUPPORT_NTP
 
@@ -7306,7 +7307,9 @@ void loop() {
 
   // Plugins loop
   #ifdef SUPPORT_PLUGINS
+  LOOP_D("[PLUGINS] Running plugins POST hooks");
   PLUGINS::loop_post();
+  LOOP_D("[PLUGINS] Plugins POST hooks done");
   #endif // SUPPORT_PLUGINS
 
   // Handle button press

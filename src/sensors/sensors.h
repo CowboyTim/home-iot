@@ -106,20 +106,10 @@ namespace SENSORS {
 TwoWire Wire = Wire;
 #endif // SUPPORT_SE95
 
-typedef struct sensor_t {
-  const char name[32] = {0};
-  const char unit_fmt[24] = {0};
-  const char key[32] = {0};
-  const char out_buf[32] = {0};
-  uint8_t  enabled = 0;
-  void *userdata = NULL;
+typedef struct sensor_c_t {
+  uint8_t enabled = 0;
   unsigned long v_intv = 1000;
-  void   (*init_function)(sensor_t*);
-  void   (*pre_function)(sensor_t*);
-  double (*value_function)(sensor_t*);
-  void   (*post_function)(sensor_t*);
-  void   (*destroy_function)(sensor_t*);
-} sensor_t;
+} sensor_c_t;
 
 /* sensors/plugin config */
 typedef struct s_cfg_t {
@@ -129,10 +119,35 @@ typedef struct s_cfg_t {
   #ifdef SUPPORT_MQ135
   double mq135_r0      = 10000.0; // default R0 for MQ-135
   #endif // SUPPORT_MQ135
-  sensor_t sensors[NR_OF_SENSORS] = {0};
+  sensor_c_t sensor_cfg[NR_OF_SENSORS] = {0};
 } sensors_cfg_t;
 
-extern sensors_cfg_t cfg;
+typedef struct sensor_r_t {
+  const char name[32] = {0};
+  const char unit_fmt[24] = {0};
+  const char key[32] = {0};
+  const char out_buf[32] = {0};
+  void *userdata = NULL;
+  sensor_c_t *cfg = NULL;
+  void   (*init_function)(sensor_r_t*);
+  void   (*pre_function)(sensor_r_t*);
+  double (*value_function)(sensor_r_t*);
+  void   (*post_function)(sensor_r_t*);
+  void   (*destroy_function)(sensor_r_t*);
+} sensor_r_t;
+
+/* all sensors runtime */
+extern sensor_r_t all_sensors[NR_OF_SENSORS];
+
+/* main config */
+sensors_cfg_t cfg = {
+  .kvmkey     = "unknown",
+  .log_uart   = 0,
+  #ifdef SUPPORT_MQ135
+  .mq135_r0   = 10000.0, // default R0 for MQ-135
+  #endif // SUPPORT_MQ135
+  .sensor_cfg = {0}
+};
 
 
 } // namespace SENSORS

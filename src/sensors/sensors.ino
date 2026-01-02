@@ -63,7 +63,7 @@ void CFG_INIT() {
 #define DHTPIN  A0     // GPIO_NUM_0/A0 pin for DHT11
 DHT dht = DHT(DHTPIN, DHT11);
 uint8_t did_dht11 = 0; // DHT11 read flag, to avoid multiple reads
-double dht11_fetch_humidity(sensor_t *cfg){
+double dht11_fetch_humidity(sensor_r_t *s){
   // fetch humidity from DHT11
   if(!did_dht11){
     dht.read();
@@ -78,7 +78,7 @@ double dht11_fetch_humidity(sensor_t *cfg){
   return h;
 }
 
-double dht11_fetch_temperature(sensor_t *cfg){
+double dht11_fetch_temperature(sensor_r_t *s){
   // fetch temperature from DHT11
   if(!did_dht11){
     dht.read();
@@ -93,15 +93,15 @@ double dht11_fetch_temperature(sensor_t *cfg){
   return t;
 }
 
-void pre_dht11(sensor_t *cfg){
+void pre_dht11(sensor_r_t *s){
   did_dht11 = 0;
 }
 
-void post_dht11(sensor_t *cfg){
+void post_dht11(sensor_r_t *s){
   did_dht11 = 0;
 }
 
-void init_dht11(sensor_t *cfg){
+void init_dht11(sensor_r_t *s){
   // initialize DHT11 sensor
   if(did_dht11 == 0){
     dht.begin();
@@ -114,7 +114,7 @@ void init_dht11(sensor_t *cfg){
 
 #ifdef SUPPORT_LDR
 #define LDRPIN    A1 // GPIO_NUM_1/A1 pin for LDR
-double fetch_ldr_adc(sensor_t *cfg){
+double fetch_ldr_adc(sensor_r_t *s){
   // fetch LDR ADC value
   int ldr_adc = analogReadMilliVolts(LDRPIN); // assuming LDR is connected to LDRPIN
   LOG("[LDR/ADC] value: %d mV", ldr_adc);
@@ -122,7 +122,7 @@ double fetch_ldr_adc(sensor_t *cfg){
   return ldr_value;
 }
 
-void init_ldr_adc(sensor_t *cfg){
+void init_ldr_adc(sensor_r_t *s){
   // initialize LDR ADC pin
   pinMode(LDRPIN, INPUT); // assuming LDR is connected to LDRPIN
   LOG("[LDR/ADC] initialized on pin %d", LDRPIN);
@@ -145,10 +145,10 @@ double mq135_adc_to_ppm(double mq135_r0, int adc_value) {
   return ppm;
 }
 
-double fetch_mq135_adc(sensor_t *cfg){
+double fetch_mq135_adc(sensor_r_t *s){
   double mq135_r0 = 10000.0; // default R0 value
-  if(cfg->userdata != NULL)
-    mq135_r0 = *((double*)cfg->userdata);
+  if(s->userdata != NULL)
+    mq135_r0 = *((double*)s->userdata);
   // fetch MQ-135 ADC value
   int mq135_adc = analogRead(MQ135PIN); // raw ADC value (0-4095)
   LOG("[MQ-135] ADC value: %d", mq135_adc);
@@ -157,23 +157,23 @@ double fetch_mq135_adc(sensor_t *cfg){
   return ppm;
 }
 
-void init_mq135_adc(sensor_t *cfg){
+void init_mq135_adc(sensor_r_t *s){
   // initialize MQ-135 ADC pin
   pinMode(MQ135PIN, INPUT);
   analogSetPinAttenuation(MQ135PIN, ADC_11db);
   analogReadResolution(12);
-  cfg->userdata = malloc(sizeof(double));
-  if(cfg->userdata == NULL)
+  s->userdata = malloc(sizeof(double));
+  if(s->userdata == NULL)
     LOG("[MQ-135] ERROR: unable to allocate memory for userdata, using default R0 of 10k Ohm");
-  memcpy(cfg->userdata, (void *)&SENSORS::cfg.mq135_r0, sizeof(double));
+  memcpy(s->userdata, (void *)&SENSORS::cfg.mq135_r0, sizeof(double));
   LOG("[MQ-135] ADC initialized on %d", MQ135PIN);
 }
 
-void destroy_mq135_adc(sensor_t *cfg){
+void destroy_mq135_adc(sensor_r_t *s){
   // free userdata
-  if(cfg->userdata != NULL){
-    free(cfg->userdata);
-    cfg->userdata = NULL;
+  if(s->userdata != NULL){
+    free(s->userdata);
+    s->userdata = NULL;
   }
 }
 
@@ -185,7 +185,7 @@ void destroy_mq135_adc(sensor_t *cfg){
 #define APDS9930_I2C_ADDRESS 0x39 // default I2C address for APDS-9930
 Adafruit_APDS9930 apds(APDS9930_I2C_ADDRESS);
 uint16_t apds_r = 0, apds_g = 0, apds_b = 0, apds_c = 0;
-double fetch_apds_illuminance(sensor_t *cfg){
+double fetch_apds_illuminance(sensor_r_t *s){
   // fetch APDS-9930 illuminance (lux)
   float lux = 0;
   apds.getLux(&lux);
@@ -193,7 +193,7 @@ double fetch_apds_illuminance(sensor_t *cfg){
   return (double)lux;
 }
 
-double fetch_apds_color(sensor_t *cfg){
+double fetch_apds_color(sensor_r_t *s){
   // fetch APDS-9930 color (returns C, but logs R,G,B,C)
   apds.getRGB(&apds_r, &apds_g, &apds_b, &apds_c);
   LOG("[APDS-9930] RGB: %d,%d,%d,%d", apds_r, apds_g, apds_b, apds_c);
@@ -201,7 +201,7 @@ double fetch_apds_color(sensor_t *cfg){
   return (double)apds_c;
 }
 
-void init_apds9930(sensor_t *cfg){
+void init_apds9930(sensor_r_t *s){
   if(!apds.begin()) {
     LOG("[APDS-9930] not found");
     return;
@@ -216,7 +216,7 @@ void init_apds9930(sensor_t *cfg){
 #ifdef SUPPORT_S8
 S8_UART *sensor_S8 = NULL;
 S8_sensor sensor;
-void init_s8(sensor_t *cfg) {
+void init_s8(sensor_r_t *s) {
   LOG("[S8] Initializing SenseAir S8 NDIR CO2 sensor");
   Serial1.begin(S8_BAUDRATE, SERIAL_8N1, 1, 0);
   sensor_S8 = new S8_UART(Serial1);
@@ -228,7 +228,7 @@ void init_s8(sensor_t *cfg) {
     LOG("[S8] CO2 sensor not found!");
     delete sensor_S8;
     sensor_S8 = NULL;
-    cfg->enabled = 0; // Disable in config
+    s->cfg->enabled = 0; // Disable in config
     return;
   }
 
@@ -282,7 +282,7 @@ void init_s8(sensor_t *cfg) {
   return;
 }
 
-double fetch_s8_co2(sensor_t *cfg){
+double fetch_s8_co2(sensor_r_t *s){
   // Fetch CO2 value from S8 sensor
   if(sensor_S8 == NULL) {
     LOG("[S8] sensor not initialized");
@@ -296,7 +296,7 @@ double fetch_s8_co2(sensor_t *cfg){
 #endif // SUPPORT_S8
 
 #ifdef SUPPORT_SE95
-void init_se95(sensor_t *cfg) {
+void init_se95(sensor_r_t *s) {
   // Initialize SE95 temperature sensor
   Wire.begin();
   #if defined(ARDUINO_ARCH_ESP32) || defined(ARDUINO_ARCH_ESP8266)
@@ -305,7 +305,7 @@ void init_se95(sensor_t *cfg) {
   // Fetch temperature from SE95 sensor
   Wire.beginTransmission(SE95_I2C_ADDRESS);
   if(Wire.endTransmission() != ESP_OK){
-      cfg->enabled = 0 ; // Disable in config
+      s->cfg->enabled = 0 ; // Disable in config
     LOG("[SE95] sensor not found");
     return;
   }
@@ -313,7 +313,7 @@ void init_se95(sensor_t *cfg) {
   return;
 }
 
-double fetch_se95_temperature(sensor_t *cfg) {
+double fetch_se95_temperature(sensor_r_t *s) {
   Wire.beginTransmission(SE95_I2C_ADDRESS);
   Wire.write(SE95_TEMPERATURE);
   Wire.endTransmission();
@@ -350,14 +350,7 @@ double fetch_se95_temperature(sensor_t *cfg) {
 }
 #endif // SUPPORT_SE95
 
-/* main config */
-sensors_cfg_t cfg = {
-  .kvmkey    = "unknown",
-  .log_uart  = 0,
-  #ifdef SUPPORT_MQ135
-  .mq135_r0  = 10000.0, // default R0 for MQ-135
-  #endif // SUPPORT_MQ135
-  .sensors = {
+sensor_r_t all_sensors[NR_OF_SENSORS] = {
     #ifdef SUPPORT_DHT11
     {
       .name = "DHT11 Humidity",
@@ -445,7 +438,6 @@ sensors_cfg_t cfg = {
     #else
     {},
     #endif // SUPPORT_SE95
-  },
 };
 
 NOINLINE
@@ -469,16 +461,18 @@ void setup(){
 
   // sensors config check for interval, when 0, assume 1000ms
   for(int i = 0; i < NR_OF_SENSORS; i++){
-    sensor_t *s = &SENSORS::cfg.sensors[i];
-    if(s->v_intv == 0)
-      s->v_intv = 1000;
-    if(s->v_intv < 100)
-      s->v_intv = 100;
-  }
+    sensor_r_t *s = &SENSORS::all_sensors[i];
 
-  // setup sensors
-  for(int i = 0; i < NR_OF_SENSORS; i++){
-    sensor_t *s = &SENSORS::cfg.sensors[i];
+    // at runtime, link cfg to sensor
+    s->cfg = &SENSORS::cfg.sensor_cfg[i];
+
+    // set default interval if 0 or too low
+    if(s->cfg->v_intv == 0)
+      s->cfg->v_intv = 1000;
+    if(s->cfg->v_intv < 100)
+      s->cfg->v_intv = 100;
+
+    // call init function
     if(s->init_function != NULL){
       // call function
       s->init_function(s);
@@ -490,8 +484,8 @@ void setup(){
   // config log on UART when VERBOSE=1
   DO_VERBOSE(
     for(int i = 0; i < NR_OF_SENSORS; i++){
-      sensor_t *s = &SENSORS::cfg.sensors[i];
-      LOG("[SENSORS] Sensor %s log interval (ms): %lu", s->name, s->v_intv);
+      sensor_r_t *s = &SENSORS::all_sensors[i];
+      LOG("[SENSORS] Sensor %s log interval (ms): %lu", s->name, s->cfg->v_intv);
       if(s->value_function == NULL)
         LOG("[SENSORS] Sensor index %d Sensor name %s not configured, skipping", i, s->name);
     }
@@ -503,24 +497,25 @@ NOINLINE
 void sensors_loop(){
   // loop through sensors and call pre function
   for(int i = 0; i < NR_OF_SENSORS; i++){
-    sensor_t *s = &SENSORS::cfg.sensors[i];
-    if(s->enabled == 0)
+    sensor_r_t *s = &SENSORS::all_sensors[i];
+    if(s->cfg->enabled == 0)
       continue;
     doYIELD;
     if(s->pre_function == NULL)
       continue;
+    LOGFLUSH();
     s->pre_function(s);
   }
 
   // loop through sensors and check if we need to fetch & log
   for(int i = 0; i < NR_OF_SENSORS; i++){
-    sensor_t *s = &SENSORS::cfg.sensors[i];
-    if(s->enabled == 0)
+    sensor_r_t *s = &SENSORS::all_sensors[i];
+    if(s->cfg->enabled == 0)
       continue;
     doYIELD;
     if(s->value_function == NULL)
       continue;
-    if(millis() - l_intv_counters[i] > s->v_intv){
+    if(millis() - l_intv_counters[i] > s->cfg->v_intv){
       double current_v = s->value_function(s);
       memset((char*)s->out_buf, 0, sizeof(s->out_buf));
       int h_strl = snprintf((char *)s->out_buf, sizeof(s->out_buf), s->unit_fmt, SENSORS::cfg.kvmkey, s->key, current_v);
@@ -552,8 +547,8 @@ void sensors_loop(){
 
   // loop through sensors and call post function
   for(int i = 0; i < NR_OF_SENSORS; i++){
-    sensor_t *s = &SENSORS::cfg.sensors[i];
-    if(s->enabled == 0)
+    sensor_r_t *s = &SENSORS::all_sensors[i];
+    if(s->cfg->enabled == 0)
       continue;
     doYIELD;
     if(s->post_function == NULL)
@@ -579,7 +574,7 @@ NOINLINE
 const char* at_cmd_handler_sensor(const char *at_cmd, unsigned short at_len){
     const char *p = NULL;
     for (int i = 0; i < NR_OF_SENSORS; i++) {
-        sensor_t *s = &SENSORS::cfg.sensors[i];
+        sensor_r_t *s = &SENSORS::all_sensors[i];
         if (p = at_cmd_check("AT+ENABLE_", at_cmd, at_len)) {
             // move pointer past "AT+ENABLE_"
             p += strlen("AT+ENABLE_");
@@ -594,7 +589,7 @@ const char* at_cmd_handler_sensor(const char *at_cmd, unsigned short at_len){
             p += strlen(s->key);
             if(*p == '?') {
                 // query enable status
-                return AT_R_INT(s->enabled);
+                return AT_R_INT(s->cfg->enabled);
             }
             if(*p != '=') {
                 // error handle
@@ -606,7 +601,7 @@ const char* at_cmd_handler_sensor(const char *at_cmd, unsigned short at_len){
             if (val != 0 && val != 1) {
                 return AT_R("+ERROR: Enable must be 0 or 1");
             }
-            s->enabled = val;
+            s->cfg->enabled = val;
             CFG_SAVE();
             return AT_R_OK;
         } else if (p = at_cmd_check("AT+LOG_INTERVAL_", at_cmd, at_len)){
@@ -622,7 +617,7 @@ const char* at_cmd_handler_sensor(const char *at_cmd, unsigned short at_len){
             p += strlen(s->key);
             if(*p == '?') {
                 // query enable status
-                return AT_R_INT(s->v_intv);
+                return AT_R_INT(s->cfg->v_intv);
             }
             if(*p != '=') {
                 // error handle
@@ -634,7 +629,7 @@ const char* at_cmd_handler_sensor(const char *at_cmd, unsigned short at_len){
             if(new_interval < 100){
               return AT_R("+ERROR: Log interval must be at least 100ms");
             }
-            s->v_intv = new_interval;
+            s->cfg->v_intv = new_interval;
             CFG_SAVE();
             return AT_R_OK;
         } else if (p = at_cmd_check("AT+VALUE_", at_cmd, at_len)){
@@ -708,23 +703,23 @@ long max_sleep_time(){
   long cur_time = millis();
   long min_time = LONG_MAX;
   for(int i = 0; i < NR_OF_SENSORS; i++){
-    sensor_t *s = &SENSORS::cfg.sensors[i];
-    D("[SENSORS] Sensor %s enabled: %d, interval: %lu ms, last run: %lu ms", s->key, s->enabled, s->v_intv, l_intv_counters[i]);
-    if(s->enabled == 0)
+    sensor_r_t *s = &SENSORS::all_sensors[i];
+    D("[SENSORS] Sensor %s enabled: %d, interval: %lu ms, last run: %lu ms", s->key, s->cfg->enabled, s->cfg->v_intv, l_intv_counters[i]);
+    if(s->cfg->enabled == 0)
       continue;
-    if(s->v_intv == 0)
+    if(s->cfg->v_intv == 0)
       continue;
     if(s->value_function == NULL)
       continue;
     if(l_intv_counters[i] == 0){
-      if(s->v_intv < min_time)
-        min_time = s->v_intv;
+      if(s->cfg->v_intv < min_time)
+        min_time = s->cfg->v_intv;
     } else {
       unsigned long time_since_last = cur_time - l_intv_counters[i];
-      if(time_since_last >= s->v_intv)
+      if(time_since_last >= s->cfg->v_intv)
         // sensor is due now, return 0
         return 0;
-      unsigned long time_to_next = s->v_intv - time_since_last;
+      unsigned long time_to_next = s->cfg->v_intv - time_since_last;
       D("[SENSORS] Sensor %s time to next: %lu ms", s->key, time_to_next);
       // check if this is the minimum time
       if(time_to_next < min_time)
