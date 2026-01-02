@@ -449,14 +449,23 @@ sensors_cfg_t cfg = {
 };
 
 NOINLINE
-void sensors_setup(){
+void initialize(){
+
+  // sensors setup
+  setup();
+
+  // sensors timer init on first boot, as initialize() is only called once
+  // the l_intv_counters is on RTC and will keep its value over deep sleep
+  // cycles for correct interval timing
+  for(int i = 0; i < NR_OF_SENSORS; i++)
+    l_intv_counters[i] = millis();
+}
+
+NOINLINE
+void setup(){
 
   // load config
   CFG_INIT();
-
-  // sensors timer init on first boot
-  for(int i = 0; i < NR_OF_SENSORS; i++)
-    l_intv_counters[i] = millis();
 
   // sensors config check for interval, when 0, assume 1000ms
   for(int i = 0; i < NR_OF_SENSORS; i++){
@@ -674,6 +683,7 @@ long max_sleep_time(){
   long min_time = LONG_MAX;
   for(int i = 0; i < NR_OF_SENSORS; i++){
     sensor_t *s = &SENSORS::cfg.sensors[i];
+    LOG("[SENSORS] Sensor %s enabled: %d, interval: %lu ms, last run: %lu ms", s->key, s->enabled, s->v_intv, l_intv_counters[i]);
     if(s->enabled == 0)
       continue;
     if(s->v_intv == 0)
@@ -689,6 +699,7 @@ long max_sleep_time(){
         // sensor is due now, return 0
         return 0;
       unsigned long time_to_next = s->v_intv - time_since_last;
+      LOG("[SENSORS] Sensor %s time to next: %lu ms", s->key, time_to_next);
       // check if this is the minimum time
       if(time_to_next < min_time)
         min_time = time_to_next;
@@ -708,7 +719,11 @@ namespace PLUGINS {
     }
     NOINLINE
     void setup(){
-        SENSORS::sensors_setup();
+        SENSORS::setup();
+    }
+    NOINLINE
+    void initialize(){
+        SENSORS::initialize();
     }
     NOINLINE
     void loop_pre(){
