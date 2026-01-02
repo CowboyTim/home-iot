@@ -4698,8 +4698,10 @@ void handle_ble_command() {
     // Check if the command starts with "AT"
     if(cmd_len >= 2 && strncmp(ble_cmd_buffer, "AT", 2) == 0) {
       // Handle AT command
+      D("[BLE] Handling AT command: '%s'", ble_cmd_buffer);
       ble_send_response(at_cmd_handler(ble_cmd_buffer));
     } else {
+      D("[BLE] Invalid command received: '%s'", ble_cmd_buffer);
       ble_send_response((const char*)("+ERROR: invalid command"));
     }
 
@@ -4726,6 +4728,11 @@ void ble_send_response(const char *response) {
   ok &= ble_send_n((const uint8_t *)("\r\n"), 2);
   if(!ok) {
     LOG("[BLE] Failed to send response, not connected anymore");
+  } else {
+    LOG("[BLE] Response sent successfully: %d bytes", strlen(response) + 2);
+    #ifdef DEBUG
+    D("[BLE] Response sent: '%s'", response);
+    #endif // DEBUG
   }
 }
 
@@ -4762,7 +4769,9 @@ uint8_t ble_send_n(const uint8_t *bstr, size_t len) {
     size_t o = 0;
     size_t cs = 0;
     while (o < len && deviceConnected == 1) {
+      // yield to other tasks
       doYIELD;
+
       // multitasking, can unset deviceConnected or pTxCharacteristic
       // double check after doYIELD
       if(pTxCharacteristic == NULL) {
@@ -4782,11 +4791,11 @@ uint8_t ble_send_n(const uint8_t *bstr, size_t len) {
         break;
       }
       #ifdef DEBUG
-      T(""); R("[BLE] NOTIFY #%04d, len:%04d, chunk:%04d, sent:%04d, data: ", snr, len, cs, o);
+      T(""); R("[BLE] NOTIFY #%04d, len:%04d, chunk:%04d, sent:%04d, data: >>\n", snr, len, cs, o);
       for(uint16_t i = 0; i < cs; i++) {
         R("%c", (unsigned char)bstr[o + i]);
       }
-      R("\n");
+      R("<<\n");
       #endif // DEBUG
 
       // let's use ble_gatts_notify_custom() directly to get the proper error code
@@ -4795,10 +4804,16 @@ uint8_t ble_send_n(const uint8_t *bstr, size_t len) {
         conn_handle = z.first;
         break;
       }
+      if(!conn_handle) {
+        LOG("[BLE] Stopped sending, no valid connection handle");
+        break;
+      }
       uint8_t nr_retries = 0;
+      os_mbuf *ble_out_msg = NULL;
       REDO_SEND: {
+        D("[BLE] NOTIFY attempt: a:%d, l:%d, chunk:%d, retry:%d", snr, len, cs, nr_retries);
         // create m_buf in each loop iteration to avoid memory leak, it gets consumed with each call
-        os_mbuf *ble_out_msg = ble_hs_mbuf_from_flat((uint8_t *)(bstr + o), cs);
+        ble_out_msg = ble_hs_mbuf_from_flat((uint8_t *)(bstr + o), cs);
         if(ble_out_msg == NULL) {
           D("[BLE] notify failed, cannot allocate memory for %d bytes", cs);
           delayMicroseconds(100);
@@ -4809,9 +4824,14 @@ uint8_t ble_send_n(const uint8_t *bstr, size_t len) {
           }
           goto REDO_SEND;
         }
+        D("[BLE] notifying: a:%d, l:%d, chunk:%d", snr, len, cs);
         esp_err_t err = ble_gatts_notify_custom(conn_handle, pTxCharacteristic->getHandle(), ble_out_msg);
         if(err != ESP_OK) {
           D("[BLE] notify failed with error: a:%d, l:%d, c:%d, e:%d, %s", snr, inlen, cs, err, err == 6 ? "ENOMEM": "UNKNOWN");
+
+          // destroy m_buf after use to avoid memory leak
+          os_mbuf_free_chain(ble_out_msg);
+          ble_out_msg = NULL;
 
           // doYIELD for other things, we're in a GOTO loop
           doYIELD;
@@ -4829,16 +4849,24 @@ uint8_t ble_send_n(const uint8_t *bstr, size_t len) {
             break;
           }
           goto REDO_SEND;
+        } else {
+          D("[BLE] notify sent successfully: a:%d, l:%d, chunk:%d", snr, len, cs);
         }
+
+        // success, ble_out_msg is consumed, yield
+        doYIELD;
       }
+      ble_out_msg = NULL;
 
       // advance
       o += cs;
     }
     if(o < len) {
+      doYIELD;
       LOG("[BLE] Stopped sending, not connected anymore, sent %d of %d bytes", o, len);
       return 0;
     } else {
+      doYIELD;
       D("[BLE] Sending complete, total %d bytes sent", o);
       return 1;
     }
