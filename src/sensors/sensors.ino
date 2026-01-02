@@ -637,6 +637,30 @@ const char* at_cmd_handler_sensor(const char *at_cmd, unsigned short at_len){
             s->v_intv = new_interval;
             CFG_SAVE();
             return AT_R_OK;
+        } else if (p = at_cmd_check("AT+VALUE_", at_cmd, at_len)){
+            // move pointer past "AT+VALUE_"
+            p += strlen("AT+VALUE_");
+            // AT+VALUE_<sensor>?
+            // match sensor?
+            if(strncasecmp(s->key, p, strlen(s->key)) != 0)
+                continue; // not matching sensor key
+            if(s->value_function == NULL)
+                return AT_R("+ERROR: Sensor not supported in this build");
+            // move pointer to the ? part
+            p += strlen(s->key);
+            if(*p != '?') {
+                // error handle
+                return AT_R("+ERROR: Value command must end with ?");
+            }
+            // Call pre function if available
+            if(s->pre_function != NULL)
+                s->pre_function(s);
+            // fetch current sensor value
+            double current_value = s->value_function(s);
+            // Call post function if available
+            if(s->post_function != NULL)
+                s->post_function(s);
+            return AT_R_DOUBLE(current_value);
         } else {
             continue; // continue to next sensor
         }
@@ -670,6 +694,8 @@ const char* at_cmd_handler_sensors(const char* atcmdline){
   } else if(p = at_cmd_check("AT+LOG_INTERVAL_", atcmdline, cmd_len)){
     return at_cmd_handler_sensor(atcmdline, cmd_len);
   } else if(p = at_cmd_check("AT+ENABLE_", atcmdline, cmd_len)){
+    return at_cmd_handler_sensor(atcmdline, cmd_len);
+  } else if(p = at_cmd_check("AT+VALUE_", atcmdline, cmd_len)){
     return at_cmd_handler_sensor(atcmdline, cmd_len);
   }
   return AT_R("+ERROR: unknown command");
@@ -760,6 +786,8 @@ Sensor Commands:
   AT+ENABLE_<sensor>=<0|1>      - Enable/disable sensor (1=enable, 0=disable)
   AT+ENABLE_<sensor>?           - Get sensor enable status
   AT+LOG_INTERVAL_<sensor>=<ms> - Set sensor logging interval (minimum 100ms)
+  AT+LOG_INTERVAL_<sensor>?     - Get sensor logging interval
+  AT+VALUE_<sensor>?            - Get current sensor value
 
 Available sensors:
 )EOF"
@@ -806,6 +834,7 @@ Available sensors:
 Examples:
   AT+ENABLE_HUMIDITY=1          - Enable DHT11 humidity sensor
   AT+LOG_INTERVAL_TEMPERATURE=5000 - Set temperature logging to 5 seconds
+  AT+VALUE_TEMPERATURE?         - Get current temperature reading
   AT+KVMKEY=livingroom          - Set location to "livingroom"
 )EOF";
     }
