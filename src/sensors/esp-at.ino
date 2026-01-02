@@ -6887,9 +6887,35 @@ void do_sleep(const unsigned long sleep_ms) {
       return; // successfully slept
   #endif // LOOP_DELAY_NO_LIGHT_SLEEP
 
+  uint32_t c_cpu_f = getCpuFrequencyMhz();
   LOG("[SLEEP] Falling back to regular sleep for %d ms", sleep_ms);
   unsigned long start = millis();
-  delay(sleep_ms);
+  do {
+    // We have data in input buffer, break out of sleep
+    if(inlen > 0)
+      break;
+
+    // If button state changed, break out of sleep early
+    #if defined(SUPPORT_BLE_UART1) || defined(BLUETOOTH_UART_AT)
+    if((ble_advertising_start != 0 && deviceConnected == 0) || deviceConnected == 1) {
+      if(deviceConnected == 1) {
+        LOOP_D("[SLEEP] Wake up early due to button BLE:%d, inbuf:%d, %d ms, connected:%d", ble_advertising_start, inlen, sleep_ms - (millis() - start), deviceConnected);
+      } else {
+        D("[SLEEP] Wake up early due to button BLE:%d, inbuf:%d, %d ms, connected:%d", ble_advertising_start, inlen, sleep_ms - (millis() - start), deviceConnected);
+      }
+      break;
+    }
+    #endif
+
+    // Sleep in small increments to allow wake-up, at low CPU freq
+    setCpuFrequencyMhz(10);
+    delayMicroseconds(100);
+    setCpuFrequencyMhz(c_cpu_f);
+
+    // Yield to allow background tasks to run
+    doYIELD;
+  } while (millis() - start < sleep_ms);
+
   LOG("[SLEEP] Slept for %d ms (requested %d ms)", millis() - start, sleep_ms);
 
   // Final yield
