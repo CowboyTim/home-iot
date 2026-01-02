@@ -649,7 +649,7 @@ void setup_wifi() {
 
   WiFi.mode(WIFI_MODE_STA);
   WiFi.setAutoReconnect(true);
-  WiFi.setSleep(true);
+  WiFi.setSleep(false);
   if(cfg.hostname) {
     WiFi.setHostname(cfg.hostname);
   } else {
@@ -2001,7 +2001,7 @@ void out_socket_udp(FD &fd, int16_t port, const char* ip) {
   if(fd != -1)
     return;
 
-  // Setup sending socket, no need to bind, we just prepare sa6/sa4/sa
+  // Setup sending socket, no need to bind, we just prepare sa6/sa4/sa for sendto()
   LOG("[UDP_SEND] setting up UDP sending to: %s:%hu", ip, port);
   if(is_ipv6_addr(ip)) {
     // IPv6
@@ -2068,7 +2068,7 @@ void close_udp_socket(FD &fd, const char* tag) {
 
   // close()
   FD fd_orig = fd;
-  if (errno != 0) {
+  if(errno != 0) {
     LOGE("%s closing UDP socket fd:%d, as we got an error", tag, fd);
   } else {
     LOG("%s closing UDP socket fd:%d", tag, fd);
