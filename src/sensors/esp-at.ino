@@ -84,10 +84,6 @@
 #endif
 uint8_t current_button = BUTTON_BUILTIN;
 
-#ifndef LOOP_DELAY
-#define LOOP_DELAY
-#endif // LOOP_DELAY
-
 #ifndef DEFAULT_HOSTNAME
 #define DEFAULT_HOSTNAME "uart"
 #endif // DEFAULT_HOSTNAME
@@ -686,9 +682,8 @@ void setup_wifi() {
   // Lower power to save battery and reduce interference, mostly reflections
   // due to bad antenna design?
   // See https://forum.arduino.cc/t/no-wifi-connect-with-esp32-c3-super-mini/1324046/12
-  // See https://roryhay.es/blog/esp32-c3-super-mini-flaw
-  //WiFi.setTxPower(WIFI_POWER_19_5dBm);
   WiFi.setTxPower(WIFI_POWER_8_5dBm);
+  WiFi.setTxPower(WIFI_POWER_19_5dBm);
   // Get Tx power, map the enum properly
   uint8_t txp = WiFi.getTxPower();
   switch(txp) {
@@ -6026,12 +6021,15 @@ void setup_button() {
   #ifdef USE_BUTTON
   current_button = USE_BUTTON;
   #else
-  if(cfg.main_loop_delay == 0){
-    current_button = BUTTON_BUILTIN;
-  } else {
-    current_button = GPIO_NUM_3;
-  }
-  #endif // USE_BUTTON
+  #ifdef LOOP_DELAY
+  // LOOP_DELAY is defined, we cant use GPIO_NUM_9 (builtin button) as it
+  // is not supported as a wakeup source on ESP32c3/ESP32s3 with light sleep
+  // so we pick a different pin, GPIO3
+  current_button = GPIO_NUM_3;
+  #else
+  current_button = BUTTON_BUILTIN;
+  #endif
+  #endif
   pinMode(current_button, INPUT_PULLUP);
   LOG("[BUTTON] Pin %d configured as INPUT_PULLUP", current_button);
 }
