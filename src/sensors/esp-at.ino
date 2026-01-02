@@ -571,8 +571,13 @@ void setup_wifi() {
     return;
   }
 
+  // set persistence off
   WiFi.persistent(false);
-  WiFi.disconnect();
+  // disconnect of still connected
+  if(WiFi.status() == WL_CONNECTED || WiFi.status() == WL_IDLE_STATUS)
+    WiFi.disconnect();
+
+  // start WiFi in STA mode
   LOG("[WiFi] setting WiFi mode to STA");
   WiFi.mode(WIFI_MODE_STA);
   LOG("[WiFi] adding event handler");
@@ -722,8 +727,16 @@ void setup_wifi() {
   // lower the WiFi power save mode if enabled
   if(cfg.wifi_enabled == 1) {
     esp_err_t err = esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
-    if(err != ESP_OK)
-      LOGE("[WiFi] esp_wifi_set_ps() failed: %s", esp_err_to_name(err));
+    if(err != ESP_OK) {
+      LOG("[WiFi] WiFi power save mode set failed: %s", esp_err_to_name(err));
+    } else {
+      LOG("[WiFi] WiFi power save mode set to MIN_MODEM");
+    }
+  }
+
+  // Wait for connection result
+  if(cfg.wifi_enabled == 1) {
+    WiFi.waitForConnectResult();
   }
 
   // setup NTP sync if needed
@@ -2110,7 +2123,6 @@ int send_udp_data(FD &fd, const uint8_t* data, size_t len, char *d_ip, uint16_t 
     D("%s send returned 0 bytes, no data sent", tag);
     return 0;
   } else {
-    vTaskDelay(pdMS_TO_TICKS(1000));
     D("%s send_udp_data len: %d, sent: %d", tag, len, n);
   }
   doYIELD;
@@ -5192,6 +5204,22 @@ void on_wifi_start(){
   #endif // SUPPORT_NTP
 }
 
+NOINLINE
+void wifi_start(){
+  if(cfg.wifi_enabled == 0) {
+    LOG("[WiFi] WiFi is disabled in config, not connecting");
+    return;
+  }
+  if(strlen((char*)cfg.wifi_ssid) == 0) {
+    LOG("[WiFi] No SSID configured, cannot connect");
+    return;
+  }
+  LOG("[WiFi] STA started, connecting to %s", cfg.wifi_ssid);
+  esp_err_t err = esp_wifi_connect();
+  if (err != ESP_OK)
+    LOG("[WiFi] Failed to initiate connection: %s", esp_err_to_name(err));
+}
+
 void WiFiEvent(WiFiEvent_t event) {
   doYIELD;
   switch(event) {
@@ -5200,18 +5228,7 @@ void WiFiEvent(WiFiEvent_t event) {
           break;
       }
       case ARDUINO_EVENT_WIFI_STA_START: {
-          if(cfg.wifi_enabled == 0) {
-            LOG("[WiFi] WiFi is disabled in config, not connecting");
-            break;
-          }
-          if(strlen((char*)cfg.wifi_ssid) == 0) {
-            LOG("[WiFi] No SSID configured, cannot connect");
-            break;
-          }
-          LOG("[WiFi] STA started, connecting to %s", cfg.wifi_ssid);
-          esp_err_t err = esp_wifi_connect();
-          if (err != ESP_OK)
-            LOG("[WiFi] Failed to initiate connection: %s", esp_err_to_name(err));
+          wifi_start();
           break;
       }
       case ARDUINO_EVENT_WIFI_STA_STOP: {
@@ -6001,7 +6018,7 @@ void do_setup() {
 
   // setup WiFi with ssid/pass if set
   #ifdef SUPPORT_WIFI
-  start_networking();
+  setup_wifi();
   #endif // SUPPORT_WIFI
 
   #ifdef SUPPORT_UART1
@@ -6055,8 +6072,7 @@ void do_wifi_check() {
       // not connected, try to reconnect
       if(last_wifi_reconnect == 0 || millis() - last_wifi_reconnect > WIFI_RECONNECT_INTERVAL) {
         last_wifi_reconnect = millis();
-        LOG("[WiFi] Not connected, attempting to reconnect, status: %d", WiFi.status());
-        reset_networking();
+        LOG("[WiFi] Not connected, should reconnect to %s, status: %d", cfg.wifi_ssid, WiFi.status());
       }
     } else {
       // connected
@@ -6353,9 +6369,6 @@ void do_udp_check() {
   if(inlen > 0) {
     // in/out UDP socket send 
     if (udp_sock != -1){
-      // wait for wifi connection
-      wait_for_wifi_connection("[UDP] ", udp_sock);
-
       // send data
       int sent = send_udp_data(udp_sock, (const uint8_t*)inbuf, inlen, cfg.udp_host_ip, cfg.udp_port, "[UDP]");
       if (sent > 0) {
@@ -6373,9 +6386,6 @@ void do_udp_check() {
 
     // out UDP socket send
     if (udp_out_sock != -1){
-      // wait for wifi connection
-      wait_for_wifi_connection("[UDP_SEND] ", udp_out_sock);
-
       // send data
       int sent = send_udp_data(udp_out_sock, (const uint8_t*)inbuf, inlen, cfg.udp_send_ip, cfg.udp_send_port, "[UDP_SEND]");
       if (sent > 0) {
@@ -6629,6 +6639,8 @@ void check_wakeup_reason() {
 }
 
 #ifdef LOOP_DELAY
+#define USE_LIGHT_SLEEP 0
+#undef SUPPORT_DEEP_SLEEP
 RTC_DATA_ATTR uint8_t sleepy_is_setup = 1;
 RTC_DATA_ATTR unsigned long sleep_duration = 0;
 
@@ -6711,9 +6723,9 @@ uint8_t super_sleepy(const unsigned long sleep_ms) {
   }
   #endif // BT_BLE
 
-  /*
   #ifdef SUPPORT_WIFI
   if(cfg.wifi_enabled && strlen(cfg.wifi_ssid) != 0) {
+  /*
     // stop network connections
     stop_network_connections();
 
@@ -6728,14 +6740,26 @@ uint8_t super_sleepy(const unsigned long sleep_ms) {
         LOG("[SLEEP] WiFi stopped from mode %d", current_mode);
       }
     }
+  */
+    LOG("[SLEEP] Waiting for WiFi to be ready before sleep");
+    WiFi.waitForConnectResult();
   }
   #endif // SUPPORT_WIFI
-  */
 
   // Enable wakeup from UART, WiFi activity, and BUTTON
+  uint8_t was_error = 0;
   sleep_duration = millis();
   LOGFLUSH();
-  if(1){
+  #ifdef SUPPORT_DEEP_SLEEP
+  D("[SLEEP] Enabling deep sleep for %d ms", sleep_ms);
+  LOGFLUSH();
+  esp_deep_sleep_start();
+  D("[SLEEP] Deep sleep failed, falling back to light sleep");
+  // when we reach here, deep sleep failed and we continue to light sleep
+  // when deep sleep is successful, the device resets on wakeup, and this
+  // never gets reached
+  #endif // SUPPORT_DEEP_SLEEP
+  if(USE_LIGHT_SLEEP) {
     D("[SLEEP] Enabling light sleep for %d ms", sleep_ms);
     LOGFLUSH();
     err = esp_light_sleep_start();
@@ -6744,21 +6768,29 @@ uint8_t super_sleepy(const unsigned long sleep_ms) {
       // A failure can be e.g. the button is still being pressed, in such
       // a case, we exit the sleep correctly, not failure to introduce
       // a delay() sleep
+      was_error = 1;
     } else {
+      // successful sleep, check duration
       sleep_duration = millis() - sleep_duration;
       check_wakeup_reason();
     }
   } else {
-    D("[SLEEP] Enabling deep sleep for %d ms", sleep_ms);
+    D("[SLEEP] Enabling regular sleep for %d ms", sleep_ms);
     LOGFLUSH();
-    esp_deep_sleep_start();
+    delay(sleep_ms);
   }
 
   // Re-enable WiFi and BT controller after wakeup
-  /*
   #ifdef SUPPORT_WIFI
-  if(cfg.wifi_enabled && strlen(cfg.wifi_ssid) != 0) {
+  if(cfg.wifi_enabled && strlen(cfg.wifi_ssid) != 0 && was_error == 0) {
     LOG("[SLEEP] Re-enabling WiFi after wakeup");
+    err = esp_wifi_connect();
+    if(err != ESP_OK && err != ESP_ERR_WIFI_NOT_STARTED) {
+      LOG("[SLEEP] Failed to start WiFi: %s", esp_err_to_name(err));
+    }
+    LOG("[SLEEP] Waiting for WiFi to be ready");
+    WiFi.waitForConnectResult();
+  /*
     err = esp_wifi_start();
     if(err != ESP_OK && err != ESP_ERR_WIFI_NOT_STARTED) {
       LOG("[SLEEP] Failed to start WiFi: %s", esp_err_to_name(err));
@@ -6779,9 +6811,9 @@ uint8_t super_sleepy(const unsigned long sleep_ms) {
     } else {
       LOG("[SLEEP] WiFi not connected after wakeup, status: %d", WiFi.status());
     }
+  */
   }
   #endif // SUPPORT_WIFI
-  */
 
   // Re-enable BT controller
   #ifdef BT_BLE
@@ -6894,6 +6926,8 @@ void do_loop_delay() {
     // check if we have an IP address, ipv4 or ipv6
     if(!have_ip_address(false))
       return;
+    // log that we are connected and can sleep
+    D("[LOOP] WiFi enabled, configured and connected and IP address assigned, can sleep");
   }
   #endif // SUPPORT_WIFI
 
@@ -7047,8 +7081,17 @@ void setup() {
   // was deep sleep?
   LOG("[SETUP] Boot number: %d", boot_count++);
   if(boot_count > 1){
+    // woke up from deep sleep
     check_wakeup_reason();
+
+    // re-setup after deep sleep
     do_setup();
+
+    // plugins initialize
+    #ifdef SUPPORT_PLUGINS
+    PLUGINS::setup();
+    #endif // SUPPORT_PLUGINS
+
     LOG("[SETUP] Re-setup done after deep sleep");
     return;
   }
@@ -7064,9 +7107,9 @@ void setup() {
   // log the SUPPORT builtin
   log_supported_features();
 
-  // plugins setup
+  // plugins initialize
   #ifdef SUPPORT_PLUGINS
-  PLUGINS::setup();
+  PLUGINS::initialize();
   #endif // SUPPORT_PLUGINS
 
   LOG("[SETUP] Setup done, entering main loop");
@@ -7107,21 +7150,11 @@ void loop() {
         && millis() - ble_advertising_start > BLE_ADVERTISING_TIMEOUT) {
         // stop BLE
         stop_advertising_ble();
-        // start WIFI if enabled
-        #ifdef SUPPORT_WIFI
-        if(cfg.wifi_enabled == 1)
-          esp_wifi_start();
-        #endif
     }
   } else {
     if(ble_advertising_start == 0
         && deviceConnected == 0
         && cfg.ble_uart1_bridge == 1) {
-      // stop WIFI if enabled
-      #ifdef SUPPORT_WIFI
-      if(cfg.wifi_enabled == 1)
-        esp_wifi_stop();
-      #endif
       // start BLE
       start_advertising_ble();
     }
@@ -7140,11 +7173,6 @@ void loop() {
       && millis() - ble_advertising_start > BLE_ADVERTISING_TIMEOUT) {
     // stop BLE
     stop_advertising_ble();
-    // start WIFI if enabled
-    #ifdef SUPPORT_WIFI
-    if(cfg.wifi_enabled == 1)
-      esp_wifi_start();
-    #endif
   }
 
   #endif // SUPPORT_BLE_UART1
@@ -7170,21 +7198,32 @@ void loop() {
   do_uart1_read();
   #endif // SUPPORT_UART1
 
-  #ifdef SUPPORT_UDP
-  do_udp_check();
-  #endif // SUPPORT_UDP
+  // only do UDP/TCP/TLS checks if WiFi connected
+  if(wifi_connected(false)){
+    #ifdef SUPPORT_UDP
+    do_udp_check();
+    #endif // SUPPORT_UDP
 
-  #ifdef SUPPORT_TCP
-  do_tcp_check();
-  #endif // SUPPORT_TCP
+    #ifdef SUPPORT_TCP
+    do_tcp_check();
+    #endif // SUPPORT_TCP
 
-  #ifdef SUPPORT_TLS
-  do_tls_check();
-  #endif // SUPPORT_TLS
+    #ifdef SUPPORT_TLS
+    do_tls_check();
+    #endif // SUPPORT_TLS
 
-  #ifdef SUPPORT_TCP_SERVER
-  do_tcp_server_check();
-  #endif // SUPPORT_TCP_SERVER
+    #ifdef SUPPORT_TCP_SERVER
+    do_tcp_server_check();
+    #endif // SUPPORT_TCP_SERVER
+
+    #if defined(SUPPORT_WIFI) && (defined(SUPPORT_TCP) || defined(SUPPORT_TLS))
+    do_connections_check();
+    #endif // SUPPORT_WIFI && (SUPPORT_TCP || SUPPORT_UDP)
+
+  } else {
+    // in theory, it's even pointless to do other things too, as we can't send data
+    LOOP_D("[LOOP] WiFi not connected, skipping UDP/TCP/TLS checks");
+  }
 
   #ifdef SUPPORT_BLE_UART1
   do_ble_uart1_bridge();
@@ -7197,10 +7236,6 @@ void loop() {
   #ifdef SUPPORT_ESP_LOG_INFO
   do_esp_log();
   #endif // SUPPORT_ESP_LOG_INFO
-
-  #if defined(SUPPORT_WIFI) && (defined(SUPPORT_TCP) || defined(SUPPORT_TLS))
-  do_connections_check();
-  #endif // SUPPORT_WIFI && (SUPPORT_TCP || SUPPORT_UDP)
 
   #ifdef LOGUART
   if(cfg.do_log){
