@@ -104,7 +104,7 @@
  * The esp32c3 is however a single core esp32
  *
  */
-#define doYIELD yield();
+#define doYIELD {vTaskDelay(pdMS_TO_TICKS(0));}
 
 namespace COMMON {
 
