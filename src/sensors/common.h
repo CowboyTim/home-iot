@@ -34,6 +34,7 @@
 #ifndef _COMMON_H
 #define _COMMON_H
 
+// DEBUG means all debug messages, so enable VERBOSE as well
 #ifdef DEBUG
 #define VERBOSE
 #endif // DEBUG
