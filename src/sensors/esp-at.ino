@@ -29,8 +29,6 @@
  * For more information, please refer to <https://unlicense.org>
  */
 
-// Logging setup for esp32c3
-
 #include "esp-at.h"
 #include "common.h"
 #include "plugins.h"
@@ -103,6 +101,10 @@ uint8_t current_button = BUTTON_BUILTIN;
 #include <esp_sntp.h>
 #endif // SUPPORT_NTP
 
+#ifdef SUPPORT_BLE_UART1
+#define SUPPORT_UART1
+#endif // SUPPORT_BLE_UART1
+
 #ifdef SUPPORT_UART1
 #define UART1_RX_PIN 0
 #define UART1_TX_PIN 1
@@ -155,7 +157,7 @@ uint8_t sent_ok = 0;
 #endif
 
 /* Bluetooth support */
-#ifdef BLUETOOTH_UART_AT
+#if defined(BLUETOOTH_UART_AT) || defined(SUPPORT_BLE_UART1)
 
 #define BT_BLE
 
@@ -210,10 +212,6 @@ BluetoothSerial SerialBT;
 ALIGN(4) char atscbt[128] = {""};
 SerialCommands ATScBT(&SerialBT, atscbt, sizeof(atscbt), "\r\n", "\r\n");
 #endif
-
-#if defined(BT_BLE) && defined(SUPPORT_UART1)
-#define SUPPORT_BLE_UART1
-#endif // BT_BLE
 
 /* NTP server to use, can be configured later on via AT commands */
 #ifndef DEFAULT_NTP_SERVER
@@ -337,9 +335,9 @@ typedef struct cfg_t {
   uint8_t ble_addr_auto_random = 1; // Auto-generate random static address if needed
   #endif // BLUETOOTH_UART_AT
 
-  #if defined(SUPPORT_UART1) && defined(BT_BLE)
+  #ifdef SUPPORT_BLE_UART1
   uint8_t ble_uart1_bridge = 0; // 0=disabled, 1=enabled
-  #endif // SUPPORT_UART1 && BT_BLE
+  #endif // SUPPORT_BLE_UART1
 
   #ifdef SUPPORT_GPIO
   // Persistent GPIO config: up to 10 pins
@@ -737,7 +735,8 @@ NOINLINE
 void stop_networking() {
   LOG("[WiFi] Stop networking");
   // first stop WiFi
-  WiFi.disconnect(true);
+  if(WiFi.status() == WL_CONNECTED || WiFi.status() == WL_IDLE_STATUS)
+    WiFi.disconnect(true);
   while(WiFi.status() == WL_CONNECTED) {
     doYIELD;
     LOG("[WiFi] waiting for disconnect, status: %d", WiFi.status());
@@ -2104,9 +2103,11 @@ int send_udp_data(FD &fd, const uint8_t* data, size_t len, char *d_ip, uint16_t 
   if (n == -1) {
     LOGE("%s sendto failed to %s, len:%d, port:%hu on fd:%d", tag, d_ip, len, port, fd);
     close_udp_socket(fd, "[UDP]");
+    doYIELD;
     return -1;
   } else if (n == 0) {
     D("%s send returned 0 bytes, no data sent", tag);
+    doYIELD;
     return 0;
   } else {
     D("%s send_udp_data len: %d, sent: %d", tag, len, n);
@@ -2198,7 +2199,7 @@ void CFG_SAVE() {
 
 NOINLINE
 void CFG_CLEAR() {
-  CFG::CLEAR(CFG_PARTITION);
+  CFG::CLEAR(CFG_PARTITION, CFG_NAMESPACE, CFG_STORAGE);
 }
 
 NOINLINE
@@ -4005,17 +4006,23 @@ const char* at_cmd_handler(const char* atcmdline) {
 
     // Clear PLUGINS config if enabled
     #ifdef SUPPORT_PLUGINS
-    PLUGINS::clear_config();
+    if(PLUGINS::clear_config){
+      LOG("[ERASE] Clearing plugins configuration");
+      PLUGINS::clear_config();
+    }
     #endif // SUPPORT_PLUGINS
 
-    // Clear the config struct in memory
-    memset(&cfg, 0, sizeof(cfg));
-
-    // Reset configuration initialized flag to force reinitialization on next boot
-    cfg.initialized = 0;
-    cfg.version = 0;
+    LOG("[ERASE] Configuration erased, clearing RTC memory");
+    extern char _rtc_bss_start, _rtc_bss_end, _rtc_data_start, _rtc_data_end;
+    // Clear RTC BSS (uninitialized data)
+    memset(&_rtc_bss_start, 0, (&_rtc_bss_end - &_rtc_bss_start));
+    // Clear RTC DATA (initialized data)
+    memset(&_rtc_data_start, 0, (&_rtc_data_end - &_rtc_data_start));
 
     // Restart immediately
+    LOG("[ERASE] Restarting after factory reset");
+    LOGFLUSH();
+    esp_restart();
     resetFunc();
   } else if(p = at_cmd_check("AT+RESET", atcmdline, cmd_len)) {
     resetFunc();
@@ -4033,7 +4040,11 @@ const char* at_cmd_handler(const char* atcmdline) {
     return AT_R_F(AT_short_help_string);
   #ifdef SUPPORT_PLUGINS
   } else if(p = at_cmd_check("AT+PLUGINS?", atcmdline, cmd_len)){
-    return AT_R_F(PLUGINS::at_get_help_string());
+    if(PLUGINS::at_get_help_string){
+      return AT_R_F(PLUGINS::at_get_help_string());
+    } else {
+      return AT_R("+ERROR: No plugins help available");
+    }
   #endif // SUPPORT_PLUGINS
   #ifdef BLUETOOTH_UART_AT
   } else if(p = at_cmd_check("AT+BLE_PIN=", atcmdline, cmd_len)) {
@@ -4189,19 +4200,23 @@ const char* at_cmd_handler(const char* atcmdline) {
   #endif // BLUETOOTH_UART_AT
   } else {
   #ifdef SUPPORT_PLUGINS
-    return PLUGINS::at_cmd_handler(atcmdline);
+    if(PLUGINS::at_cmd_handler){
+      return PLUGINS::at_cmd_handler(atcmdline);
+    } else {
+      return AT_R("+ERROR: unknown command");
+    }
   #else
     return AT_R("+ERROR: unknown command");
   #endif // SUPPORT_PLUGINS
   }
   return AT_R("+ERROR: unknown error");
 }
-#endif // defined(UART_AT) || defined(BLUETOOTH_UART_AT) || defined(BT_CLASSIC)
+#endif
 
 size_t inlen = 0;
 
 // BLE UART Service - Nordic UART Service UUID
-#if (defined(BLUETOOTH_UART_AT) || defined(SUPPORT_BLE_UART1)) && defined(BT_BLE)
+#if defined(BLUETOOTH_UART_AT) || defined(SUPPORT_BLE_UART1)
 
 BLEServer* pServer = NULL;
 BLEService* pService = NULL;
@@ -4356,7 +4371,6 @@ class MyCallbacks: public BLECharacteristicCallbacks {
           // Command terminator found, mark command as ready
           D("[BLE] Command Ready: %d, %d, %s", bleCommandReady, strlen(ble_cmd_buffer), ble_cmd_buffer);
           bleCommandReady = true;
-          handle_ble_command();
           break;
         }
 
@@ -4921,7 +4935,7 @@ void stop_advertising_ble() {
   #endif // SUPPORT_WIFI
   */
 }
-#endif // BT_BLE
+#endif
 
 NOINLINE
 void setup_cfg() {
@@ -5429,7 +5443,7 @@ void log_esp_info() {
   LOG("[ESP] SDK Version: %s", ESP.getSdkVersion());
   LOG("[ESP] Uptime: %lu seconds", millis() / 1000);
 
-  #if defined(BLUETOOTH_UART_AT) && defined(BT_BLE)
+  #if defined(BLUETOOTH_UART_AT) || defined(SUPPORT_BLE_UART)
   log_base_bt_mac();
   #endif
 
@@ -6041,7 +6055,7 @@ void do_setup() {
   #endif
 
   // BlueTooth SPP setup possible?
-  #if defined(BLUETOOTH_UART_AT) && defined(BT_BLE)
+  #if defined(BLUETOOTH_UART_AT) || defined(SUPPORT_BLE_UART1)
   setup_ble();
   // Set BLE UART1 bridge as default if enabled
   #ifdef SUPPORT_BLE_UART1
@@ -6053,7 +6067,7 @@ void do_setup() {
   #endif
   #endif
 
-  #if defined(BLUETOOTH_UART_AT) && defined(BT_CLASSIC)
+  #ifdef BT_CLASSIC
   LOG("[BT] setting up Bluetooth Classic");
   SerialBT.begin(BLUETOOTH_UART_DEVICE_NAME);
   SerialBT.setPin(BLUETOOTH_UART_DEFAULT_PIN);
@@ -6629,9 +6643,8 @@ void do_ble_uart1_bridge() {
 #endif
 
 NOINLINE
-void check_wakeup_reason() {
+void wakeup_reason(esp_sleep_wakeup_cause_t wakup_reason) {
   D("[SLEEP] Checking wakeup reason...");
-  esp_sleep_wakeup_cause_t wakup_reason = esp_sleep_get_wakeup_cause();
   switch(wakup_reason) {
     case ESP_SLEEP_WAKEUP_UART:
       // woke up due to UART
@@ -6774,7 +6787,7 @@ uint8_t super_sleepy(const unsigned long sleep_ms) {
     D("[SLEEP] Timer wakeup enabled for %d ms", sleep_ms);
   }
 
-  #ifdef BT_BLE
+  #if defined(BLUETOOTH_UART_AT) || defined(SUPPORT_BLE_UART1)
   // disable bt controller to save power
   err = esp_bt_controller_disable();
   if(err != ESP_OK) {
@@ -6782,7 +6795,7 @@ uint8_t super_sleepy(const unsigned long sleep_ms) {
   } else {
     D("[SLEEP] BT controller disabled to save power");
   }
-  #endif // BT_BLE
+  #endif
 
   #ifdef SUPPORT_WIFI
   if(cfg.wifi_enabled && strlen(cfg.wifi_ssid) != 0) {
@@ -6833,7 +6846,7 @@ uint8_t super_sleepy(const unsigned long sleep_ms) {
     } else {
       // successful sleep, check duration
       sleep_duration = millis() - sleep_duration;
-      check_wakeup_reason();
+      wakeup_reason(esp_sleep_get_wakeup_cause());
     }
   } else {
     D("[SLEEP] Enabling regular sleep for %d ms", sleep_ms);
@@ -6877,15 +6890,15 @@ uint8_t super_sleepy(const unsigned long sleep_ms) {
   #endif // SUPPORT_WIFI
 
   // Re-enable BT controller
-  #ifdef BT_BLE
+  #if defined(BLUETOOTH_UART_AT) || defined(SUPPORT_BLE_UART1)
   err = esp_bt_controller_enable(ESP_BT_MODE_BLE);
   if(err != ESP_OK) {
     LOG("[SLEEP] Failed to enable BT controller: %s", esp_err_to_name(err));
   } else {
     D("[SLEEP] BT controller re-enabled after wakeup");
   }
-  #endif // BT_BLE
-  
+  #endif
+
   #ifdef SUPPORT_WIFI
   if(cfg.wifi_enabled && strlen(cfg.wifi_ssid) != 0)
     log_wifi_info("[SLEEP]");
@@ -7075,9 +7088,11 @@ void do_loop_delay() {
   }
   #endif // TIMELOG
   #ifdef SUPPORT_PLUGINS
-  long plugin_delay = PLUGINS::max_sleep_time();
-  D("[LOOP] Plugins check, current delay time: %d ms, plugin max sleep: %lu", delay_time, plugin_delay);
-  delay_time = min(delay_time, (long int)plugin_delay);
+  if(PLUGINS::max_sleep_time) {
+    long plugin_delay = PLUGINS::max_sleep_time();
+    D("[LOOP] Plugins check, current delay time: %d ms, plugin max sleep: %lu", delay_time, plugin_delay);
+    delay_time = min(delay_time, (long int)plugin_delay);
+  }
   #endif // SUPPORT_PLUGINS
 
   // add 5ms, so we don't go to sleep for 1,2,.. ms as we woke up too early
@@ -7164,23 +7179,30 @@ void setup() {
   // Serial setup, init at 115200 8N1
   LOGSETUP();
 
+  // check wakeup reason
+  esp_sleep_wakeup_cause_t w_reason = esp_sleep_get_wakeup_cause();
+  esp_reset_reason_t r_reason = esp_reset_reason();
+
   // enable all ESP32 core logging
   #ifdef DEBUG
   esp_log_level_set("*", ESP_LOG_VERBOSE);
   #endif
 
   // was deep sleep?
-  LOG("[SETUP] Boot number: %d", boot_count++);
+  LOG("[SETUP] Boot number: %d, wakeup reason: %d, reset: %d", boot_count++, w_reason, r_reason);
   if(boot_count > 1){
     // woke up from deep sleep
-    check_wakeup_reason();
+    wakeup_reason(w_reason);
 
     // re-setup after deep sleep
     do_setup();
 
-    // plugins initialize
+    // plugins setup
     #ifdef SUPPORT_PLUGINS
-    PLUGINS::setup();
+    if(PLUGINS::setup){
+      LOG("[SETUP] Re-setup plugins after deep sleep");
+      PLUGINS::setup();
+    }
     #endif // SUPPORT_PLUGINS
 
     LOG("[SETUP] Re-setup done after deep sleep");
@@ -7198,9 +7220,19 @@ void setup() {
   // log the SUPPORT builtin
   log_supported_features();
 
+  #ifdef SUPPORT_PLUGINS
+  if(PLUGINS::setup){
+    LOG("[SETUP] Running plugins setup");
+    PLUGINS::setup();
+  }
+  #endif // SUPPORT_PLUGINS
+
   // plugins initialize
   #ifdef SUPPORT_PLUGINS
-  PLUGINS::initialize();
+  if(PLUGINS::initialize){
+    LOG("[SETUP] Initializing plugins");
+    PLUGINS::initialize();
+  }
   #endif // SUPPORT_PLUGINS
 
   LOG("[SETUP] Setup done, entering main loop");
@@ -7230,7 +7262,6 @@ void loop() {
   #endif
 
   #ifdef SUPPORT_BLE_UART1
-
   // Check if BLE advertising should be stopped after timeout
   // Only stop on timeout if no device is connected - once connected,
   // wait for remote disconnect or button press, as BLE UART1 is supported
@@ -7239,18 +7270,32 @@ void loop() {
     if(ble_advertising_start != 0
         && deviceConnected == 0
         && millis() - ble_advertising_start > BLE_ADVERTISING_TIMEOUT) {
+        // stop BLE
         stop_advertising_ble();
+        // start WIFI if enabled
+        #ifdef SUPPORT_WIFI
+        if(cfg.wifi_enabled == 1)
+          esp_wifi_start();
+        #endif
+    } else {
+        // Handle pending BLE commands, we are in AT mode
+        if(deviceConnected == 1)
+          handle_ble_command();
     }
   } else {
     if(ble_advertising_start == 0
         && deviceConnected == 0
         && cfg.ble_uart1_bridge == 1) {
+      // stop WIFI if enabled
+      #ifdef SUPPORT_WIFI
+      if(cfg.wifi_enabled == 1)
+        esp_wifi_stop();
+      #endif
+      // start BLE
       start_advertising_ble();
     }
   }
-
   #else // not SUPPORT_BLE_UART1
-
   // Check if BLE advertising should be stopped after timeout
   // Only stop on timeout if no device is connected - once connected,
   // wait for remote disconnect or button press.
@@ -7261,20 +7306,31 @@ void loop() {
       && deviceConnected == 0
       && millis() - ble_advertising_start > BLE_ADVERTISING_TIMEOUT) {
     stop_advertising_ble();
+    // start WIFI if enabled
+    #ifdef SUPPORT_WIFI
+    if(cfg.wifi_enabled == 1)
+      esp_wifi_start();
+    #endif
+  } else {
+    // Handle pending BLE commands
+    if(deviceConnected == 1)
+      handle_ble_command();
   }
-
   #endif // SUPPORT_BLE_UART1
 
   // Plugins pre-loop
   #ifdef SUPPORT_PLUGINS
-  PLUGINS::loop_pre();
+  if(PLUGINS::loop_pre){
+    LOOP_D("[PLUGINS] Running plugins PRE hooks");
+    PLUGINS::loop_pre();
+  }
   #endif // SUPPORT_PLUGINS
 
   #ifdef TIMELOG
   // TIMELOG state send, TODO: implement this instead of a stub/dummy
   LOOP_D("[LOOP] Time logging check");
   if(cfg.do_timelog && (last_time_log == 0 || millis() - last_time_log > TIMELOG_INTERVAL)) {
-    #if defined(BT_BLE)
+    #if defined(BLUETOOTH_UART_AT) || defined(SUPPORT_BLE_UART1)
     if(ble_advertising_start != 0)
       ble_send(COMMON::PT("🍓 [%H:%M:%S]:📡 ⟹  🖫&💾\n"));
     #endif
@@ -7395,9 +7451,10 @@ void loop() {
 
   // Plugins loop
   #ifdef SUPPORT_PLUGINS
-  LOOP_D("[PLUGINS] Running plugins POST hooks");
-  PLUGINS::loop_post();
-  LOOP_D("[PLUGINS] Plugins POST hooks done");
+  if(PLUGINS::loop_post){
+    LOOP_D("[PLUGINS] Running plugins POST hooks");
+    PLUGINS::loop_post();
+  }
   #endif // SUPPORT_PLUGINS
 
   // Handle button press

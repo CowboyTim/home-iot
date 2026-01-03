@@ -438,10 +438,6 @@ sensor_r_t all_sensors[NR_OF_SENSORS] = {
 
 NOINLINE
 void initialize(){
-
-  // sensors setup
-  setup();
-
   // sensors timer init on first boot, as initialize() is only called once
   // the l_intv_counters is on RTC and will keep its value over deep sleep
   // cycles for correct interval timing

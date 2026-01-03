@@ -29,31 +29,96 @@
  * For more information, please refer to <https://unlicense.org>
  */
 
-// Logging setup for esp32c3
-
 #ifndef _SENSORS_H
 #define _SENSORS_H
 
+// Logging setup for esp32c3
+
+#ifndef VERBOSE
+#define VERBOSE
+#endif // VERBOSE
+
 #define SUPPORT_PLUGINS
-#define UART_AT
+
+#ifndef LOGUART
+#define LOGUART
+#endif // LOGUART
+#undef LOGUART
+
+#ifndef BLUETOOTH_UART_AT
 #define BLUETOOTH_UART_AT
-#define SUPPORT_WIFI
-#define SUPPORT_NTP
-#define SUPPORT_MDNS
+#endif // BLUETOOTH_UART_AT
+
+#ifndef SUPPORT_ESP_LOG_INFO
 #define SUPPORT_ESP_LOG_INFO
-#define WIFI_WPS
+#endif // SUPPORT_ESP_LOG_INFO
+
+#ifndef TIMELOG
+#define TIMELOG
+#endif // TIMELOG
+#undef TIMELOG
+
+#ifndef LOOP_DELAY
+#define LOOP_DELAY
+#endif // LOOP_DELAY
+
 #ifndef DEFAULT_HOSTNAME
 #define DEFAULT_HOSTNAME "sensors"
 #endif // DEFAULT_HOSTNAME
 
-#undef LOOP_DELAY
+#ifndef UART_AT
+#define UART_AT
+#endif // UART_AT
+
+#ifndef SUPPORT_UART1
+#define SUPPORT_UART1
+#endif // SUPPORT_UART1
 #undef SUPPORT_UART1
+
+#ifndef SUPPORT_BLE_UART1
+#define SUPPORT_BLE_UART1
+#endif // SUPPORT_BLE_UART1
 #undef SUPPORT_BLE_UART1
-#define SUPPORT_UDP
-#undef SUPPORT_TCP
-#undef SUPPORT_TLS
+
+#ifndef SUPPORT_GPIO
+#define SUPPORT_GPIO
+#endif // SUPPORT_GPIO
+#undef SUPPORT_GPIO
+
+#ifndef SUPPORT_WIFI
+#define SUPPORT_WIFI
+#endif // SUPPORT_WIFI
+
+#ifdef SUPPORT_WIFI
+
+// WiFi support enabled, enable related features if not explicitly disabled
+#ifndef WIFI_WPS
+#define WIFI_WPS
+#endif // WIFI_WPS
+
 #undef SUPPORT_TCP_SERVER
-#undef LOGUART
+
+#undef SUPPORT_TCP
+
+#undef SUPPORT_TLS
+
+#ifndef SUPPORT_UDP
+#define SUPPORT_UDP
+#endif // SUPPORT_UDP
+
+#ifndef SUPPORT_NTP
+#define SUPPORT_NTP
+#endif // SUPPORT_NTP
+
+#ifndef SUPPORT_MDNS
+#define SUPPORT_MDNS
+#endif // SUPPORT_MDNS
+
+#endif // SUPPORT_WIFI
+
+/*
+ * Sensor support configuration
+ */
 
 #undef SUPPORT_S8
 #undef SUPPORT_SE95
@@ -89,12 +154,19 @@
 #include <DHT.h>
 #endif // SUPPORT_DHT11
 
+// implemented in sensors/sensors.ino
 namespace PLUGINS {
-  extern void setup();
-  extern void loop_pre();
-  extern void loop_post();
+  void initialize();
+  void setup();
+  void loop_pre();
+  void loop_post();
+  long max_sleep_time();
+  void clear_config();
+  const char * at_cmd_handler(const char *at_cmd);
+  const char * at_get_help_string();
 }
 
+// from main sensors/esp-at.ino, declare extern
 extern uint8_t inbuf[];
 extern const uint8_t *inbuf_max;
 extern size_t inlen;
