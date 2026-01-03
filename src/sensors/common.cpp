@@ -317,17 +317,42 @@ void SAVE(const char *pa, const char *ns, const char *st, void *cfg, size_t rs) 
 }
 
 NOINLINE
-void CLEAR(const char *pa) {
-  LOG("[NVS] Clearing config from NVS...");
+void CLEAR(const char *pa, const char *ns, const char *st) {
+  LOG("[NVS] Clearing config from NVS for partition %s, %s, %s", pa, ns, st);
 
-  // Erase the entire NVS partition used by config
   esp_err_t err;
+
+  // Close NVS handle if open
+  if(nvs_c != 0) {
+    nvs_close(nvs_c);
+    nvs_c = 0;
+  }
+
+  // Erase specific key if provided
+  if(ns != NULL && st != NULL) {
+    LOG("[NVS] Erasing key '%s' from NVS", st);
+    err = nvs_open_from_partition(pa, ns, NVS_READWRITE, &nvs_c);
+    if (err == ESP_OK) {
+      err = nvs_erase_key(nvs_c, st);
+      if (err != ESP_OK) {
+        LOG("[NVS] Error (%d) erasing key %s in NVS! %s", err, st, esp_err_to_name(err));
+      } else {
+        LOG("[NVS] Key '%s' erased from NVS", st);
+      }
+      nvs_close(nvs_c);
+      nvs_c = 0;
+    }
+  }
+
+  // Erase the entire partition
+  LOG("[NVS] Erasing entire NVS partition %s", pa);
   err = nvs_flash_erase_partition(pa);
   if (err != ESP_OK) {
     LOG("[NVS] Error (%d) erasing NVS! %s", err, esp_err_to_name(err));
   }
 
   // Erase the main "nvs" partition as well, to clear any other data
+  LOG("[NVS] Erasing main NVS partition");
   err = nvs_flash_erase_partition("nvs");
   if (err != ESP_OK) {
     LOG("[NVS] Error (%d) erasing main NVS! %s", err, esp_err_to_name(err));

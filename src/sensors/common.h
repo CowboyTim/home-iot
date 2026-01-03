@@ -228,7 +228,7 @@ namespace CFG {
 
 extern NOINLINE bool INIT(const char* pa, const char* ns);
 extern NOINLINE void SAVE(const char* pa, const char* ns, const char* st, void* cfg, size_t rs);
-extern NOINLINE void CLEAR(const char* pa);
+extern NOINLINE void CLEAR(const char* pa, const char* ns, const char* st);
 extern NOINLINE void LOAD(const char* pa, const char* ns, const char* st, void* cfg, size_t rs);
 
 
