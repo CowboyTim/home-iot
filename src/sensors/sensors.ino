@@ -738,14 +738,19 @@ long max_sleep_time(){
   return min_time;
 }
 
+NOINLINE
+void erase_config(){
+    // erase NVS config for sensors
+    CFG::CLEAR("esp-at", "sensors", "sensors");
+}
+
 
 } // namespace SENSORS
 
 namespace PLUGINS {
     NOINLINE
     void clear_config(){
-        memset((void *)&SENSORS::cfg, 0, sizeof(SENSORS::cfg));
-        CFG_SAVE();
+        SENSORS::erase_config();
     }
     NOINLINE
     void setup(){
