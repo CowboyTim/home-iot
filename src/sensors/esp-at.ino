@@ -125,6 +125,7 @@ void sc_cmd_handler(SerialCommands* s, const char* atcmdline);
 // Function declarations
 #ifdef SUPPORT_WIFI
 void WiFiEvent(WiFiEvent_t event);
+uint8_t restart_networking = 0;
 #endif
 
 #define UART1_READ_SIZE       64 // read bytes at a time from UART1
@@ -236,6 +237,10 @@ SerialCommands ATSc(&USBSERIAL0, atscbu, sizeof(atscbu), "\r\n", "\r\n");
 #define IPV4_STATIC  2
 #define IPV6_SLAAC   4
 
+#define MAX_WIFI_SSID 32
+#define MAX_WIFI_PASS 64
+#define MAX_HOSTNAME  64
+
 /* main config */
 typedef struct cfg_t {
   uint8_t initialized  = 0;
@@ -259,21 +264,21 @@ typedef struct cfg_t {
   #ifdef SUPPORT_WIFI
 
   uint8_t wifi_enabled = 1;   // WiFi enabled by default
-  char wifi_ssid[32]   = {0}; // max 31 + 1
-  char wifi_pass[64]   = {0}; // nax 63 + 1
+  char wifi_ssid[MAX_WIFI_SSID] = {0}; // max 31 + 1
+  char wifi_pass[MAX_WIFI_PASS] = {0}; // nax 63 + 1
 
   #ifdef SUPPORT_NTP
-  uint8_t ntp_enabled  = 1;    // NTP enabled by default
-  char ntp_host[64]    = {0}; // max hostname + 1
+  uint8_t ntp_enabled         = 1;    // NTP enabled by default
+  char ntp_host[MAX_HOSTNAME] = {0}; // max hostname + 1
   #endif // SUPPORT_NTP
 
   #ifdef SUPPORT_MDNS
-  uint8_t mdns_enabled = 1;     // mDNS enabled by default
-  char mdns_hostname[64] = {0}; // mDNS hostname, defaults to hostname if empty
+  uint8_t mdns_enabled             = 1;   // mDNS enabled by default
+  char mdns_hostname[MAX_HOSTNAME] = {0}; // mDNS hostname, defaults to hostname if empty
   #endif // SUPPORT_MDNS
 
   uint8_t ip_mode      = IPV4_DHCP | IPV6_SLAAC;
-  char hostname[64]    = {0}; // max hostname + 1
+  char hostname[MAX_HOSTNAME] = {0}; // max hostname + 1
   uint8_t ipv4_addr[4] = {0}; // static IP address
   uint8_t ipv4_gw[4]   = {0}; // static gateway
   uint8_t ipv4_mask[4] = {0}; // static netmask
@@ -558,9 +563,17 @@ void setup_wifi() {
 
   // set persistence off
   WiFi.persistent(false);
-  // disconnect of still connected
-  if(WiFi.status() == WL_CONNECTED || WiFi.status() == WL_IDLE_STATUS)
-    WiFi.disconnect();
+
+  // first disconnect if already connected
+  if(WiFi.STA.connected()){
+    WiFi.disconnect(true);
+    while(WiFi.status() == WL_CONNECTED) {
+      doYIELD;
+      LOG("[WiFi] waiting for disconnect, status: %d", WiFi.status());
+      delay(100);
+    }
+  }
+  WiFi.mode(WIFI_MODE_NULL);
 
   // start WiFi in STA mode
   LOG("[WiFi] setting WiFi mode to STA");
@@ -611,7 +624,6 @@ void setup_wifi() {
     LOG("[WiFi] Not using IPv6");
     WiFi.enableIPv6(false);
   }
-
 
   // IPv4 configuration
   if(cfg.ip_mode & IPV4_DHCP) {
@@ -718,11 +730,6 @@ void setup_wifi() {
     }
   }
 
-  // Wait for connection result
-  if(cfg.wifi_enabled == 1) {
-    WiFi.waitForConnectResult();
-  }
-
   // setup NTP sync if needed
   #if defined(SUPPORT_WIFI) && defined(SUPPORT_NTP)
   setup_ntp();
@@ -767,20 +774,6 @@ void stop_networking() {
 }
 
 NOINLINE
-void start_networking() {
-  LOG("[WiFi] Start networking");
-  // Check if WiFi is enabled before starting
-  if(!cfg.wifi_enabled) {
-    LOG("[WiFi] WiFi is disabled, skipping networking start");
-    WiFi.mode(WIFI_MODE_NULL);
-    return;
-  }
-  // now reconnect to WiFi
-  setup_wifi();
-  LOG("[WiFi] Start networking done");
-}
-
-NOINLINE
 void reset_networking() {
   if(!cfg.wifi_enabled) {
     LOG("[WiFi] WiFi is disabled, skipping networking reset");
@@ -803,7 +796,7 @@ void reset_networking() {
   // first stop WiFi
   stop_networking();
   // start networking
-  start_networking();
+  setup_wifi();
   LOG("[WiFi] reset networking done");
 }
 #endif // SUPPORT_WIFI
@@ -3005,16 +2998,16 @@ const char* at_cmd_handler(const char* atcmdline) {
       return AT_R("+ERROR: WiFI SSID max 31 chars");
     if(strlen(p) == 0) {
       // Empty SSID, clear it
-      memset((char *)&cfg.wifi_ssid, 0, sizeof(cfg.wifi_ssid));
-      cfg.wifi_ssid[0] = '\0';
+      memset((char *)&cfg.wifi_ssid, 0, MAX_WIFI_SSID);
       CFG_SAVE();
-      reset_networking();
+      restart_networking = 1;
       return AT_R_OK;
     }
+    memset((char *)&cfg.wifi_ssid, 0, MAX_WIFI_SSID);
     strncpy((char *)&cfg.wifi_ssid, p, strlen(p));
-    cfg.wifi_ssid[sizeof(cfg.wifi_ssid) - 1] = '\0';
+    cfg.wifi_ssid[strlen(p)] = '\0';
     CFG_SAVE();
-    reset_networking();
+    restart_networking = 1;
     return AT_R_OK;
   } else if(p = at_cmd_check("AT+WIFI_SSID?", atcmdline, cmd_len)) {
     if(strlen(cfg.wifi_ssid) == 0)
@@ -3026,16 +3019,16 @@ const char* at_cmd_handler(const char* atcmdline) {
       return AT_R("+ERROR: WiFi PASS max 63 chars");
     if(strlen(p) == 0) {
       // Empty password, clear it
-      memset((char *)&cfg.wifi_pass, 0, sizeof(cfg.wifi_pass));
-      cfg.wifi_pass[0] = '\0';
+      memset((char *)&cfg.wifi_pass, 0, MAX_WIFI_PASS);
       CFG_SAVE();
-      reset_networking();
+      restart_networking = 1;
       return AT_R_OK;
     }
+    memset((char *)&cfg.wifi_pass, 0, MAX_WIFI_PASS);
     strncpy((char *)&cfg.wifi_pass, p, strlen(p));
-    cfg.wifi_pass[sizeof(cfg.wifi_pass) - 1] = '\0';
+    cfg.wifi_pass[strlen(p)] = '\0';
     CFG_SAVE();
-    reset_networking();
+    restart_networking = 1;
     return AT_R_OK;
   } else if(p = at_cmd_check("AT+WIFI_STATUS?", atcmdline, cmd_len)) {
     if(!cfg.wifi_enabled)
@@ -3092,12 +3085,12 @@ const char* at_cmd_handler(const char* atcmdline) {
   } else if(p = at_cmd_check("AT+WIFI_ENABLED=1", atcmdline, cmd_len)) {
     cfg.wifi_enabled = 1;
     CFG_SAVE();
-    reset_networking();
+    restart_networking = 1;
     return AT_R_OK;
   } else if(p = at_cmd_check("AT+WIFI_ENABLED=0", atcmdline, cmd_len)) {
     cfg.wifi_enabled = 0;
     CFG_SAVE();
-    stop_networking();
+    restart_networking = 1;
     return AT_R_OK;
   } else if(p = at_cmd_check("AT+WIFI_ENABLED?", atcmdline, cmd_len)) {
     return AT_R_INT(cfg.wifi_enabled);
@@ -4408,7 +4401,8 @@ class MyCallbacks: public BLECharacteristicCallbacks {
           ble_rx_buf++;   // don't include \n in command string
           *ble_cmd_ptr++ = 0; // null-terminate command string, advance pointer
           ble_last = ble_cmd_ptr; // save last pointer position
-          D("[BLE] Command Ready: %d, %s, nr: %d", strlen(ble_str), ble_str, 1+ble_cmd_ready++);
+          D("[BLE] Command Ready: %d, %s, nr: %d", strlen(ble_str), ble_str, 1+ble_cmd_ready);
+          ble_cmd_ready++;
         } else {
           // Add character to command buffer, advance pointer of destination
           *ble_cmd_ptr++ = next_c;
@@ -6136,7 +6130,7 @@ void do_setup() {
 
   // setup WiFi with ssid/pass if set
   #ifdef SUPPORT_WIFI
-  start_networking();
+  setup_wifi();
   #endif // SUPPORT_WIFI
 
   #ifdef SUPPORT_UART1
@@ -6187,19 +6181,26 @@ void do_esp_log() {
 #define WIFI_LOG_INTERVAL       60000
 INLINE
 void do_wifi_check() {
-  LOOP_D("[LOOP] WiFi check");
-  if(cfg.wifi_enabled && strlen(cfg.wifi_ssid) != 0 && (last_wifi_check == 0 || millis() - last_wifi_check > WIFI_LOG_CHECK_INTERVAL)) {
-    last_wifi_check = millis();
-    if(WiFi.status() != WL_CONNECTED && WiFi.status() != WL_IDLE_STATUS) {
-      // not connected, try to reconnect
-      if(last_wifi_reconnect == 0 || millis() - last_wifi_reconnect > WIFI_RECONNECT_INTERVAL) {
+  LOOP_D("[LOOP] WiFi check, restart: %d, %d ms since last check", restart_networking, last_wifi_check == 0 ? 0 : millis() - last_wifi_check);
+  if(restart_networking == 1){
+    LOG("[WiFi] Restarting networking as requested");
+    restart_networking = 0;
+    last_wifi_reconnect = millis();
+    setup_wifi();
+  } else {
+    if(cfg.wifi_enabled && strlen(cfg.wifi_ssid) != 0 && (last_wifi_check == 0 || millis() - last_wifi_check > WIFI_LOG_CHECK_INTERVAL)){
+      last_wifi_check = millis();
+      if(WiFi.status() == WL_CONNECTED || WiFi.status() == WL_IDLE_STATUS){
+        LOG("[WiFi] Connected to SSID: %s", cfg.wifi_ssid);
         last_wifi_reconnect = millis();
-        LOG("[WiFi] Not connected, attempting to reconnect, status: %d", WiFi.status());
-        reset_networking();
+      } else {
+        // not connected, try to reconnect
+        if(last_wifi_reconnect == 0 || millis() - last_wifi_reconnect > WIFI_RECONNECT_INTERVAL) {
+          last_wifi_reconnect = millis();
+          LOG("[WiFi] Not connected, attempting to reconnect to SSID: %s, status: %d", cfg.wifi_ssid, WiFi.status());
+          setup_wifi();
+        }
       }
-    } else {
-      // connected
-      last_wifi_reconnect = millis();
     }
   }
 
