@@ -7302,7 +7302,8 @@ void loop() {
       start_advertising_ble();
     }
   }
-  #else // not SUPPORT_BLE_UART1
+  #else
+  #ifdef BLUETOOTH_UART_AT
   // Check if BLE advertising should be stopped after timeout
   // Only stop on timeout if no device is connected - once connected,
   // wait for remote disconnect or button press.
@@ -7319,11 +7320,12 @@ void loop() {
       esp_wifi_start();
     #endif
   }
+  #endif // BLUETOOTH_UART_AT
   #endif // SUPPORT_BLE_UART1
 
-  #ifdef SUPPORT_BLE_UART1
+  #ifdef BLUETOOTH_UART_AT
   handle_ble_commands();
-  #endif // SUPPORT_BLE_UART1
+  #endif // BLUETOOTH_UART_AT
 
   // Plugins pre-loop
   #ifdef SUPPORT_PLUGINS
