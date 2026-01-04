@@ -4328,12 +4328,23 @@ uint16_t ble_rx_len = 0;
 // BLE Characteristic Callbacks
 class MyCallbacks: public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pC) {
+      static uint8_t ble_on_data_processing = 0;
+
+      // Handle data written to BLE RX characteristic
+      // check processing flag
+      if(ble_on_data_processing == 1) {
+        D("[BLE] onWrite called while processing previous data, ignoring new data");
+        return;
+      }
+      ble_on_data_processing = 1;
 
       String v = pC->getValue(); // get value written to characteristic
       size_t b_len = v.length(); // get length of data written
       pC->setValue("");          // clear characteristic value
-      if(b_len == 0)
+      if(b_len == 0) {
+        ble_on_data_processing = 0;
         return;
+      }
 
       uint8_t* ble_rx_buf = (uint8_t*)v.c_str();
 
@@ -4344,12 +4355,14 @@ class MyCallbacks: public BLECharacteristicCallbacks {
         if(ble_rx_len >= BLE_UART1_READ_BUFFER_SIZE) {
           // Buffer full, drop incoming data
           D("[BLE] RX buffer full, dropping data, got %d bytes, buffer size: %d", b_len, BLE_UART1_READ_BUFFER_SIZE);
+          ble_on_data_processing = 0;
           return;
         } else {
           D("[BLE] in AT bridge mode, keeping data in buffer");
           b_len = min(b_len, (size_t)(BLE_UART1_READ_BUFFER_SIZE - ble_rx_len));
           memcpy(ble_rx_buffer + ble_rx_len, ble_rx_buf, b_len);
           ble_rx_len += b_len;
+          ble_on_data_processing = 0;
           return;
         }
       }
@@ -4382,6 +4395,7 @@ class MyCallbacks: public BLECharacteristicCallbacks {
           // send error
           LOG("[BLE] Command buffer overflow");
           ble_send_response("+ERROR: BLE command too long");
+          ble_on_data_processing = 0;
           return;
         }
 
@@ -4406,6 +4420,7 @@ class MyCallbacks: public BLECharacteristicCallbacks {
 
       // Clear processing flag
       D("[BLE] Processed BLE writes");
+      ble_on_data_processing = 0;
       return;
     }
 };
