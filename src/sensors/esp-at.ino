@@ -4328,18 +4328,14 @@ uint16_t ble_rx_len = 0;
 // BLE Characteristic Callbacks
 class MyCallbacks: public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pC) {
-      doYIELD;
 
       String v = pC->getValue(); // get value written to characteristic
       size_t b_len = v.length(); // get length of data written
       pC->setValue("");          // clear characteristic value
-
-      // Ignore empty writes
       if(b_len == 0)
         return;
 
       uint8_t* ble_rx_buf = (uint8_t*)v.c_str();
-      D("[BLE] RX LEN: %d,BUF>>%s<<", b_len, ble_rx_buf);
 
       #ifdef SUPPORT_BLE_UART1
       // When NOT in AT mode, store data in buffer for later
@@ -4359,6 +4355,15 @@ class MyCallbacks: public BLECharacteristicCallbacks {
       }
       #endif
 
+      // when in AT command mode, process incoming data
+      b_len--;
+      uint8_t ble_rx_local[b_len+1] = {0};
+      memcpy(ble_rx_local, ble_rx_buf, b_len);
+      ble_rx_buf = NULL;
+      ble_rx_buf = &ble_rx_local[0];
+      ble_rx_buf[b_len] = 0; // null-terminate for logging
+      D("[BLE] RX LEN: %d,BUF>>%s<<", b_len, ble_rx_buf);
+
       // When in AT command mode, add data to command buffer
       // and check \n or \r terminators
       // Process each byte individually to handle command terminators
@@ -4368,7 +4373,6 @@ class MyCallbacks: public BLECharacteristicCallbacks {
       char *ble_cmd_max = ble_cmd_buffer + sizeof(ble_cmd_buffer) - 2;
       char next_c = (char)(*ble_rx_buf);
       while(next_c != 0 && b_len-- > 0){
-        doYIELD;
 
         // Check for buffer overflow
         if(ble_cmd_ptr >= ble_cmd_max) {
@@ -4390,8 +4394,7 @@ class MyCallbacks: public BLECharacteristicCallbacks {
           ble_rx_buf++;   // don't include \n in command string
           *ble_cmd_ptr++ = 0; // null-terminate command string, advance pointer
           ble_last = ble_cmd_ptr; // save last pointer position
-          D("[BLE] Command Ready: %d, %s", strlen(ble_str), ble_str);
-          ble_cmd_ready++;
+          D("[BLE] Command Ready: %d, %s, nr: %d", strlen(ble_str), ble_str, 1+ble_cmd_ready++);
         } else {
           // Add character to command buffer, advance pointer of destination
           *ble_cmd_ptr++ = next_c;
@@ -5316,22 +5319,22 @@ void WiFiEvent(WiFiEvent_t event) {
           break;
       }
       case ARDUINO_EVENT_WIFI_STA_START: {
-          wifi_start();
+          LOG("[WiFi] STA started");
           break;
       }
       case ARDUINO_EVENT_WIFI_STA_STOP: {
           LOG("[WiFi] STA stopped");
-          on_wifi_stop();
           break;
       }
       case ARDUINO_EVENT_WIFI_STA_CONNECTED: {
           LOG("[WiFi] STA connected to %s", WiFi.SSID().c_str());
-          on_wifi_start();
           break;
       }
       case ARDUINO_EVENT_WIFI_STA_DISCONNECTED: {
           LOG("[WiFi] STA disconnected");
-          on_wifi_stop();
+          #ifdef SUPPORT_MDNS
+          stop_mdns();
+          #endif // SUPPORT_MDNS
           break;
       }
       case ARDUINO_EVENT_WIFI_STA_AUTHMODE_CHANGE: {
@@ -5342,17 +5345,26 @@ void WiFiEvent(WiFiEvent_t event) {
           LOGT("[WiFi] STA got IPV6: ga: %s", WiFi.globalIPv6().toString().c_str());
           LOGR(", ll: %s", WiFi.linkLocalIPv6().toString().c_str());
           LOGR("\n");
-          on_wifi_start();
+          reconfigure_network_connections();
+          #ifdef SUPPORT_MDNS
+          setup_mdns();
+          #endif // SUPPORT_MDNS
           break;
       }
       case ARDUINO_EVENT_WIFI_STA_GOT_IP: {
           LOG("[WiFi] STA got IP: %s", WiFi.localIP().toString().c_str());
-          on_wifi_start();
+          reconfigure_network_connections();
+          #ifdef SUPPORT_MDNS
+          setup_mdns();
+          #endif // SUPPORT_MDNS
           break;
       }
       case ARDUINO_EVENT_WIFI_STA_LOST_IP: {
           LOG("[WiFi] STA lost IP");
-          on_wifi_stop();
+          #ifdef SUPPORT_MDNS
+          stop_mdns();
+          #endif // SUPPORT_MDNS
+          stop_network_connections();
           break;
       }
       case ARDUINO_EVENT_WPS_ER_SUCCESS: {
@@ -6109,7 +6121,7 @@ void do_setup() {
 
   // setup WiFi with ssid/pass if set
   #ifdef SUPPORT_WIFI
-  setup_wifi();
+  start_networking();
   #endif // SUPPORT_WIFI
 
   #ifdef SUPPORT_UART1
@@ -6167,7 +6179,8 @@ void do_wifi_check() {
       // not connected, try to reconnect
       if(last_wifi_reconnect == 0 || millis() - last_wifi_reconnect > WIFI_RECONNECT_INTERVAL) {
         last_wifi_reconnect = millis();
-        LOG("[WiFi] Not connected, should reconnect to %s, status: %d", cfg.wifi_ssid, WiFi.status());
+        LOG("[WiFi] Not connected, attempting to reconnect, status: %d", WiFi.status());
+        reset_networking();
       }
     } else {
       // connected
@@ -6828,26 +6841,17 @@ uint8_t super_sleepy(const unsigned long sleep_ms) {
   #endif
 
   #ifdef SUPPORT_WIFI
-  if(cfg.wifi_enabled && strlen(cfg.wifi_ssid) != 0) {
+  stop_network_connections();
   /*
-    // stop network connections
-    stop_network_connections();
-
-    // stop wifi to save power
-    wifi_mode_t current_mode;
-    err = esp_wifi_get_mode(&current_mode);
-    if(err == ESP_OK) {
-      err = esp_wifi_stop();
-      if(err != ESP_OK) {
-        LOG("[SLEEP] Failed to stop WiFi: %s", esp_err_to_name(err));
-      } else {
-        LOG("[SLEEP] WiFi stopped from mode %d", current_mode);
-      }
+  wifi_mode_t current_mode;
+  err = esp_wifi_get_mode(&current_mode);
+  if(err == ESP_OK) {
+    err = esp_wifi_stop();
+    if(err != ESP_OK) {
+      LOG("[SLEEP] Failed to stop WiFi: %s", esp_err_to_name(err));
     }
-  */
-    LOG("[SLEEP] Waiting for WiFi to be ready before sleep");
-    WiFi.waitForConnectResult();
   }
+  */
   #endif // SUPPORT_WIFI
 
   // Enable wakeup from UART, WiFi activity, and BUTTON
@@ -6888,34 +6892,11 @@ uint8_t super_sleepy(const unsigned long sleep_ms) {
   #ifdef SUPPORT_WIFI
   if(cfg.wifi_enabled && strlen(cfg.wifi_ssid) != 0 && was_error == 0) {
     LOG("[SLEEP] Re-enabling WiFi after wakeup");
-    err = esp_wifi_connect();
-    if(err != ESP_OK && err != ESP_ERR_WIFI_NOT_STARTED) {
-      LOG("[SLEEP] Failed to start WiFi: %s", esp_err_to_name(err));
-    }
-    LOG("[SLEEP] Waiting for WiFi to be ready");
-    WiFi.waitForConnectResult();
-  /*
     err = esp_wifi_start();
     if(err != ESP_OK && err != ESP_ERR_WIFI_NOT_STARTED) {
       LOG("[SLEEP] Failed to start WiFi: %s", esp_err_to_name(err));
     }
-    WiFi.mode(WIFI_STA);
     LOG("[SLEEP] Waiting for WiFi to be ready");
-    unsigned long start_wait = millis();
-    while(WiFi.status() != WL_CONNECTED) {
-      doYIELD;
-      delay(5);
-      if(millis() - start_wait > 5000) {
-        LOG("[SLEEP] Timeout waiting for WiFi to connect after wakeup");
-        break;
-      }
-    }
-    if(WiFi.status() == WL_CONNECTED) {
-      LOG("[SLEEP] WiFi reconnected after wakeup, IP: %s", WiFi.localIP().toString().c_str());
-    } else {
-      LOG("[SLEEP] WiFi not connected after wakeup, status: %d", WiFi.status());
-    }
-  */
   }
   #endif // SUPPORT_WIFI
 
@@ -7307,8 +7288,6 @@ void loop() {
       if(cfg.wifi_enabled == 1)
         esp_wifi_start();
       #endif
-    } else {
-      handle_ble_commands();
     }
   } else {
     if(ble_advertising_start == 0
@@ -7339,9 +7318,11 @@ void loop() {
     if(cfg.wifi_enabled == 1)
       esp_wifi_start();
     #endif
-  } else {
-    handle_ble_commands();
   }
+  #endif // SUPPORT_BLE_UART1
+
+  #ifdef SUPPORT_BLE_UART1
+  handle_ble_commands();
   #endif // SUPPORT_BLE_UART1
 
   // Plugins pre-loop
