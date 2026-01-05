@@ -120,8 +120,8 @@
  * Sensor support configuration
  */
 
-#define SUPPORT_S8
-#define SUPPORT_SE95
+#undef SUPPORT_S8
+#undef SUPPORT_SE95
 #define SUPPORT_DHT11
 #define SUPPORT_LDR
 #define SUPPORT_MQ135
