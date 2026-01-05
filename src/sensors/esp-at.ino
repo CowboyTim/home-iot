@@ -2168,8 +2168,6 @@ void udp_read(FD fd, uint8_t *buf, size_t &len, size_t read_size, size_t maxlen,
 }
 #endif // SUPPORT_WIFI && SUPPORT_UDP
 
-void(* resetFunc)(void) = 0;
-
 #define AT_MODE     1
 #define BRIDGE_MODE 0
 #ifdef SUPPORT_BLE_UART1
@@ -4021,9 +4019,10 @@ const char* at_cmd_handler(const char* atcmdline) {
     LOG("[ERASE] Restarting after factory reset");
     LOGFLUSH();
     esp_restart();
-    resetFunc();
   } else if(p = at_cmd_check("AT+RESET", atcmdline, cmd_len)) {
-    resetFunc();
+    LOG("[RESET] Restarting device per AT+RESET command");
+    LOGFLUSH();
+    esp_restart();
   } else if(p = at_cmd_check("AT+CPU_FREQ=", atcmdline, cmd_len)) {
     uint8_t freq = (uint8_t)strtol(p, &r, 10);
     if(errno != 0 || (freq < 10 || freq > 160) || (r == p))
