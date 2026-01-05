@@ -2716,8 +2716,8 @@ const char* at_cmd_handler(const char* atcmdline) {
   #ifdef SUPPORT_ESP_LOG_INFO
   } else if(p = at_cmd_check("AT+ESP_LOG_INTERVAL=", atcmdline, cmd_len)) {
     uint32_t l_intv = (uint32_t)strtoul(p, &r, 10);
-    if(errno != 0 || l_intv > 86400000 || (r == p))
-      return AT_R("+ERROR: invalid log interval, smaller than 86400");
+    if(errno != 0 || (r == p))
+      return AT_R("+ERROR: invalid log interval, must be in ms (0=disable)");
     cfg.esp_log_interval = l_intv;
     CFG_SAVE();
     return AT_R_OK;
