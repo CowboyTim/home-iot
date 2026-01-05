@@ -210,12 +210,11 @@ void init_ldr_adc(sensor_r_t *s){
 #define MQ135_ADC_REF     3.3 // ESP32 ADC reference voltage
 
 double mq135_adc_to_ppm(double mq135_r0, int adc_value) {
-  float voltage = (float)adc_value * MQ135_ADC_REF / 4095.0;
-  float RS = (MQ135_VCC - voltage) * MQ135_RL / voltage;
-  float ratio = RS / mq135_r0;
+  double voltage = (double)adc_value * MQ135_ADC_REF / 4095.0;
+  double RS = (MQ135_VCC - voltage) * MQ135_RL / voltage;
+  RS /= mq135_r0;
   // For CO2: a = 110.47, b = -2.862 (from datasheet)
-  float ppm = pow(10, (log10(ratio) - log10(110.47)) / -2.862);
-  return ppm;
+  return pow(10, (log10(RS) - log10(110.47)) / -2.862);
 }
 
 int8_t fetch_mq135_adc(sensor_r_t *s, double *ppm){
