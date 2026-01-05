@@ -38,10 +38,10 @@ function do_update(){
 
 function do_build(){
     DEV_EXTRA_FLAGS="-DARDUINO_USB_MODE=1 -DARDUINO_USB_CDC_ON_BOOT=1 -D_ARDUINO_BLE_H_"
-    if [ ! -z "${DEBUG}" -a "${DEBUG:-0}" = "1" ]; then
+    if [ "${DEBUG:-0}" = "1" ]; then
         DEV_EXTRA_FLAGS="$DEV_EXTRA_FLAGS -DDEBUG"
     fi
-    if [ ! -z "${VERBOSE}" -a "${VERBOSE:-1}" = "1" ]; then
+    if [ "${VERBOSE:-1}" = "1" ]; then
         DEV_EXTRA_FLAGS="$DEV_EXTRA_FLAGS -DVERBOSE"
     fi
     if [ ! -z "${DEFAULT_NTP_SERVER}" ]; then
