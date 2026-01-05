@@ -55,7 +55,31 @@ void CFG_INIT() {
 }
 
 
+// DHT11 Sensor
+#define SENSOR_DHT11_HUMIDITY    {.name = "DHT11 Humidity",}
+#define SENSOR_DHT11_TEMPERATURE {.name = "DHT11 Temperature",}
 #ifdef SUPPORT_DHT11
+#define SENSOR_DHT11_HUMIDITY \
+    {\
+      .name = "DHT11 Humidity",\
+      .unit_fmt = "%s:%s*%%,%.0f\r\n",\
+      .key  = "humidity",\
+      .init_function = init_dht11,\
+      .pre_function = pre_dht11,\
+      .value_function = dht11_fetch_humidity,\
+      .post_function = post_dht11,\
+    }
+#define SENSOR_DHT11_TEMPERATURE \
+    {\
+      .name = "DHT11 Temperature",\
+      .unit_fmt = "%s:%s*°C,%.2f\r\n",\
+      .key  = "temperature",\
+      .init_function = init_dht11,\
+      .pre_function = pre_dht11,\
+      .value_function = dht11_fetch_temperature,\
+      .post_function = post_dht11,\
+    }
+
 #define DHTPIN  A0     // GPIO_NUM_0/A0 pin for DHT11
 DHT dht = DHT(DHTPIN, DHT11);
 uint8_t did_dht11 = 0; // DHT11 read flag, to avoid multiple reads
@@ -116,7 +140,18 @@ void init_dht11(sensor_r_t *s){
 
 #endif // SUPPORT_DHT11
 
+// LDR Sensor
+#define SENSOR_LDR {.name = "LDR Illuminance",}
 #ifdef SUPPORT_LDR
+#define SENSOR_LDR \
+    {\
+      .name = "LDR Illuminance",\
+      .unit_fmt = "%s:%s*lx,%.0f\r\n",\
+      .key  = "ldr_illuminance",\
+      .init_function = init_ldr_adc,\
+      .value_function = fetch_ldr_adc,\
+    }
+
 #define LDRPIN    A1 // GPIO_NUM_1/A1 pin for LDR
 int8_t fetch_ldr_adc(sensor_r_t *s, double *ldr_value){
   if(ldr_value == NULL)
@@ -136,7 +171,18 @@ void init_ldr_adc(sensor_r_t *s){
 #endif // SUPPORT_LDR
 
 // MQ-135 Air Quality Sensor
+#define SENSOR_MQ135 {.name = "MQ-135 Air Quality",}
 #ifdef SUPPORT_MQ135
+#define SENSOR_MQ135 \
+    {\
+      .name = "MQ-135 Air Quality",\
+      .unit_fmt = "%s:%s*ppm,%.0f\r\n",\
+      .key  = "air_quality",\
+      .init_function = init_mq135_adc,\
+      .value_function = fetch_mq135_adc,\
+      .destroy_function = destroy_mq135_adc,\
+    }
+
 #define MQ135PIN           A2 // GPIO_NUM_2/A2 pin for MQ-135
 #define MQ135_RL      10000.0 // 10k Ohm load resistor
 #define MQ135_VCC         5.0 // Sensor powered by 5V
@@ -187,7 +233,27 @@ void destroy_mq135_adc(sensor_r_t *s){
 
 #endif // SUPPORT_MQ135
 
+// APDS-9930 Sensor
+#define SENSOR_APDS9930_ILLUMINANCE {.name = "APDS-9930 Illuminance",}
+#define SENSOR_APDS9930_COLOR       {.name = "APDS-9930 Color",}
 #ifdef APDS9930
+#define SENSOR_APDS9930_ILLUMINANCE \
+    {\
+      .name = "APDS-9930 Illuminance",\
+      .unit_fmt = "%s:%s*lx,%.0f\r\n",\
+      .key  = "apds_illuminance",\
+      .init_function = init_apds9930,\
+      .value_function = fetch_apds_illuminance,\
+    }
+#define SENSOR_APDS9930_COLOR \
+    {\
+      .name = "APDS-9930 Color",\
+      .unit_fmt = "%s:%s*C,%.0f\r\n",\
+      .key  = "apds_color",\
+      .init_function = init_apds9930,\
+      .value_function = fetch_apds_color,\
+    }
+
 #include <Wire.h>
 #include <Adafruit_APDS9960.h>
 #define APDS9930_I2C_ADDRESS 0x39 // default I2C address for APDS-9930
@@ -227,7 +293,18 @@ void init_apds9930(sensor_r_t *s){
 }
 #endif // APDS-9930
 
+// SenseAir S8 NDIR CO2 Sensor
+#define SENSOR_S8 {.name = "S8 CO2",}
 #ifdef SUPPORT_S8
+#define SENSOR_S8 \
+    {\
+      .name = "S8 CO2",\
+      .unit_fmt = "%s:%s*ppm,%.0f\r\n",\
+      .key  = "s8_co2",\
+      .init_function = init_s8,\
+      .value_function = fetch_s8_co2,\
+    }
+
 S8_UART *sensor_S8 = NULL;
 S8_sensor sensor;
 void init_s8(sensor_r_t *s) {
@@ -312,7 +389,18 @@ int8_t fetch_s8_co2(sensor_r_t *s, double *co2){
 }
 #endif // SUPPORT_S8
 
+// SE95 Temperature Sensor
+#define SENSOR_SE95_TEMPERATURE {.name = "SE95 Temperature",}
 #ifdef SUPPORT_SE95
+#define SENSOR_SE95_TEMPERATURE \
+    {\
+      .name = "SE95 Temperature",\
+      .unit_fmt = "%s:%s*°C,%.5f\r\n",\
+      .key  = "se95_temperature",\
+      .init_function = init_se95,\
+      .value_function = fetch_se95_temperature,\
+    }
+
 void init_se95(sensor_r_t *s) {
   // Initialize SE95 temperature sensor
   Wire.begin();
@@ -368,110 +456,16 @@ int8_t fetch_se95_temperature(sensor_r_t *s, double *temperature){ {
 }
 #endif // SUPPORT_SE95
 
+
 sensor_r_t all_sensors[NR_OF_SENSORS] = {
-    #ifdef SUPPORT_DHT11
-    {
-      .name = "DHT11 Humidity",
-      .unit_fmt = "%s:%s*%%,%.0f\r\n",
-      .key  = "humidity",
-      .init_function = init_dht11,
-      .pre_function = pre_dht11,
-      .value_function = dht11_fetch_humidity,
-      .post_function = post_dht11,
-    },
-    {
-      .name = "DHT11 Temperature",
-      .unit_fmt = "%s:%s*°C,%.2f\r\n",
-      .key  = "temperature",
-      .init_function = init_dht11,
-      .pre_function = pre_dht11,
-      .value_function = dht11_fetch_temperature,
-      .post_function = post_dht11,
-    },
-    #else
-    { 
-      .name = "DHT11 Humidity",
-    },
-    {
-      .name = "DHT11 Temperature",
-    },
-    #endif // SUPPORT_DHT11
-    #ifdef SUPPORT_LDR
-    {
-      .name = "LDR Illuminance",
-      .unit_fmt = "%s:%s*lx,%.0f\r\n",
-      .key  = "ldr_illuminance",
-      .init_function = init_ldr_adc,
-      .value_function = fetch_ldr_adc,
-    },
-    #else
-    {
-      .name = "LDR Illuminance",
-    },
-    #endif // SUPPORT_LDR
-    #ifdef SUPPORT_MQ135
-    {
-      .name = "MQ-135 Air Quality",
-      .unit_fmt = "%s:%s*ppm,%.0f\r\n",
-      .key  = "air_quality",
-      .init_function = init_mq135_adc,
-      .value_function = fetch_mq135_adc,
-      .destroy_function = destroy_mq135_adc,
-    },
-    #else
-    {
-      .name = "MQ-135 Air Quality",
-    },
-    #endif // SUPPORT_MQ135
-    #ifdef APDS9930
-    {
-      .name = "APDS-9930 Illuminance",
-      .unit_fmt = "%s:%s*lx,%.0f\r\n",
-      .key  = "apds_illuminance",
-      .init_function = init_apds9930,
-      .value_function = fetch_apds_illuminance,
-    },
-    {
-      .name = "APDS-9930 Color",
-      .unit_fmt = "%s:%s*C,%.0f\r\n",
-      .key  = "apds_color",
-      .init_function = init_apds9930,
-      .value_function = fetch_apds_color,
-    },
-    #else
-    {
-      .name = "APDS-9930 Illuminance",
-    },
-    {
-      .name = "APDS-9930 Color",
-    },
-    #endif // APDS
-    #ifdef SUPPORT_S8
-    {
-      .name = "S8 CO2",
-      .unit_fmt = "%s:%s*ppm,%.0f\r\n",
-      .key  = "s8_co2",
-      .init_function = init_s8,
-      .value_function = fetch_s8_co2,
-    },
-    #else
-    {
-      .name = "S8 CO2",
-    },
-    #endif // SUPPORT_S8
-    #ifdef SUPPORT_SE95
-    {
-      .name = "SE95 Temperature",
-      .unit_fmt = "%s:%s*°C,%.5f\r\n",
-      .key  = "se95_temperature",
-      .init_function = init_se95,
-      .value_function = fetch_se95_temperature,
-    },
-    #else
-    {
-      .name = "SE95 Temperature",
-    },
-    #endif // SUPPORT_SE95
+    SENSOR_DHT11_HUMIDITY,
+    SENSOR_DHT11_TEMPERATURE,
+    SENSOR_LDR,
+    SENSOR_MQ135,
+    SENSOR_APDS9930_ILLUMINANCE,
+    SENSOR_APDS9930_COLOR,
+    SENSOR_S8,
+    SENSOR_SE95_TEMPERATURE,
 };
 
 NOINLINE
