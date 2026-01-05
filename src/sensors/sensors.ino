@@ -534,13 +534,13 @@ void setup(){
       s->cfg->v_intv = 100;
 
     // call init function
-    LOG("[SENSORS] Setting up Sensor index %d Sensor name %s", i, s->name);
+    LOG("[SENSORS] Setting up sensor index:%d, name:%s", i, s->name);
     if(s->init_function != NULL){
       // call function
       s->init_function(s);
     } else {
       if(s->value_function == NULL)
-        LOG("[SENSORS] Sensor index %d Sensor name %s not configured, skipping setup", i, s->name);
+        LOG("[SENSORS] Sensor index:%d, name:%s not configured, skipping setup", i, s->name);
     }
   }
 }
