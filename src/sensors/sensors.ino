@@ -209,15 +209,18 @@ void init_ldr_adc(sensor_r_t *s){
 #define MQ135_ADC_CHANNEL  ADC1_GPIO2_CHANNEL
 #define MQ135_RL         22.0 // kOhm load resistor
 #define MQ135_R0        76.63 // kOhm clean air resistance
-#define MQ135_VCC         5.0 // Sensor powered by 5V
+#define MQ135_VCC         5.0 // Sensor powered by 5V (from USB)
 #define MQ135_ADC_REF     3.3 // ESP32 ADC reference voltage
 #define MQ135_AVG_NR       50 // number of samples to average from ADC
+#define MQ135_ADC_MAX    4095 // 12-bit ADC max value
+#define MQ135_ADC_BITS     12 // 12-bit ADC
 
 // For CO2: a = 110.47, b = -2.862 (from datasheet)
 #define MQ135_CO2_A    110.47 // MQ-135 CO2 curve a
 #define MQ135_CO2_B    -2.862 // MQ-135 CO2 curve b
 
-#define MQ135_WARMUP_TIME 30000 // MQ-135 warm-up time in ms
+#define MQ135_WARMUP_TIME    30000  // MQ-135 warm-up time in ms
+#define ATMOSPHERIC_CO2_PPM  428.54 // atmospheric CO2 ppm for calibration
 
 RTC_DATA_ATTR unsigned long mq135_startup_time = 0;
 
@@ -231,7 +234,7 @@ double mq135_adc_to_ppm(double mq135_r0, double mq135_rl, double adc_value) {
 
 double calibrate_mq135_r0(double mq135_rl, double adc_value) {
   double RS = ((MQ135_VCC - adc_value) / adc_value ) * mq135_rl; // in kOhm
-  double R0 = RS / pow((415.0 / MQ135_CO2_A), (1.0 / MQ135_CO2_B));
+  double R0 = RS / pow((ATMOSPHERIC_CO2_PPM / MQ135_CO2_A), (1.0 / MQ135_CO2_B));
   LOG("[MQ-135] Calibration ADC value: Voltage: %f V, RL: %f kOhm, RS: %f kOhm, R0: %f kOhm", adc_value, mq135_rl, RS, R0);
   return R0;
 }
@@ -239,11 +242,12 @@ double calibrate_mq135_r0(double mq135_rl, double adc_value) {
 double get_adc_average(uint8_t samples) {
   double avg_adc = 0.0;
   for(uint8_t i = 0; i < samples; i++) {
-    avg_adc += (double)analogRead(MQ135PIN);
-    delay(1);
+    double v = (double)analogRead(MQ135PIN);
+    avg_adc += v;
+    delayMicroseconds(10);
   }
   avg_adc /= samples;
-  avg_adc  = (avg_adc / 4095) * MQ135_ADC_REF;
+  avg_adc  = (avg_adc / MQ135_ADC_MAX) * MQ135_ADC_REF;
   return avg_adc;
 }
 
@@ -273,7 +277,7 @@ void init_mq135_adc(sensor_r_t *s){
   pinMode(MQ135PIN, ANALOG);
   analogRead(MQ135PIN);
   analogSetPinAttenuation(MQ135PIN, ADC_11db);
-  analogReadResolution(12);
+  analogReadResolution(MQ135_ADC_BITS);
   double R0 = SENSORS::cfg.mq135_r0;
   double RL = SENSORS::cfg.mq135_rl;
   LOG("[MQ-135] ADC initialized on pin %d, ADC channel: %d, resolution: 12, attenuation 11db, R0: %0.f Ohm, RL: %0.f", MQ135PIN, MQ135_ADC_CHANNEL, R0, RL);
