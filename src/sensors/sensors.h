@@ -1,5 +1,5 @@
 /*
- * sensors.h: Sensor handling for esp32c3 with DHT11, SE95, S8, LDR, MQ-135, APDS-9930
+ * sensors.h: Sensor handling for esp32c3
  *
  * Author: CowboyTim
  *
@@ -120,39 +120,17 @@
  * Sensor support configuration
  */
 
-#undef SUPPORT_S8
-#undef SUPPORT_SE95
+#define SUPPORT_S8
+#define SUPPORT_SE95
 #define SUPPORT_DHT11
-#undef SUPPORT_LDR
-#undef APDS9930   // TODO: implement software + hardware
-#undef SUPPORT_MQ135
+#define SUPPORT_LDR
+#define SUPPORT_MQ135
+#undef SUPPORT_APDS9930   // TODO: implement software + hardware
 
 #define NR_OF_SENSORS 8
 #define SENSORS_OUTBUFFER_SIZE  128
 
 #include <Arduino.h>
-
-#ifdef SUPPORT_SE95
-#include <Wire.h>
-#define I2C_DAT   6
-#define I2C_CLK   7
-#define SE95_I2C_ADDRESS      0x48 // default I2C address for SE95
-#define SE95_TEMPERATURE      0x00 // Command to read temperature from SE95 sensor
-#define SE95_CONFIGURATION    0x01 // Command to configure SE95 sensor
-#define SE95_THYST            0x02 // Command to store the hysteresis threshold
-#define SE95_TOS              0x03 // Command to store the overtemperature shutdown threshold
-#define SE95_ID               0x05 // Command to read the ID of the SE95 sensor
-#endif // SUPPORT_SE95
-
-#ifdef SUPPORT_S8
-/* Sensair S8 LP sensor for CO2 */
-#include "s8_uart.h"
-#endif // SUPPORT_S8
-       //
-#ifdef SUPPORT_DHT11
-#define DHTTYPE DHT11
-#include <DHT.h>
-#endif // SUPPORT_DHT11
 
 // implemented in sensors/sensors.ino
 namespace PLUGINS {
@@ -173,12 +151,6 @@ extern size_t inlen;
 
 namespace SENSORS {
 
-#ifdef SUPPORT_SE95
-// re-export Wire for sensors.cpp in this SENSORS namespace, note that "Wire"
-// is a global extern object
-TwoWire Wire = Wire;
-#endif // SUPPORT_SE95
-
 typedef struct sensor_c_t {
   uint8_t enabled = 0;
   unsigned long v_intv = 1000;
@@ -197,8 +169,8 @@ typedef struct s_cfg_t {
 
 typedef struct sensor_r_t {
   const char name[32] = {0};
-  const char unit_fmt[24] = {0};
   const char key[32] = {0};
+  const char unit_fmt[24] = {0};
   const char out_buf[32] = {0};
   void *userdata = NULL;
   sensor_c_t *cfg = NULL;

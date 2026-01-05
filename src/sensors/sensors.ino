@@ -34,6 +34,23 @@
 #include <sensors.h>
 #include <common.h>
 
+#ifdef SUPPORT_DHT11
+#include <DHT.h>
+#endif // SUPPORT_DHT11
+
+#ifdef SUPPORT_S8
+#include "s8_uart.h"
+#endif // SUPPORT_S8
+
+#ifdef SUPPORT_SE95
+#include <Wire.h>
+#endif // SUPPORT_SE95
+
+#ifdef SUPPORT_APDS9930
+#include <Wire.h>
+#include <Adafruit_APDS9960.h>
+#endif // SUPPORT_APDS9930
+
 namespace SENSORS {
 
 RTC_DATA_ATTR long l_intv_counters[NR_OF_SENSORS] = {0};
@@ -56,14 +73,14 @@ void CFG_INIT() {
 
 
 // DHT11 Sensor
-#define SENSOR_DHT11_HUMIDITY    {.name = "DHT11 Humidity",}
-#define SENSOR_DHT11_TEMPERATURE {.name = "DHT11 Temperature",}
+#define SENSOR_DHT11_HUMIDITY    {.name = "DHT11 Humidity", .key = "humidity",}
+#define SENSOR_DHT11_TEMPERATURE {.name = "DHT11 Temperature", .key = "temperature",}
 #ifdef SUPPORT_DHT11
 #define SENSOR_DHT11_HUMIDITY \
     {\
       .name = "DHT11 Humidity",\
-      .unit_fmt = "%s:%s*%%,%.0f\r\n",\
       .key  = "humidity",\
+      .unit_fmt = "%s:%s*%%,%.0f\r\n",\
       .init_function = init_dht11,\
       .pre_function = pre_dht11,\
       .value_function = dht11_fetch_humidity,\
@@ -72,26 +89,27 @@ void CFG_INIT() {
 #define SENSOR_DHT11_TEMPERATURE \
     {\
       .name = "DHT11 Temperature",\
-      .unit_fmt = "%s:%s*°C,%.2f\r\n",\
       .key  = "temperature",\
+      .unit_fmt = "%s:%s*°C,%.2f\r\n",\
       .init_function = init_dht11,\
       .pre_function = pre_dht11,\
       .value_function = dht11_fetch_temperature,\
       .post_function = post_dht11,\
     }
 
+#define DODHT(s) ((DHT*)(s->userdata))
+
 #define DHTPIN  A0     // GPIO_NUM_0/A0 pin for DHT11
-DHT dht = DHT(DHTPIN, DHT11);
 uint8_t did_dht11 = 0; // DHT11 read flag, to avoid multiple reads
 int8_t dht11_fetch_humidity(sensor_r_t *s, double *humidity){
   if(humidity == NULL)
     return -1;
   // fetch humidity from DHT11
   if(!did_dht11){
-    dht.read();
+    DODHT(s)->read();
     did_dht11 = 1;
   }
-  double h = (double)dht.readHumidity();
+  double h = (double)DODHT(s)->readHumidity();
   LOG("[DHT11] humidity: %f %%", h);
   if(h < 0.0 || h > 100.0){
     LOG("[DHT11] humidity invalid or out of range, returning 0: %.2f", h);
@@ -107,10 +125,10 @@ int8_t dht11_fetch_temperature(sensor_r_t *s, double *temperature){
     return -1;
   // fetch temperature from DHT11
   if(!did_dht11){
-    dht.read();
+    DODHT(s)->read();
     did_dht11 = 1;
   }
-  double t = (double)dht.readTemperature();
+  double t = (double)DODHT(s)->readTemperature();
   LOG("[DHT11] temperature: %f °C", t);
   if(t < -40.0 || t > 80.0){
     LOG("[DHT11] temperature invalid or out of range, returning 0: %.2f", t);
@@ -131,8 +149,9 @@ void post_dht11(sensor_r_t *s){
 
 void init_dht11(sensor_r_t *s){
   // initialize DHT11 sensor
+  s->userdata = new DHT(DHTPIN, DHT11);
   if(did_dht11 == 0){
-    dht.begin();
+    DODHT(s)->begin();
     LOG("[DHT11] initialized on pin %d", DHTPIN);
     did_dht11 = 1;
   }
@@ -141,13 +160,13 @@ void init_dht11(sensor_r_t *s){
 #endif // SUPPORT_DHT11
 
 // LDR Sensor
-#define SENSOR_LDR {.name = "LDR Illuminance",}
+#define SENSOR_LDR {.name = "LDR Illuminance", .key = "ldr_illuminance",}
 #ifdef SUPPORT_LDR
 #define SENSOR_LDR \
     {\
       .name = "LDR Illuminance",\
-      .unit_fmt = "%s:%s*lx,%.0f\r\n",\
       .key  = "ldr_illuminance",\
+      .unit_fmt = "%s:%s*lx,%.0f\r\n",\
       .init_function = init_ldr_adc,\
       .value_function = fetch_ldr_adc,\
     }
@@ -171,13 +190,13 @@ void init_ldr_adc(sensor_r_t *s){
 #endif // SUPPORT_LDR
 
 // MQ-135 Air Quality Sensor
-#define SENSOR_MQ135 {.name = "MQ-135 Air Quality",}
+#define SENSOR_MQ135 {.name = "MQ-135 Air Quality", .key = "air_quality",}
 #ifdef SUPPORT_MQ135
 #define SENSOR_MQ135 \
     {\
       .name = "MQ-135 Air Quality",\
-      .unit_fmt = "%s:%s*ppm,%.0f\r\n",\
       .key  = "air_quality",\
+      .unit_fmt = "%s:%s*ppm,%.0f\r\n",\
       .init_function = init_mq135_adc,\
       .value_function = fetch_mq135_adc,\
       .destroy_function = destroy_mq135_adc,\
@@ -234,30 +253,33 @@ void destroy_mq135_adc(sensor_r_t *s){
 #endif // SUPPORT_MQ135
 
 // APDS-9930 Sensor
-#define SENSOR_APDS9930_ILLUMINANCE {.name = "APDS-9930 Illuminance",}
-#define SENSOR_APDS9930_COLOR       {.name = "APDS-9930 Color",}
-#ifdef APDS9930
+#define SENSOR_APDS9930_ILLUMINANCE {.name = "APDS-9930 Illuminance", .key = "apds_illuminance",}
+#define SENSOR_APDS9930_COLOR       {.name = "APDS-9930 Color", .key = "apds_color",}
+#ifdef SUPPORT_APDS9930
 #define SENSOR_APDS9930_ILLUMINANCE \
     {\
       .name = "APDS-9930 Illuminance",\
-      .unit_fmt = "%s:%s*lx,%.0f\r\n",\
       .key  = "apds_illuminance",\
+      .unit_fmt = "%s:%s*lx,%.0f\r\n",\
       .init_function = init_apds9930,\
       .value_function = fetch_apds_illuminance,\
     }
 #define SENSOR_APDS9930_COLOR \
     {\
       .name = "APDS-9930 Color",\
-      .unit_fmt = "%s:%s*C,%.0f\r\n",\
       .key  = "apds_color",\
+      .unit_fmt = "%s:%s*C,%.0f\r\n",\
       .init_function = init_apds9930,\
       .value_function = fetch_apds_color,\
     }
 
-#include <Wire.h>
-#include <Adafruit_APDS9960.h>
+// re-export Wire for sensors.cpp in this SENSORS namespace, note that "Wire"
+// is a global extern object
+TwoWire Wire = Wire;
 #define APDS9930_I2C_ADDRESS 0x39 // default I2C address for APDS-9930
+
 Adafruit_APDS9930 apds(APDS9930_I2C_ADDRESS);
+
 int8_t fetch_apds_illuminance(sensor_r_t *s, double *illuminance){
   if(illuminance == NULL)
     return -1;
@@ -294,13 +316,13 @@ void init_apds9930(sensor_r_t *s){
 #endif // APDS-9930
 
 // SenseAir S8 NDIR CO2 Sensor
-#define SENSOR_S8 {.name = "S8 CO2",}
+#define SENSOR_S8 {.name = "S8 CO2", .key = "s8_co2",}
 #ifdef SUPPORT_S8
 #define SENSOR_S8 \
     {\
       .name = "S8 CO2",\
-      .unit_fmt = "%s:%s*ppm,%.0f\r\n",\
       .key  = "s8_co2",\
+      .unit_fmt = "%s:%s*ppm,%.0f\r\n",\
       .init_function = init_s8,\
       .value_function = fetch_s8_co2,\
     }
@@ -390,16 +412,29 @@ int8_t fetch_s8_co2(sensor_r_t *s, double *co2){
 #endif // SUPPORT_S8
 
 // SE95 Temperature Sensor
-#define SENSOR_SE95_TEMPERATURE {.name = "SE95 Temperature",}
+#define SENSOR_SE95_TEMPERATURE {.name = "SE95 Temperature", .key = "se95_temperature",}
 #ifdef SUPPORT_SE95
 #define SENSOR_SE95_TEMPERATURE \
     {\
       .name = "SE95 Temperature",\
-      .unit_fmt = "%s:%s*°C,%.5f\r\n",\
       .key  = "se95_temperature",\
+      .unit_fmt = "%s:%s*°C,%.5f\r\n",\
       .init_function = init_se95,\
       .value_function = fetch_se95_temperature,\
     }
+
+// re-export Wire for sensors.cpp in this SENSORS namespace, note that "Wire"
+// is a global extern object
+TwoWire Wire = Wire;
+#define I2C_DAT   6
+#define I2C_CLK   7
+
+#define SE95_I2C_ADDRESS      0x48 // default I2C address for SE95
+#define SE95_TEMPERATURE      0x00 // Command to read temperature from SE95 sensor
+#define SE95_CONFIGURATION    0x01 // Command to configure SE95 sensor
+#define SE95_THYST            0x02 // Command to store the hysteresis threshold
+#define SE95_TOS              0x03 // Command to store the overtemperature shutdown threshold
+#define SE95_ID               0x05 // Command to read the ID of the SE95 sensor
 
 void init_se95(sensor_r_t *s) {
   // Initialize SE95 temperature sensor
@@ -418,7 +453,7 @@ void init_se95(sensor_r_t *s) {
   return;
 }
 
-int8_t fetch_se95_temperature(sensor_r_t *s, double *temperature){ {
+int8_t fetch_se95_temperature(sensor_r_t *s, double *temperature){
   Wire.beginTransmission(SE95_I2C_ADDRESS);
   Wire.write(SE95_TEMPERATURE);
   Wire.endTransmission();
@@ -609,7 +644,7 @@ const char* at_cmd_handler_sensor(const char *at_cmd, unsigned short at_len){
             p += strlen("AT+ENABLE_");
             // AT+ENABLE_<sensor>=<0|1> or AT+ENABLE_<sensor>?
             // match sensor?
-            LOG("[SENSORS] at_cmd_handler_sensor: checking sensor key '%s' to '%s'", s->key, p);
+            LOG("[SENSORS] at_cmd_handler_sensor: checking sensor '%s' for key '%s' to '%s'", s->name, s->key, p);
             if(strncasecmp(s->key, p, strlen(s->key)) != 0)
                 continue; // not matching sensor key
             if(s->value_function == NULL)
@@ -846,12 +881,12 @@ Available sensors:
 )EOF"
 #endif // SUPPORT_MQ135
 
-#ifdef APDS9930
+#ifdef SUPPORT_APDS9930
         R"EOF(
   - APDS_ILLUMINANCE            - APDS-9930 light sensor
   - APDS_COLOR                  - APDS-9930 RGB color sensor
 )EOF"
-#endif // APDS9930
+#endif // SUPPORT_APDS9930
 
 #ifdef SUPPORT_SE95
         R"EOF(
