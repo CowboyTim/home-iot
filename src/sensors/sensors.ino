@@ -29,7 +29,13 @@
  * For more information, please refer to <https://unlicense.org>
  */
 
-// Logging setup for esp32c3
+// Logging setup for esp32c3: before any other include wrt arduino workflow
+
+#ifndef VERBOSE
+#define VERBOSE
+#endif // VERBOSE
+
+// Setup
 
 #include <sensors.h>
 #include <common.h>

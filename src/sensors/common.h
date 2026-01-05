@@ -36,12 +36,17 @@
 
 // DEBUG means all debug messages, so enable VERBOSE as well
 #ifdef DEBUG
+#warning "DEBUG logging enabled, enabling VERBOSE as well"
 #define VERBOSE
-#endif // DEBUG
+#endif
+
+#ifdef VERBOSE
+#warning "VERBOSE logging enabled"
+#endif
 
 #ifndef UART_LOG_DEV_UART0
 #define UART_LOG_DEV_UART0 0
-#endif // UART_LOG_DEV_UART0
+#endif
 
 #if UART_LOG_DEV_UART0 == 1
  #define NO_GLOBAL_INSTANCES
@@ -109,8 +114,50 @@
  * The esp32c3 is however a single core esp32
  *
  */
-//#define doYIELD {vTaskDelay(pdMS_TO_TICKS(0));}
 #define doYIELD yield();
+
+#ifdef VERBOSE
+ #ifdef DEBUG
+  #define __FILE__            "esp-at.ino"
+  #define LOG_TIME_FORMAT     "[\%H:\%M:\%S][info]: "
+  #define DEBUG_TIME_FORMAT   "[\%H:\%M:\%S][debug]: "
+  #define DEBUG_FILE_LINE     "[\%hu:\%s:\%d]", millis(), __FILE__, __LINE__
+ #else
+  #define LOG_TIME_FORMAT     "[\%H:\%M:\%S][info]: "
+ #endif
+
+ #define LOG(...)     COMMON::_log_l(__VA_ARGS__);
+ #define LOGT(...)    COMMON::_log_t(__VA_ARGS__);
+ #define LOGR(...)    COMMON::_log_r(__VA_ARGS__);
+ #define LOGE(...)    COMMON::_log_e(__VA_ARGS__);
+ #define LOGFLUSH()   COMMON::_log_flush();
+ #define LOGSETUP()   COMMON::_log_setup();
+ #define DO_VERBOSE(code)  if(COMMON::_do_verbose){code;};
+#else
+ #define LOG(...)     {}
+ #define LOGT(...)    {}
+ #define LOGR(...)    {}
+ #define LOGE(...)    {}
+ #define LOGFLUSH()   {}
+ #define LOGSETUP()   {}
+ #define DO_VERBOSE(code) {}
+ #define D(...)       {}
+ #define T(...)       {}
+ #define R(...)       {}
+ #define E(...)       {}
+#endif // VERBOSE
+
+#ifdef DEBUG
+ #define D(...)       COMMON::_debug_l(__VA_ARGS__);
+ #define T(...)       COMMON::_debug_t(__VA_ARGS__);
+ #define R(...)       COMMON::_debug_r(__VA_ARGS__);
+ #define E(...)       COMMON::_debug_e(__VA_ARGS__);
+#else
+ #define D(...)       {}
+ #define T(...)       {}
+ #define R(...)       {}
+ #define E(...)       {}
+#endif // DEBUG
 
 namespace COMMON {
 
@@ -133,25 +180,6 @@ const char* get_errno_string(int err);
 #ifdef VERBOSE
 // flag, VERBOSE on/off
 extern uint8_t _do_verbose;
-
- #ifdef DEBUG
-  #define __FILE__            "esp-at.ino"
-  #define LOG_TIME_FORMAT     "[\%H:\%M:\%S][info]: "
-  #define DEBUG_TIME_FORMAT   "[\%H:\%M:\%S][debug]: "
-  #define DEBUG_FILE_LINE     "[\%hu:\%s:\%d]", millis(), __FILE__, __LINE__
- #else
-  #define LOG_TIME_FORMAT     "[\%H:\%M:\%S][info]: "
- #endif
-
- #define _LOGFLUSH()           UART0.flush()
- #define _LOGPRINT(buf)        UART0.write(buf, strlen(buf));
- #define LOG(...)     COMMON::_log_l(__VA_ARGS__);
- #define LOGT(...)    COMMON::_log_t(__VA_ARGS__);
- #define LOGR(...)    COMMON::_log_r(__VA_ARGS__);
- #define LOGE(...)    COMMON::_log_e(__VA_ARGS__);
- #define LOGFLUSH()   COMMON::_log_flush();
- #define LOGSETUP()   COMMON::_log_setup();
- #define DO_VERBOSE(code)  if(COMMON::_do_verbose){code;};
 
 NOINLINE
 void do_vprintf(uint8_t t, const char *tf, const char *_fmt, va_list args);
@@ -176,6 +204,7 @@ void _log_r(const char *fmt, ...);
 
 NOINLINE
 void _log_e(const char *fmt, ...);
+#endif // VERBOSE
 
 #ifdef DEBUG
 NOINLINE
@@ -189,31 +218,7 @@ void _debug_r(const char *fmt, ...);
 
 NOINLINE
 void _debug_e(const char *fmt, ...);
-
- #define D(...)       COMMON::_debug_l(__VA_ARGS__);
- #define T(...)       COMMON::_debug_t(__VA_ARGS__);
- #define R(...)       COMMON::_debug_r(__VA_ARGS__);
- #define E(...)       COMMON::_debug_e(__VA_ARGS__);
-#else
- #define D(...)       {}
- #define T(...)       {}
- #define R(...)       {}
- #define E(...)       {}
 #endif // DEBUG
-
-#else
- #define LOG(...)     {}
- #define LOGT(...)    {}
- #define LOGR(...)    {}
- #define LOGE(...)    {}
- #define LOGFLUSH()   {}
- #define LOGSETUP()   {}
- #define DO_VERBOSE(code) {}
- #define D(...)       {}
- #define T(...)       {}
- #define R(...)       {}
- #define E(...)       {}
-#endif // VERBOSE
 
 /*
  * AT command check helper

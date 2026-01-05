@@ -34,7 +34,6 @@
 
 namespace COMMON {
 
-uint8_t _do_verbose = 1;
 
 NOINLINE
 const char * PT(const char *tformat) {
@@ -127,13 +126,20 @@ const char* get_errno_string(int err) {
   }
 }
 
+#ifdef VERBOSE
+
+NOINLINE
+void LOGPRINT(const char *buf){
+    UART0.write(buf, strlen(buf));
+}
+
 NOINLINE
 void do_vprintf(uint8_t t, const char *tf, const char *_fmt, va_list args) {
   ALIGN(4) static char obuf[256] = {0};
   if(_fmt == NULL && tf == NULL)
     return;
   if((t & 2) && tf != NULL)
-    _LOGPRINT(PT(tf));
+    LOGPRINT(PT(tf));
   if(_fmt == NULL)
     return;
   static int s = 0;
@@ -146,10 +152,10 @@ void do_vprintf(uint8_t t, const char *tf, const char *_fmt, va_list args) {
     obuf[s] = 0;
 
   if(t & 1) {
-    _LOGPRINT(obuf);
-    _LOGPRINT("\n");
+    LOGPRINT(obuf);
+    LOGPRINT("\n");
   } else {
-    _LOGPRINT(obuf);
+    LOGPRINT(obuf);
   }
 }
 
@@ -163,8 +169,7 @@ void do_printf(uint8_t t, const char *tf, const char *_fmt, ...) {
 
 NOINLINE
 void _log_flush() {
-    if(_do_verbose)
-        _LOGFLUSH();
+    UART0.flush();
 }
 
 NOINLINE
@@ -176,6 +181,8 @@ void _log_setup() {
     UART0.setRxBufferSize(512);
     UART0.println();
 }
+
+uint8_t _do_verbose = 1;
 
 NOINLINE
 void _log_l(const char *fmt, ...) {
@@ -226,7 +233,9 @@ void _log_e(const char *fmt, ...) {
         _log_r(", errno: %d (%s)\n", errno, get_errno_string(errno));
     }
 }
+#endif
 
+#ifdef DEBUG
 NOINLINE
 void _debug_l(const char *fmt, ...) {
     do_printf(0, NULL, DEBUG_FILE_LINE);
@@ -262,6 +271,7 @@ void _debug_e(const char *fmt, ...) {
     va_end(args);
     _debug_r(", errno: %d (%s)\n", errno, get_errno_string(errno));
 }
+#endif // DEBUG
 
 } // namespace COMMON
 

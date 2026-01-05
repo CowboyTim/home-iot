@@ -34,10 +34,6 @@
 
 // Logging setup for esp32c3
 
-#ifndef VERBOSE
-#define VERBOSE
-#endif // VERBOSE
-
 #define SUPPORT_PLUGINS
 
 #ifndef LOGUART

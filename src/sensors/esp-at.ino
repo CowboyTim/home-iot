@@ -105,6 +105,11 @@ uint8_t current_button = BUTTON_BUILTIN;
 #define SUPPORT_UART1
 #endif // SUPPORT_BLE_UART1
 
+#ifndef VERBOSE
+#undef SUPPORT_ESP_LOG_INFO
+#undef DEBUG
+#endif // VERBOSE
+
 #ifdef SUPPORT_UART1
 #define UART1_RX_PIN 0
 #define UART1_TX_PIN 1
