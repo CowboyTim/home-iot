@@ -6084,7 +6084,7 @@ void setup_button() {
   #ifdef LOOP_DELAY
   // LOOP_DELAY is defined, we cant use GPIO_NUM_9 (builtin button) as it
   // is not supported as a wakeup source on ESP32c3/ESP32s3 with light sleep
-  // so we pick a different pin, GPIO3
+  // so we pick a different pin, GPIO3_NUM_3/A3
   current_button = GPIO_NUM_3;
   #else
   current_button = BUTTON_BUILTIN;
