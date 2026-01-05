@@ -389,8 +389,12 @@ sensor_r_t all_sensors[NR_OF_SENSORS] = {
       .post_function = post_dht11,
     },
     #else
-    {},
-    {},
+    { 
+      .name = "DHT11 Humidity",
+    },
+    {
+      .name = "DHT11 Temperature",
+    },
     #endif // SUPPORT_DHT11
     #ifdef SUPPORT_LDR
     {
@@ -401,7 +405,9 @@ sensor_r_t all_sensors[NR_OF_SENSORS] = {
       .value_function = fetch_ldr_adc,
     },
     #else
-    {},
+    {
+      .name = "LDR Illuminance",
+    },
     #endif // SUPPORT_LDR
     #ifdef SUPPORT_MQ135
     {
@@ -413,7 +419,9 @@ sensor_r_t all_sensors[NR_OF_SENSORS] = {
       .destroy_function = destroy_mq135_adc,
     },
     #else
-    {},
+    {
+      .name = "MQ-135 Air Quality",
+    },
     #endif // SUPPORT_MQ135
     #ifdef APDS9930
     {
@@ -431,8 +439,12 @@ sensor_r_t all_sensors[NR_OF_SENSORS] = {
       .value_function = fetch_apds_color,
     },
     #else
-    {},
-    {},
+    {
+      .name = "APDS-9930 Illuminance",
+    },
+    {
+      .name = "APDS-9930 Color",
+    },
     #endif // APDS
     #ifdef SUPPORT_S8
     {
@@ -443,7 +455,9 @@ sensor_r_t all_sensors[NR_OF_SENSORS] = {
       .value_function = fetch_s8_co2,
     },
     #else
-    {},
+    {
+      .name = "S8 CO2",
+    },
     #endif // SUPPORT_S8
     #ifdef SUPPORT_SE95
     {
@@ -454,7 +468,9 @@ sensor_r_t all_sensors[NR_OF_SENSORS] = {
       .value_function = fetch_se95_temperature,
     },
     #else
-    {},
+    {
+      .name = "SE95 Temperature",
+    },
     #endif // SUPPORT_SE95
 };
 
@@ -487,24 +503,15 @@ void setup(){
       s->cfg->v_intv = 100;
 
     // call init function
+    LOG("[SENSORS] Setting up Sensor index %d Sensor name %s", i, s->name);
     if(s->init_function != NULL){
       // call function
       s->init_function(s);
     } else {
-      LOG("[SENSORS] Sensor index %d Sensor name %s not configured, skipping setup", i, s->name);
+      if(s->value_function == NULL)
+        LOG("[SENSORS] Sensor index %d Sensor name %s not configured, skipping setup", i, s->name);
     }
   }
-
-  // config log on UART when VERBOSE is defined
-  DO_VERBOSE(
-    for(int i = 0; i < NR_OF_SENSORS; i++){
-      sensor_r_t *s = &SENSORS::all_sensors[i];
-      LOG("[SENSORS] Sensor %s log interval (ms): %lu", s->name, s->cfg->v_intv);
-      if(s->value_function == NULL)
-        LOG("[SENSORS] Sensor index %d Sensor name %s not configured, skipping", i, s->name);
-    }
-  )
-
 }
 
 NOINLINE
