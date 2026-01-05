@@ -31,10 +31,6 @@
 
 // Logging setup for esp32c3: before any other include wrt arduino workflow
 
-#ifndef VERBOSE
-#define VERBOSE
-#endif // VERBOSE
-
 // Setup
 
 #include <sensors.h>
