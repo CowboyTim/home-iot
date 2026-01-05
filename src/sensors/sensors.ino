@@ -59,7 +59,9 @@ void CFG_INIT() {
 #define DHTPIN  A0     // GPIO_NUM_0/A0 pin for DHT11
 DHT dht = DHT(DHTPIN, DHT11);
 uint8_t did_dht11 = 0; // DHT11 read flag, to avoid multiple reads
-double dht11_fetch_humidity(sensor_r_t *s){
+int8_t dht11_fetch_humidity(sensor_r_t *s, double *humidity){
+  if(humidity == NULL)
+    return -1;
   // fetch humidity from DHT11
   if(!did_dht11){
     dht.read();
@@ -67,14 +69,18 @@ double dht11_fetch_humidity(sensor_r_t *s){
   }
   double h = (double)dht.readHumidity();
   LOG("[DHT11] humidity: %f %%", h);
-  if(isnan(h) || isinf(h) || h < 0.0 || h > 100.0){
+  if(h < 0.0 || h > 100.0){
     LOG("[DHT11] humidity invalid or out of range, returning 0: %.2f", h);
-    h = 0.0;
+    *humidity = 0.0;
+    return -1;
   }
-  return h;
+  *humidity = h;
+  return 1;
 }
 
-double dht11_fetch_temperature(sensor_r_t *s){
+int8_t dht11_fetch_temperature(sensor_r_t *s, double *temperature){
+  if(temperature == NULL)
+    return -1;
   // fetch temperature from DHT11
   if(!did_dht11){
     dht.read();
@@ -82,11 +88,13 @@ double dht11_fetch_temperature(sensor_r_t *s){
   }
   double t = (double)dht.readTemperature();
   LOG("[DHT11] temperature: %f °C", t);
-  if(isnan(t) || isinf(t) || t < -40.0 || t > 80.0){
+  if(t < -40.0 || t > 80.0){
     LOG("[DHT11] temperature invalid or out of range, returning 0: %.2f", t);
-    t = 0.0;
+    *temperature = 0.0;
+    return -1;
   }
-  return t;
+  *temperature = t;
+  return 1;
 }
 
 void pre_dht11(sensor_r_t *s){
@@ -110,12 +118,14 @@ void init_dht11(sensor_r_t *s){
 
 #ifdef SUPPORT_LDR
 #define LDRPIN    A1 // GPIO_NUM_1/A1 pin for LDR
-double fetch_ldr_adc(sensor_r_t *s){
+int8_t fetch_ldr_adc(sensor_r_t *s, double *ldr_value){
+  if(ldr_value == NULL)
+    return -1;
   // fetch LDR ADC value
   int ldr_adc = analogReadMilliVolts(LDRPIN); // assuming LDR is connected to LDRPIN
   LOG("[LDR/ADC] value: %d mV", ldr_adc);
-  double ldr_value = (double)ldr_adc; // convert to double for consistency
-  return ldr_value;
+  *ldr_value = (double)ldr_adc; // convert to double for consistency
+  return 1;
 }
 
 void init_ldr_adc(sensor_r_t *s){
@@ -141,16 +151,18 @@ double mq135_adc_to_ppm(double mq135_r0, int adc_value) {
   return ppm;
 }
 
-double fetch_mq135_adc(sensor_r_t *s){
+int8_t fetch_mq135_adc(sensor_r_t *s, double *ppm){
+  if(ppm == NULL)
+    return -1;
   double mq135_r0 = 10000.0; // default R0 value
   if(s->userdata != NULL)
     mq135_r0 = *((double*)s->userdata);
   // fetch MQ-135 ADC value
   int mq135_adc = analogRead(MQ135PIN); // raw ADC value (0-4095)
   LOG("[MQ-135] ADC value: %d", mq135_adc);
-  double ppm = mq135_adc_to_ppm(mq135_r0, mq135_adc);
+  *ppm = mq135_adc_to_ppm(mq135_r0, mq135_adc);
   LOG("[MQ-135] CO2 ppm: %.2f", ppm);
-  return ppm;
+  return 1;
 }
 
 void init_mq135_adc(sensor_r_t *s){
@@ -180,21 +192,27 @@ void destroy_mq135_adc(sensor_r_t *s){
 #include <Adafruit_APDS9960.h>
 #define APDS9930_I2C_ADDRESS 0x39 // default I2C address for APDS-9930
 Adafruit_APDS9930 apds(APDS9930_I2C_ADDRESS);
-uint16_t apds_r = 0, apds_g = 0, apds_b = 0, apds_c = 0;
-double fetch_apds_illuminance(sensor_r_t *s){
+int8_t fetch_apds_illuminance(sensor_r_t *s, double *illuminance){
+  if(illuminance == NULL)
+    return -1;
   // fetch APDS-9930 illuminance (lux)
   float lux = 0;
   apds.getLux(&lux);
   LOG("[APDS-9930] lux: %.2f", lux);
-  return (double)lux;
+  *illuminance = (double)lux;
+  return 1
 }
 
-double fetch_apds_color(sensor_r_t *s){
+int8_t fetch_apds_color(sensor_r_t *s, double *color_value){
+  if(color_value == NULL)
+    return -1;
   // fetch APDS-9930 color (returns C, but logs R,G,B,C)
+  uint16_t apds_r = 0, apds_g = 0, apds_b = 0, apds_c = 0;
   apds.getRGB(&apds_r, &apds_g, &apds_b, &apds_c);
   LOG("[APDS-9930] RGB: %d,%d,%d,%d", apds_r, apds_g, apds_b, apds_c);
   // For the main value, return clear channel (C)
-  return (double)apds_c;
+  *color_value = (double)apds_c;
+  return 1;
 }
 
 void init_apds9930(sensor_r_t *s){
@@ -278,16 +296,19 @@ void init_s8(sensor_r_t *s) {
   return;
 }
 
-double fetch_s8_co2(sensor_r_t *s){
+int8_t fetch_s8_co2(sensor_r_t *s, double *co2){
+  if(co2 == NULL)
+    return -1;
   // Fetch CO2 value from S8 sensor
   if(sensor_S8 == NULL) {
     LOG("[S8] sensor not initialized");
-    return 0.0;
+    return -1;
   }
 
   sensor.co2 = sensor_S8->get_co2();
   LOG("[S8] CO2 ppm: %d", sensor.co2);
-  return (double)sensor.co2;
+  *co2 = (double)sensor.co2;
+  return 1;
 }
 #endif // SUPPORT_S8
 
@@ -309,7 +330,7 @@ void init_se95(sensor_r_t *s) {
   return;
 }
 
-double fetch_se95_temperature(sensor_r_t *s) {
+int8_t fetch_se95_temperature(sensor_r_t *s, double *temperature){ {
   Wire.beginTransmission(SE95_I2C_ADDRESS);
   Wire.write(SE95_TEMPERATURE);
   Wire.endTransmission();
@@ -319,17 +340,17 @@ double fetch_se95_temperature(sensor_r_t *s) {
     msb = Wire.read();
   } else {
     LOG("[SE95] temperature read error, no data available");
-    return 0.0; // No data available, return 0.0
+    return -1; // No data available, return 0.0
   }
   if(Wire.available()){
     lsb = Wire.read();
   } else {
     LOG("[SE95] temperature read error, no data available");
-    return 0.0; // No data available, return 0.0
+    return -1; // No data available, return 0.0
   }
   if(Wire.endTransmission() != ESP_OK){
     LOG("[SE95] temperature read error, end transmission failed");
-    return 0.0; // Transmission error, return 0.0
+    return -1; // Transmission error, return 0.0
   }
 
   // Convert the raw temperature data
@@ -342,7 +363,8 @@ double fetch_se95_temperature(sensor_r_t *s) {
 
   // Fetch temperature from SE95 sensor
   LOG("[SE95] temperature: %.2f °C", temp);
-  return (double)temp;
+  *temperature = (double)temp;
+  return 1;
 }
 #endif // SUPPORT_SE95
 
@@ -508,7 +530,15 @@ void sensors_loop(){
     if(s->value_function == NULL)
       continue;
     if(millis() - l_intv_counters[i] > s->cfg->v_intv){
-      double current_v = s->value_function(s);
+      // fetch current sensor value
+      double current_v = 0.0;
+      int8_t ok = s->value_function(s, &current_v);
+      if(ok < 0){
+        LOG("[SENSORS] ERROR: failed to fetch value for sensor %s, skipping", s->key);
+        l_intv_counters[i] = millis();
+        continue;
+      }
+
       // Validate the value - reject NaN and infinity
       if(isnan(current_v) || isinf(current_v)){
         LOG("[SENSORS] ERROR: invalid value (NaN or infinity) for sensor %s, skipping", s->key);
@@ -649,18 +679,17 @@ const char* at_cmd_handler_sensor(const char *at_cmd, unsigned short at_len){
             if(s->pre_function != NULL)
                 s->pre_function(s);
             // fetch current sensor value
-            double current_value = s->value_function(s);
+            double current_v = 0.0;
+            int8_t ok = s->value_function(s, &current_v);
+            if(ok < 0)
+              return AT_R("+ERROR: failed to fetch sensor value");
             // Validate the value - reject NaN and infinity
-            if(isnan(current_value) || isinf(current_value)){
-                // Call post function if available
-                if(s->post_function != NULL)
-                    s->post_function(s);
-                return AT_R("+ERROR: invalid sensor value (NaN or infinity)");
-            }
+            if(isnan(current_v) || isinf(current_v))
+              return AT_R("+ERROR: invalid sensor value (NaN or infinity)");
             // Call post function if available
             if(s->post_function != NULL)
                 s->post_function(s);
-            return AT_R_DOUBLE(current_value);
+            return AT_R_DOUBLE(current_v);
         } else {
             continue; // continue to next sensor
         }

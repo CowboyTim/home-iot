@@ -204,7 +204,7 @@ typedef struct sensor_r_t {
   sensor_c_t *cfg = NULL;
   void   (*init_function)(sensor_r_t*);
   void   (*pre_function)(sensor_r_t*);
-  double (*value_function)(sensor_r_t*);
+  int8_t (*value_function)(sensor_r_t*, double*);
   void   (*post_function)(sensor_r_t*);
   void   (*destroy_function)(sensor_r_t*);
 } sensor_r_t;
