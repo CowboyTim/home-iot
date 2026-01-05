@@ -158,7 +158,8 @@ typedef struct s_cfg_t {
   char kvmkey[17]      = "unknown";
   uint8_t log_uart     = 0;
   #ifdef SUPPORT_MQ135
-  double mq135_r0      = 10000.0; // default R0 for MQ-135
+  double mq135_r0      = 0;
+  double mq135_rl      = 0;
   #endif // SUPPORT_MQ135
   sensor_c_t sensor_cfg[NR_OF_SENSORS] = {0};
 } sensors_cfg_t;
@@ -185,7 +186,8 @@ sensors_cfg_t cfg = {
   .kvmkey     = "unknown",
   .log_uart   = 0,
   #ifdef SUPPORT_MQ135
-  .mq135_r0   = 10000.0, // default R0 for MQ-135
+  .mq135_r0   = 0, // default R0 for MQ-135
+  .mq135_rl   = 0, // default RL for MQ-135
   #endif // SUPPORT_MQ135
   .sensor_cfg = {0}
 };

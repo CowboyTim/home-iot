@@ -204,30 +204,66 @@ void init_ldr_adc(sensor_r_t *s){
       .destroy_function = destroy_mq135_adc,\
     }
 
+#include "soc/adc_channel.h"
 #define MQ135PIN           A2 // GPIO_NUM_2/A2 pin for MQ-135
-#define MQ135_RL      10000.0 // 10k Ohm load resistor
+#define MQ135_ADC_CHANNEL  ADC1_GPIO2_CHANNEL
+#define MQ135_RL         22.0 // kOhm load resistor
+#define MQ135_R0        76.63 // kOhm clean air resistance
 #define MQ135_VCC         5.0 // Sensor powered by 5V
 #define MQ135_ADC_REF     3.3 // ESP32 ADC reference voltage
+#define MQ135_AVG_NR       50 // number of samples to average from ADC
 
-double mq135_adc_to_ppm(double mq135_r0, int adc_value) {
-  double voltage = (double)adc_value * MQ135_ADC_REF / 4095.0;
-  double RS = (MQ135_VCC - voltage) * MQ135_RL / voltage;
-  RS /= mq135_r0;
-  // For CO2: a = 110.47, b = -2.862 (from datasheet)
-  return pow(10, (log10(RS) - log10(110.47)) / -2.862);
+// For CO2: a = 110.47, b = -2.862 (from datasheet)
+#define MQ135_CO2_A    110.47 // MQ-135 CO2 curve a
+#define MQ135_CO2_B    -2.862 // MQ-135 CO2 curve b
+
+#define MQ135_WARMUP_TIME 30000 // MQ-135 warm-up time in ms
+
+RTC_DATA_ATTR unsigned long mq135_startup_time = 0;
+
+double mq135_adc_to_ppm(double mq135_r0, double mq135_rl, double adc_value) {
+  double RS = ((MQ135_VCC - adc_value) / adc_value ) * mq135_rl; // in kOhm
+  double RATIO = RS / mq135_r0;
+  double ppm = MQ135_CO2_A * pow(RATIO, MQ135_CO2_B);
+  LOG("[MQ-135] ADC Value: %f V, R0: %f kOhm, RL: %f kOhm, RS: %f kOhm, R: %f, PPM: %f", adc_value, mq135_r0, mq135_rl, RS, RATIO, ppm);
+  return ppm;
+}
+
+double calibrate_mq135_r0(double mq135_rl, double adc_value) {
+  double RS = ((MQ135_VCC - adc_value) / adc_value ) * mq135_rl; // in kOhm
+  double R0 = RS / pow((415.0 / MQ135_CO2_A), (1.0 / MQ135_CO2_B));
+  LOG("[MQ-135] Calibration ADC value: Voltage: %f V, RL: %f kOhm, RS: %f kOhm, R0: %f kOhm", adc_value, mq135_rl, RS, R0);
+  return R0;
+}
+
+double get_adc_average(uint8_t samples) {
+  double avg_adc = 0.0;
+  for(uint8_t i = 0; i < samples; i++) {
+    avg_adc += (double)analogRead(MQ135PIN);
+    delay(1);
+  }
+  avg_adc /= samples;
+  avg_adc  = (avg_adc / 4095) * MQ135_ADC_REF;
+  return avg_adc;
 }
 
 int8_t fetch_mq135_adc(sensor_r_t *s, double *ppm){
   if(ppm == NULL)
     return -1;
-  double mq135_r0 = 10000.0; // default R0 value
-  if(s->userdata != NULL)
-    mq135_r0 = *((double*)s->userdata);
-  // fetch MQ-135 ADC value
-  int mq135_adc = analogRead(MQ135PIN); // raw ADC value (0-4095)
-  LOG("[MQ-135] ADC value: %d", mq135_adc);
-  *ppm = mq135_adc_to_ppm(mq135_r0, mq135_adc);
-  LOG("[MQ-135] CO2 ppm: %.2f", ppm);
+  if(millis() - mq135_startup_time < MQ135_WARMUP_TIME){
+    LOG("[MQ-135] sensor warming up, not ready yet, ttl: %d ms", MQ135_WARMUP_TIME - (millis() - mq135_startup_time));
+    return -1; // sensor warming up
+  }
+  double R0 = SENSORS::cfg.mq135_r0;
+  double RL = SENSORS::cfg.mq135_rl;
+
+  // fetch average ADC value
+  double avg_adc = get_adc_average(MQ135_AVG_NR);
+  LOG("[MQ-135] ADC AVG(nr:%d) value: %f V", MQ135_AVG_NR, avg_adc);
+
+  // convert ADC to PPM using MQ-135 formula R0/RL and curve
+  *ppm = mq135_adc_to_ppm(R0, RL, avg_adc);
+  LOG("[MQ-135] CO2 PPM: %f", *ppm);
   return 1;
 }
 
@@ -238,11 +274,13 @@ void init_mq135_adc(sensor_r_t *s){
   analogRead(MQ135PIN);
   analogSetPinAttenuation(MQ135PIN, ADC_11db);
   analogReadResolution(12);
-  s->userdata = malloc(sizeof(double));
-  if(s->userdata == NULL)
-    LOG("[MQ-135] ERROR: unable to allocate memory for userdata, using default R0 of 10k Ohm");
-  memcpy(s->userdata, (void *)&SENSORS::cfg.mq135_r0, sizeof(double));
-  LOG("[MQ-135] ADC initialized on pin %d, resolution: 12, attenuation 11db, R0: %0.f Ohm", MQ135PIN, SENSORS::cfg.mq135_r0);
+  double R0 = SENSORS::cfg.mq135_r0;
+  double RL = SENSORS::cfg.mq135_rl;
+  LOG("[MQ-135] ADC initialized on pin %d, ADC channel: %d, resolution: 12, attenuation 11db, R0: %0.f Ohm, RL: %0.f", MQ135PIN, MQ135_ADC_CHANNEL, R0, RL);
+
+  // wait for MQ-135 to stabilize
+  if(mq135_startup_time == 0)
+    mq135_startup_time = millis();
 }
 
 void destroy_mq135_adc(sensor_r_t *s){
@@ -752,11 +790,32 @@ const char* at_cmd_handler_sensors(const char* atcmdline){
   #ifdef SUPPORT_MQ135
   } else if(p = at_cmd_check("AT+MQ135_R0?", atcmdline, cmd_len)){
     return AT_R_DOUBLE(SENSORS::cfg.mq135_r0);
+  } else if(p = at_cmd_check("AT+MQ135_CALIBRATE_CO2", atcmdline, cmd_len)){
+    if(SENSORS::cfg.mq135_rl <= 0.0)
+      return AT_R("+ERROR: invalid MQ135 RL value, set RL first");
+    if(millis() - mq135_startup_time < MQ135_WARMUP_TIME)
+      return AT_R("+ERROR: MQ135 sensor warming up, not ready yet");
+    // fetch average ADC value
+    double avg_adc = get_adc_average(MQ135_AVG_NR);
+    LOG("[MQ-135] Calibration ADC AVG(nr:%d) value: %f V", MQ135_AVG_NR, avg_adc);
+    SENSORS::cfg.mq135_r0 = calibrate_mq135_r0(SENSORS::cfg.mq135_rl, avg_adc);
+    CFG_SAVE();
+    return AT_R_DOUBLE(SENSORS::cfg.mq135_r0);
   } else if(p = at_cmd_check("AT+MQ135_R0=", atcmdline, cmd_len)){
     double new_r0 = atof(p);
-    if(new_r0 < 1000.0 || new_r0 > 100000.0)
-      return AT_R("+ERROR: invalid R0 value (1000-100000)");
+    if(new_r0 < 1.0 || new_r0 > 1000.0)
+      return AT_R("+ERROR: invalid R0 value 1-1000 kOhm");
     SENSORS::cfg.mq135_r0 = new_r0;
+    CFG_SAVE();
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+MQ135_RL?", atcmdline, cmd_len)){
+    return AT_R_DOUBLE(SENSORS::cfg.mq135_rl);
+  } else if(p = at_cmd_check("AT+MQ135_RL=", atcmdline, cmd_len)){
+    double new_r0 = atof(p);
+    if(new_r0 < 1.0 || new_r0 > 1000.0)
+      return AT_R("+ERROR: invalid RL value 1-1000 kOhm");
+    SENSORS::cfg.mq135_rl = new_r0;
+    CFG_SAVE();
     return AT_R_OK;
   #endif // SUPPORT_MQ135
   } else if(p = at_cmd_check("AT+LOG_INTERVAL_", atcmdline, cmd_len)){
@@ -850,8 +909,10 @@ Sensor Commands:
 
 #ifdef SUPPORT_MQ135
         R"EOF(
-  AT+MQ135_R0=<value>           - Set MQ-135 R0 resistance value (1000-100000 Ohms)
+  AT+MQ135_R0=<value>           - Set MQ-135 R0 resistance value (1-1000 kOhms)
   AT+MQ135_R0?                  - Get MQ-135 R0 resistance value
+  AT+MQ135_RL=<value>           - Set MQ-135 RL load resistance value (1-1000 kOhms)
+  AT+MQ135_RL?                  - Get MQ-135 RL load resistance value
 )EOF"
 #endif // SUPPORT_MQ135
 
