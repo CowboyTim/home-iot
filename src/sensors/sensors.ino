@@ -130,7 +130,7 @@ int8_t dht11_fetch_temperature(sensor_r_t *s, double *temperature){
   }
   double t = (double)DODHT(s)->readTemperature();
   LOG("[DHT11] temperature: %f °C", t);
-  if(t < -40.0 || t > 80.0){
+  if(t < 0.0 || t > 50.0){
     LOG("[DHT11] temperature invalid or out of range, returning 0: %.2f", t);
     *temperature = 0.0;
     return -1;
