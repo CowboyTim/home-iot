@@ -235,13 +235,15 @@ int8_t fetch_mq135_adc(sensor_r_t *s, double *ppm){
 void init_mq135_adc(sensor_r_t *s){
   // initialize MQ-135 ADC pin
   pinMode(MQ135PIN, INPUT);
+  pinMode(MQ135PIN, ANALOG);
+  analogRead(MQ135PIN);
   analogSetPinAttenuation(MQ135PIN, ADC_11db);
   analogReadResolution(12);
   s->userdata = malloc(sizeof(double));
   if(s->userdata == NULL)
     LOG("[MQ-135] ERROR: unable to allocate memory for userdata, using default R0 of 10k Ohm");
   memcpy(s->userdata, (void *)&SENSORS::cfg.mq135_r0, sizeof(double));
-  LOG("[MQ-135] ADC initialized on %d", MQ135PIN);
+  LOG("[MQ-135] ADC initialized on pin %d, resolution: 12, attenuation 11db, R0: %0.f Ohm", MQ135PIN, SENSORS::cfg.mq135_r0);
 }
 
 void destroy_mq135_adc(sensor_r_t *s){
