@@ -826,8 +826,12 @@ const char* at_cmd_handler_sensors(const char* atcmdline){
   } else if(p = at_cmd_check("AT+MQ135_CALIBRATE_CO2", atcmdline, cmd_len)){
     if(SENSORS::cfg.mq135_rl <= 0.0)
       return AT_R("+ERROR: invalid MQ135 RL value, set RL first");
-    if(millis() - mq135_startup_time < MQ135_WARMUP_TIME)
-      return AT_R("+ERROR: MQ135 sensor warming up, not ready yet");
+    if(millis() - mq135_startup_time < MQ135_WARMUP_TIME){
+      char ttl_msg[100] = {0};
+      unsigned long ttl_ms = MQ135_WARMUP_TIME - (millis() - mq135_startup_time);
+      snprintf(ttl_msg, sizeof(ttl_msg), "+ERROR: MQ135 sensor warming up, not ready yet, ttl: %lu ms", ttl_ms);
+      return AT_R_S(String(ttl_msg));
+    }
     // fetch average ADC value
     double avg_adc = get_adc_average(MQ135_AVG_NR);
     LOG("[MQ-135] Calibration ADC AVG(nr:%d) value: %f V", MQ135_AVG_NR, avg_adc);
