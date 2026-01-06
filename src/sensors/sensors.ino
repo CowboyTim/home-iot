@@ -102,7 +102,12 @@ void CFG_INIT() {
 #define DODHT(s) ((DHT*)(s->userdata))
 
 #define DHTPIN  A0     // GPIO_NUM_0/A0 pin for DHT11
+
 uint8_t did_dht11 = 0; // DHT11 read flag, to avoid multiple reads
+RTC_DATA_ATTR double last_dht_humidity = 0.0;
+RTC_DATA_ATTR double last_dht_temperature = 0.0;
+RTC_DATA_ATTR unsigned long last_dht_read_time = 0;
+
 int8_t dht11_fetch_humidity(sensor_r_t *s, double *humidity){
   if(humidity == NULL)
     return -1;
@@ -119,6 +124,8 @@ int8_t dht11_fetch_humidity(sensor_r_t *s, double *humidity){
     return -1;
   }
   *humidity = h;
+  last_dht_humidity = h;
+  last_dht_read_time = millis();
   return 1;
 }
 
@@ -138,6 +145,8 @@ int8_t dht11_fetch_temperature(sensor_r_t *s, double *temperature){
     return -1;
   }
   *temperature = t;
+  last_dht_temperature = t;
+  last_dht_read_time = millis();
   return 1;
 }
 
@@ -210,8 +219,8 @@ void init_ldr_adc(sensor_r_t *s){
 #define MQ135_RL         22.0 // kOhm load resistor
 #define MQ135_R0        76.63 // kOhm clean air resistance
 #define MQ135_VCC         5.0 // Sensor powered by 5V (from USB)
-#define MQ135_ADC_REF     3.3 // ESP32 ADC reference voltage
-#define MQ135_AVG_NR       50 // number of samples to average from ADC
+#define MQ135_ADC_REF_VOLTAGE_IN_MV 3300 // ESP32 ADC reference voltage in mV
+#define MQ135_AVG_NR       50 // number of samples to average from ADC, higher = more stable, don't go too high or uint32_t overflow
 #define MQ135_ADC_MAX    4095 // 12-bit ADC max value
 #define MQ135_ADC_BITS     12 // 12-bit ADC
 
@@ -226,6 +235,16 @@ RTC_DATA_ATTR unsigned long mq135_startup_time = 0;
 
 double mq135_adc_to_ppm(double mq135_r0, double mq135_rl, double adc_value) {
   double RS = ((MQ135_VCC - adc_value) / adc_value ) * mq135_rl; // in kOhm
+
+  #ifdef SUPPORT_DHT11
+  // apply a correction based on temperature and humidity if available
+  if(last_dht_read_time != 0 && millis() - last_dht_read_time < 60000){ // valid DHT11 reading within last 60s
+    double cf = 0.00035 * pow(last_dht_temperature, 2) - 0.019 * last_dht_temperature + 1.224;
+    cf += (last_dht_humidity - 33.0) * -0.0018;
+    RS /= cf;
+  }
+  #endif // SUPPORT_DHT11
+
   double RATIO = RS / mq135_r0;
   double ppm = MQ135_CO2_A * pow(RATIO, MQ135_CO2_B);
   LOG("[MQ-135] ADC Value: %f V, R0: %f kOhm, RL: %f kOhm, RS: %f kOhm, R: %f, PPM: %f", adc_value, mq135_r0, mq135_rl, RS, RATIO, ppm);
@@ -234,21 +253,31 @@ double mq135_adc_to_ppm(double mq135_r0, double mq135_rl, double adc_value) {
 
 double calibrate_mq135_r0(double mq135_rl, double adc_value) {
   double RS = ((MQ135_VCC - adc_value) / adc_value ) * mq135_rl; // in kOhm
+  #ifdef SUPPORT_DHT11
+  // apply a correction based on temperature and humidity if available
+  if(last_dht_read_time != 0 && millis() - last_dht_read_time < 60000){ // valid DHT11 reading within last 60s
+    double cf = 0.00035 * pow(last_dht_temperature, 2) - 0.019 * last_dht_temperature + 1.224;
+    cf += (last_dht_humidity - 33.0) * -0.0018;
+    RS /= cf;
+  }
+  #endif // SUPPORT_DHT11
   double R0 = RS / pow((ATMOSPHERIC_CO2_PPM / MQ135_CO2_A), (1.0 / MQ135_CO2_B));
   LOG("[MQ-135] Calibration ADC value: Voltage: %f V, RL: %f kOhm, RS: %f kOhm, R0: %f kOhm", adc_value, mq135_rl, RS, R0);
   return R0;
 }
 
 double get_adc_average(uint8_t samples) {
-  double avg_adc = 0.0;
+  uint32_t avg_adc = 0.0;
   for(uint8_t i = 0; i < samples; i++) {
-    double v = (double)analogRead(MQ135PIN);
-    avg_adc += v;
+    avg_adc += analogRead(MQ135PIN);
     delayMicroseconds(10);
+    doYIELD;
   }
-  avg_adc /= samples;
-  avg_adc  = (avg_adc / MQ135_ADC_MAX) * MQ135_ADC_REF;
-  return avg_adc;
+  avg_adc *= MQ135_ADC_REF_VOLTAGE_IN_MV;
+  double v_adc = (double)avg_adc / samples;
+  v_adc  /= MQ135_ADC_MAX;
+  v_adc  /= 1000.0; // convert mV to V
+  return v_adc;
 }
 
 int8_t fetch_mq135_adc(sensor_r_t *s, double *ppm){
@@ -273,7 +302,7 @@ int8_t fetch_mq135_adc(sensor_r_t *s, double *ppm){
 
 void init_mq135_adc(sensor_r_t *s){
   // initialize MQ-135 ADC pin
-  pinMode(MQ135PIN, INPUT);
+  pinMode(MQ135PIN, INPUT_PULLDOWN); // assuming MQ-135 is connected to MQ135PIN
   pinMode(MQ135PIN, ANALOG);
   analogRead(MQ135PIN);
   analogSetPinAttenuation(MQ135PIN, ADC_11db);
