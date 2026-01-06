@@ -1,6 +1,26 @@
-# DHT11 and BME280 sensor
+# DHT11, BME280, and BMP280 sensor
 
 ## Software
+
+### Supported Sensors
+
+- **DHT11**: Temperature and Humidity
+- **BME280**: Temperature, Humidity, and Pressure
+- **BMP280**: Temperature and Pressure
+- **LDR**: Light/Illuminance
+- **MQ-135**: Air Quality (CO2)
+- **APDS-9930**: Illuminance and Color
+- **SenseAir S8**: CO2 (NDIR)
+- **SE95**: Temperature
+
+### Required Libraries
+
+For BME280 and BMP280 support, install the following Arduino libraries:
+- Adafruit Unified Sensor
+- Adafruit BME280 Library
+- Adafruit BMP280 Library
+
+Install via Arduino IDE Library Manager or PlatformIO.
 
 ## Build
 
