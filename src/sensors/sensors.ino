@@ -66,18 +66,18 @@ RTC_DATA_ATTR long l_intv_counters[NR_OF_SENSORS] = {0};
 // re-export Wire for sensors.cpp in this SENSORS namespace, note that "Wire"
 // is a global extern object
 TwoWire Wire = TwoWire(I2C_BUS_NUM);
-uint8_t i2c_initialized = 0;
+uint8_t i2c_initialized = 0; // 0=not initialized, 1=initialized, 2=failed
 
 NOINLINE
-uint8_t i2c_initialize(){
+int8_t i2c_initialize(){
   if(i2c_initialized == 1)
     return 1; // already initialized
   if(i2c_initialized == 2)
-    return 0; // failed previously
+    return -1; // failed previously
   if(!Wire.begin(I2C_SDA, I2C_SCL, 100000)) {
     LOG("[SENSORS] I2C hardware init failed!");
     i2c_initialized = 2; // failed
-    return 0;
+    return -1;
   }
   Wire.setClock(100000); // 100kHz
   Wire.setTimeout(100);  // 100ms timeout
@@ -87,8 +87,20 @@ uint8_t i2c_initialize(){
 }
 
 NOINLINE
+int8_t i2c_ping(uint8_t addr) {
+  if(i2c_initialize() == -1)
+    return -1;
+  Wire.beginTransmission(addr);
+  if(Wire.endTransmission() != ESP_OK){
+    LOG("[I2C] Ping to address 0x%02X failed", addr);
+    return -1;
+  }
+  return 1;
+}
+
+NOINLINE
 int8_t i2c_write(uint8_t addr, uint8_t reg, uint8_t value){
-  if(!i2c_initialize())
+  if(i2c_initialize() == -1)
     return -1;
   Wire.beginTransmission(addr);
   Wire.write(reg);
@@ -100,7 +112,7 @@ int8_t i2c_write(uint8_t addr, uint8_t reg, uint8_t value){
 
 NOINLINE
 int8_t i2c_write16(uint8_t addr, uint8_t reg, uint16_t value){
-  if(!i2c_initialize())
+  if(i2c_initialize() == -1)
     return -1;
   Wire.beginTransmission(addr);
   Wire.write(reg);
@@ -113,7 +125,7 @@ int8_t i2c_write16(uint8_t addr, uint8_t reg, uint16_t value){
 
 NOINLINE
 uint8_t i2c_read8(uint8_t addr, uint8_t reg){
-  if(!i2c_initialize())
+  if(i2c_initialize() == -1)
     return 0xFF;
   Wire.beginTransmission(addr);
   Wire.write(reg);
@@ -132,7 +144,7 @@ uint8_t i2c_read8(uint8_t addr, uint8_t reg){
 
 NOINLINE
 uint16_t i2c_read16(uint8_t addr, uint8_t reg){
-  if(!i2c_initialize())
+  if(i2c_initialize() == -1)
     return 0xFFFF;
   Wire.beginTransmission(addr);
   Wire.write(reg);
@@ -385,8 +397,11 @@ void post_bme280(sensor_r_t *s){
 }
 
 void init_bme280(sensor_r_t *s){
-  if(i2c_initialize() != 1)
+  if(i2c_ping(BME280_ADDR) == -1){
+    s->cfg->enabled = 0 ; // Disable in config
+    LOG("[BME280] sensor not found on I2C address 0x%02X", BME280_ADDR);
     return;
+  }
 
   // read ID
   uint8_t id = i2c_read8(BME280_ADDR, ID_REG) & 0xFF;
@@ -751,11 +766,7 @@ int8_t fetch_s8_co2(sensor_r_t *s, double *co2){
 #define SE95_ID               0x05 // Command to read the ID of the SE95 sensor
 
 void init_se95(sensor_r_t *s) {
-  if(i2c_initialize() != 1)
-    return;
-
-  uint16_t raw_temp = i2c_read16(SE95_I2C_ADDRESS, SE95_TEMPERATURE);
-  if(raw_temp == 0xFFFF){
+  if(i2c_ping(SE95_I2C_ADDRESS) == -1){
     s->cfg->enabled = 0 ; // Disable in config
     LOG("[SE95] sensor not found");
     return;
