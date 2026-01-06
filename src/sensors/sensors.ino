@@ -317,9 +317,8 @@ void init_dht11(sensor_r_t *s){
       .post_function = post_bme280,\
     }
 
-#define BMP280_ADDR 0x76
-#define BME280_ADDR 0x76
-#define ID_REG      0xD0
+#define BME280_I2C_ADDRESS 0x76
+#define BME280_ID_REG      0xD0
 
 // Trimming parameters
 struct {
@@ -398,38 +397,38 @@ void post_bme280(sensor_r_t *s){
 }
 
 void init_bme280(sensor_r_t *s){
-  if(i2c_ping(BME280_ADDR) == -1){
+  if(i2c_ping(BME280_I2C_ADDRESS) == -1){
     s->cfg->enabled = 0 ; // Disable in config
-    LOG("[BME280] sensor not found on I2C address 0x%02X", BME280_ADDR);
+    LOG("[BME280] sensor not found on I2C address 0x%02X", BME280_I2C_ADDRESS);
     return;
   }
 
   // read ID
-  uint8_t id = i2c_read8(BME280_ADDR, ID_REG) & 0xFF;
+  uint8_t id = i2c_read8(BME280_I2C_ADDRESS, BME280_ID_REG) & 0xFF;
   if(id != 0x60){
     s->cfg->enabled = 0 ; // Disable in config
     LOG("[BME280] sensor not found, read id: 0x%02X", id);
     return;
   }
-  LOG("[BME280] initialized on I2C address 0x%02X, id: 0x%02X", BMP280_ADDR, id);
+  LOG("[BME280] initialized on I2C address 0x%02X, id: 0x%02X", BME280_I2C_ADDRESS, id);
 
   // read Calibration Data
-  cal.dig_T1 = i2c_read16(BME280_ADDR, 0x88);
-  cal.dig_T2 = i2c_read16(BME280_ADDR, 0x8A);
-  cal.dig_T3 = i2c_read16(BME280_ADDR, 0x8C);
-  cal.dig_P1 = i2c_read16(BME280_ADDR, 0x8E);
-  cal.dig_P2 = i2c_read16(BME280_ADDR, 0x90);
-  cal.dig_P3 = i2c_read16(BME280_ADDR, 0x92);
-  cal.dig_P4 = i2c_read16(BME280_ADDR, 0x94);
-  cal.dig_P5 = i2c_read16(BME280_ADDR, 0x96);
-  cal.dig_P6 = i2c_read16(BME280_ADDR, 0x98);
-  cal.dig_P7 = i2c_read16(BME280_ADDR, 0x9A);
-  cal.dig_P8 = i2c_read16(BME280_ADDR, 0x9C);
-  cal.dig_P9 = i2c_read16(BME280_ADDR, 0x9E);
+  cal.dig_T1 = i2c_read16(BME280_I2C_ADDRESS, 0x88);
+  cal.dig_T2 = i2c_read16(BME280_I2C_ADDRESS, 0x8A);
+  cal.dig_T3 = i2c_read16(BME280_I2C_ADDRESS, 0x8C);
+  cal.dig_P1 = i2c_read16(BME280_I2C_ADDRESS, 0x8E);
+  cal.dig_P2 = i2c_read16(BME280_I2C_ADDRESS, 0x90);
+  cal.dig_P3 = i2c_read16(BME280_I2C_ADDRESS, 0x92);
+  cal.dig_P4 = i2c_read16(BME280_I2C_ADDRESS, 0x94);
+  cal.dig_P5 = i2c_read16(BME280_I2C_ADDRESS, 0x96);
+  cal.dig_P6 = i2c_read16(BME280_I2C_ADDRESS, 0x98);
+  cal.dig_P7 = i2c_read16(BME280_I2C_ADDRESS, 0x9A);
+  cal.dig_P8 = i2c_read16(BME280_I2C_ADDRESS, 0x9C);
+  cal.dig_P9 = i2c_read16(BME280_I2C_ADDRESS, 0x9E);
 
   // configure sensor
   // ctrl_meas, Temperature oversampling x2, Pressure x16, Normal mode
-  if(i2c_write(BME280_ADDR, 0xF4, 0x57) == -1)
+  if(i2c_write(BME280_I2C_ADDRESS, 0xF4, 0x57) == -1)
     LOG("[BME280] failed to write ctrl_meas");
 }
 
@@ -592,61 +591,158 @@ void destroy_mq135_adc(sensor_r_t *s){
 #endif // SUPPORT_MQ135
 
 // APDS-9930 Sensor
-#define SENSOR_APDS9930_ILLUMINANCE {.name = "APDS-9930 Illuminance", .key = "apds_illuminance",}
-#define SENSOR_APDS9930_COLOR       {.name = "APDS-9930 Color", .key = "apds_color",}
+#define SENSOR_APDS9930_ALS        {.name = "APDS-9930 Ambient Light Sensor", .key = "apds_als",}
+#define SENSOR_APDS9930_PROXIMITY  {.name = "APDS-9930 Proximity", .key = "apds_proximity",}
 #ifdef SUPPORT_APDS9930
-#define SENSOR_APDS9930_ILLUMINANCE \
+#define SENSOR_APDS9930_ALS \
     {\
-      .name = "APDS-9930 Illuminance",\
-      .key  = "apds_illuminance",\
+      .name = "APDS-9930 Ambient Light Sensor",\
+      .key  = "apds_als",\
       .unit_fmt = "%s:%s*lx,%.0f\r\n",\
       .init_function = init_apds9930,\
-      .value_function = fetch_apds_illuminance,\
+      .value_function = fetch_apds_als,\
     }
-#define SENSOR_APDS9930_COLOR \
+#define SENSOR_APDS9930_PROXIMITY \
     {\
-      .name = "APDS-9930 Color",\
-      .key  = "apds_color",\
+      .name = "APDS-9930 Proximity",\
+      .key  = "apds_proximity",\
       .unit_fmt = "%s:%s*C,%.0f\r\n",\
       .init_function = init_apds9930,\
-      .value_function = fetch_apds_color,\
+      .value_function = fetch_apds_proximity,\
     }
 
 #define APDS9930_I2C_ADDRESS 0x39 // default I2C address for APDS-9930
+#define APDS9960_REG         0x80 // Base register
+#define APDS9960_ENABLE      0x80 // Register to power on the device
+#define APDS9960_ATIME       0x81 // ALS ADC time register
+#define APDS9960_PTIME       0x82 // Proximity ADC time register
+#define APDS9960_WTIME       0x83 // Wait time register
+#define APDS9960_AILTL       0x84 // ALS interrupt low threshold low byte
+#define APDS9960_AILTH       0x85 // ALS interrupt low threshold high byte
+#define APDS9960_AIHTL       0x86 // ALS interrupt high threshold low byte
+#define APDS9960_AIHTH       0x87 // ALS interrupt high threshold high byte
+#define APDS9960_PILTL       0x89 // Proximity interrupt low threshold low byte
+#define APDS9960_PILTH       0x8A // Proximity interrupt low threshold high byte
+#define APDS9960_PIHTL       0x8B // Proximity interrupt high threshold low byte
+#define APDS9960_PIHTH       0x8C // Proximity interrupt high threshold high byte
+#define APDS9960_PERS        0x8C // Interrupt persistence filters
+#define APDS9960_CONFIG1     0x8D // Configuration register 1
+#define APDS9960_PPULSE      0x8E // Proximity pulse count and length
+#define APDS9960_CONTROL     0x8F // Control register
+#define APDS9960_CONFIG2     0x90 // Configuration register 2
+#define APDS9960_ID          0x92 // Device ID
+#define APDS9960_STATUS      0x93 // Device status
+#define APDS9960_CDATAL      0x94 // Clear channel data low byte
+#define APDS9960_CDATAH      0x95 // Clear channel data high byte
+#define APDS9960_RDATAL      0x96 // Red channel data low byte
+#define APDS9960_RDATAH      0x97 // Red channel data high byte
+#define APDS9960_GDATAL      0x98 // Green channel data low byte
+#define APDS9960_GDATAH      0x99 // Green channel data high byte
+#define APDS9960_BDATAL      0x9A // Blue channel data low byte
+#define APDS9960_BDATAH      0x9B // Blue channel data high byte
+#define APDS9960_PDATA       0x9C // Proximity data register
+#define APDS9960_POFFSET_UR  0x9D // Proximity offset register upper right
+#define APDS9960_POFFSET_DL  0x9E // Proximity offset register down left
+#define APDS9960_CONFIG3     0x9F // Configuration register 3
+#define APDS9960_GPENTH      0xA0 // Gesture proximity enter threshold
+#define APDS9960_GEXTH       0xA1 // Gesture proximity exit threshold
+#define APDS9960_GCONF1      0xA2 // Gesture configuration register 1
+#define APDS9960_GCONF2      0xA3 // Gesture configuration register 2
+#define APDS9960_GOFFSET_U   0xA4 // Gesture offset register up
+#define APDS9960_GOFFSET_D   0xA5 // Gesture offset register down
+#define APDS9960_GOFFSET_L   0xA7 // Gesture offset register left
+#define APDS9960_GOFFSET_R   0xA9 // Gesture offset register right
+#define APDS9960_GPULSE      0xA6 // Gesture pulse register
+#define APDS9960_GCONF3      0xAA // Gesture configuration register 3
+#define APDS9960_GCONF4      0xAB // Gesture configuration register 4
+#define APDS9960_GFLVL       0xAE // Gesture FIFO level register
+#define APDS9960_GSTATUS     0xAF // Gesture status register
+#define APDS9960_IFORCE      0xE4 // Interrupt force register
+#define APDS9960_PICLEAR     0xE5 // Proximity interrupt clear register
+#define APDS9960_CICLEAR     0xE6 // ALS interrupt clear register
+#define APDS9960_AICLEAR     0xE7 // ALS and proximity interrupt clear register
+#define APDS9960_GFIFO_U     0xFC // Gesture FIFO UP value
+#define APDS9960_GFIFO_D     0xFD // Gesture FIFO DOWN value
+#define APDS9960_GFIFO_L     0xFE // Gesture FIFO LEFT value
+#define APDS9960_GFIFO_R     0xFF // Gesture FIFO RIGHT value
+#define APDS9960_GVALID      0xA9 // Gesture valid bit
+#define APDS9960_ENABLE_PON  0x01 // Bit to power on
+#define APDS9960_ENABLE_AEN  0x02 // Bit to enable ALS
+#define APDS9960_ENABLE_PEN  0x04 // Bit to enable Proximity
+#define APDS9960_ENABLE_WEN  0x08 // Bit to enable wait timer
 
-Adafruit_APDS9930 apds(APDS9930_I2C_ADDRESS);
-
-int8_t fetch_apds_illuminance(sensor_r_t *s, double *illuminance){
+int8_t fetch_apds_als(sensor_r_t *s, double *illuminance){
   if(illuminance == NULL)
     return -1;
-  // fetch APDS-9930 illuminance (lux)
-  float lux = 0;
-  apds.getLux(&lux);
-  LOG("[APDS-9930] lux: %.2f", lux);
-  *illuminance = (double)lux;
-  return 1
+  return 1;
 }
 
-int8_t fetch_apds_color(sensor_r_t *s, double *color_value){
+int8_t fetch_apds_proximity(sensor_r_t *s, double *color_value){
   if(color_value == NULL)
     return -1;
-  // fetch APDS-9930 color (returns C, but logs R,G,B,C)
-  uint16_t apds_r = 0, apds_g = 0, apds_b = 0, apds_c = 0;
-  apds.getRGB(&apds_r, &apds_g, &apds_b, &apds_c);
-  LOG("[APDS-9930] RGB: %d,%d,%d,%d", apds_r, apds_g, apds_b, apds_c);
-  // For the main value, return clear channel (C)
-  *color_value = (double)apds_c;
   return 1;
 }
 
 void init_apds9930(sensor_r_t *s){
-  if(!apds.begin()) {
-    LOG("[APDS-9930] not found");
+  // ping
+  if(i2c_ping(APDS9930_I2C_ADDRESS) == -1){
+    s->cfg->enabled = 0 ; // Disable in config
+    LOG("[APDS-9930] sensor not found on I2C address 0x%02X", APDS9930_I2C_ADDRESS);
     return;
   }
-  apds.enableColor(true);
-  apds.enableLightSensor(true);
-  LOG("[APDS-9930] initialized");
+
+  // read ID
+  uint8_t id = i2c_read8(APDS9930_I2C_ADDRESS, APDS9960_ID);
+  if(id != 0x39){
+    LOG("[APDS-9930] sensor not found on address 0x%02X, read id: 0x%02X", APDS9930_I2C_ADDRESS, id);
+  }
+  LOG("[APDS-9930] sensor found, read id: 0x%02X", id);
+
+  // powed down the device
+  if(i2c_write(APDS9930_I2C_ADDRESS, APDS9960_ENABLE, 0x00) == -1){
+    s->cfg->enabled = 0 ; // Disable in config
+    LOG("[APDS-9930] failed to power down the device");
+    return;
+  }
+
+  // set ATIME, WTIME, PTIME, PPULSE, PROXIMITY_GAIN, ALS_GAIN, etc.
+  i2c_write(APDS9930_I2C_ADDRESS, APDS9960_ATIME, 0xDB); // 100ms
+  i2c_write(APDS9930_I2C_ADDRESS, APDS9960_WTIME, 0xF6); // 27ms
+  i2c_write(APDS9930_I2C_ADDRESS, APDS9960_PTIME, 0xFF); // 2.72ms
+  i2c_write(APDS9930_I2C_ADDRESS, APDS9960_PPULSE, 0x87); // 16us, 8 pulses
+  i2c_write(APDS9930_I2C_ADDRESS, APDS9960_CONTROL, 0x05); // Proximity gain 4x, ALS gain 16x
+  i2c_write(APDS9930_I2C_ADDRESS, APDS9960_POFFSET_UR, 0); // Proximity offset upper right
+  i2c_write(APDS9930_I2C_ADDRESS, APDS9960_POFFSET_DL, 0); // Proximity offset down left
+  i2c_write(APDS9930_I2C_ADDRESS, APDS9960_CONFIG2, 0x01); // LED Boost 300%
+  i2c_write(APDS9930_I2C_ADDRESS, APDS9960_PERS, 0x11); // 2 consecutive prox or ALS for int.
+  i2c_write(APDS9930_I2C_ADDRESS, APDS9960_AILTL, 0xFF); // ALS low threshold low byte
+  i2c_write(APDS9930_I2C_ADDRESS, APDS9960_AILTH, 0xFF); // ALS low threshold high byte
+  i2c_write(APDS9930_I2C_ADDRESS, APDS9960_AIHTL, 0x00); // ALS high threshold low byte
+  i2c_write(APDS9930_I2C_ADDRESS, APDS9960_AIHTH, 0x00); // ALS high threshold high byte
+  i2c_write(APDS9930_I2C_ADDRESS, APDS9960_PILTL, 0xFF); // Prox low threshold low byte
+  i2c_write(APDS9930_I2C_ADDRESS, APDS9960_PILTH, 0xFF); // Prox low threshold high byte
+  i2c_write(APDS9930_I2C_ADDRESS, APDS9960_PIHTL, 0x00); // Prox high threshold low byte
+  i2c_write(APDS9930_I2C_ADDRESS, APDS9960_PIHTH, 0x00); // Prox high threshold high byte
+  i2c_write(APDS9930_I2C_ADDRESS, APDS9960_CONFIG1, 0x60); // No 12x wait (WTIME) factor
+  i2c_write(APDS9930_I2C_ADDRESS, APDS9960_CONFIG3, 0x00); // Disable all photodiode and gesture interrupts
+  i2c_write(APDS9930_I2C_ADDRESS, APDS9960_GCONF4, 0x00); // Disable gesture
+  i2c_write(APDS9930_I2C_ADDRESS, APDS9960_IFORCE, 0x00); // Clear all interrupts
+  i2c_write(APDS9930_I2C_ADDRESS, APDS9960_AICLEAR, 0x00); // Clear ALS and Proximity interrupt
+  if(i2c_write(APDS9930_I2C_ADDRESS, APDS9960_PICLEAR, 0x00) == -1){ // Clear Proximity interrupt
+    s->cfg->enabled = 0 ; // Disable in config
+    LOG("[APDS-9930] failed to clear proximity interrupt");
+    return;
+  }
+
+  // power on the device
+  if(i2c_write(APDS9930_I2C_ADDRESS, APDS9960_ENABLE, APDS9960_ENABLE_PON|APDS9960_ENABLE_AEN|APDS9960_ENABLE_PEN|APDS9960_ENABLE_WEN) == -1){
+    s->cfg->enabled = 0 ; // Disable in config
+    LOG("[APDS-9930] failed to power on the device");
+    return;
+  }
+  // wait for power on 12ms per datasheet, see https://docs.broadcom.com/wcs-public/products/data-sheets--technical-specifications/data-sheet/736/749/av02-3190en_ds_apds-9930_2015-11-13.pdf
+  delay(12);
+  LOG("[APDS-9930] initialized on I2C address 0x%02X, id: 0x%02X", APDS9930_I2C_ADDRESS, id);
   return;
 }
 #endif // APDS-9930
@@ -802,8 +898,8 @@ sensor_r_t all_sensors[NR_OF_SENSORS] = {
     SENSOR_BME280_PRESSURE,
     SENSOR_LDR,
     SENSOR_MQ135,
-    SENSOR_APDS9930_ILLUMINANCE,
-    SENSOR_APDS9930_COLOR,
+    SENSOR_APDS9930_ALS,
+    SENSOR_APDS9930_PROXIMITY,
     SENSOR_S8,
     SENSOR_SE95_TEMPERATURE,
 };
@@ -1215,8 +1311,8 @@ Available sensors:
 
 #ifdef SUPPORT_APDS9930
         R"EOF(
-  - APDS_ILLUMINANCE            - APDS-9930 light sensor
-  - APDS_COLOR                  - APDS-9930 RGB color sensor
+  - APDS_ALS                    - APDS-9930 Ambient Light Sensor
+  - APDS_PROXIMITY              - APDS-9930 Proximity sensor
 )EOF"
 #endif // SUPPORT_APDS9930
 

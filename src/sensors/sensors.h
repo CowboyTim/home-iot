@@ -121,7 +121,7 @@
 #define SUPPORT_DHT11
 #define SUPPORT_LDR
 #define SUPPORT_MQ135
-#undef SUPPORT_APDS9930   // TODO: implement software + hardware
+#define SUPPORT_APDS9930
 #define SUPPORT_BME280
 
 #define NR_OF_SENSORS 13
