@@ -44,6 +44,8 @@
 #define I2C_SDA     GPIO_NUM_6 // SDA: GPIO_NUM_8 -> same as LED
 #define I2C_SCL     GPIO_NUM_7 // SCL: GPIO_NUM_9
 #define I2C_BUS_NUM 0
+#define I2C_FREQ    100000L // 100kHz
+#define I2C_TIMEOUT 100     // 100ms
 #ifdef NO_GLOBAL_WIRE
 #include <Wire.h>
 #else
@@ -71,16 +73,15 @@ uint8_t i2c_initialized = 0; // 0=not initialized, 1=initialized, 2=failed
 NOINLINE
 int8_t i2c_initialize(){
   if(i2c_initialized == 1)
-    return 1; // already initialized
+    return 1;  // already initialized
   if(i2c_initialized == 2)
     return -1; // failed previously
-  if(!Wire.begin(I2C_SDA, I2C_SCL, 100000)) {
+  if(!Wire.begin(I2C_SDA, I2C_SCL, I2C_FREQ)){
     LOG("[SENSORS] I2C hardware init failed!");
     i2c_initialized = 2; // failed
     return -1;
   }
-  Wire.setClock(100000); // 100kHz
-  Wire.setTimeout(100);  // 100ms timeout
+  Wire.setTimeout(I2C_TIMEOUT);
   LOG("[SENSORS] I2C initialized on SDA: %d, SCL: %d", I2C_SDA, I2C_SCL);
   i2c_initialized = 1;
   return 1;
