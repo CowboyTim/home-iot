@@ -117,13 +117,14 @@
  */
 
 #undef SUPPORT_S8
-#undef SUPPORT_SE95
+#define SUPPORT_SE95
 #define SUPPORT_DHT11
 #define SUPPORT_LDR
 #define SUPPORT_MQ135
 #undef SUPPORT_APDS9930   // TODO: implement software + hardware
+#define SUPPORT_BME280
 
-#define NR_OF_SENSORS 8
+#define NR_OF_SENSORS 13
 #define SENSORS_OUTBUFFER_SIZE  128
 
 #include <Arduino.h>

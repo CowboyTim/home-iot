@@ -40,22 +40,120 @@
 #include <DHT.h>
 #endif // SUPPORT_DHT11
 
+#if defined(SUPPORT_SE95) || defined(SUPPORT_BME280) || defined(SUPPORT_BMP280) || defined(SUPPORT_APDS9930)
+#define I2C_SDA     GPIO_NUM_6 // SDA: GPIO_NUM_8 -> same as LED
+#define I2C_SCL     GPIO_NUM_7 // SCL: GPIO_NUM_9
+#define I2C_BUS_NUM 0
+#ifdef NO_GLOBAL_WIRE
+#include <Wire.h>
+#else
+// "localize" NO_GLOBAL_WIRE to only this include
+#define NO_GLOBAL_WIRE
+#include <Wire.h>
+#undef NO_GLOBAL_WIRE
+#endif
+#endif
+
 #ifdef SUPPORT_S8
 #include "s8_uart.h"
-#endif // SUPPORT_S8
-
-#ifdef SUPPORT_SE95
-#include <Wire.h>
-#endif // SUPPORT_SE95
-
-#ifdef SUPPORT_APDS9930
-#include <Wire.h>
-#include <Adafruit_APDS9960.h>
-#endif // SUPPORT_APDS9930
+#endif
 
 namespace SENSORS {
 
 RTC_DATA_ATTR long l_intv_counters[NR_OF_SENSORS] = {0};
+
+#if defined(SUPPORT_SE95) || defined(SUPPORT_BME280) || defined(SUPPORT_BMP280) || defined(SUPPORT_APDS9930)
+// re-export Wire for sensors.cpp in this SENSORS namespace, note that "Wire"
+// is a global extern object
+TwoWire Wire = TwoWire(I2C_BUS_NUM);
+uint8_t i2c_initialized = 0;
+
+NOINLINE
+uint8_t i2c_initialize(){
+  if(i2c_initialized == 1)
+    return 1; // already initialized
+  if(i2c_initialized == 2)
+    return 0; // failed previously
+  if(!Wire.begin(I2C_SDA, I2C_SCL, 100000)) {
+    LOG("[SENSORS] I2C hardware init failed!");
+    i2c_initialized = 2; // failed
+    return 0;
+  }
+  Wire.setClock(100000); // 100kHz
+  Wire.setTimeout(100);  // 100ms timeout
+  LOG("[SENSORS] I2C initialized on SDA: %d, SCL: %d", I2C_SDA, I2C_SCL);
+  i2c_initialized = 1;
+  return 1;
+}
+
+NOINLINE
+int8_t i2c_write(uint8_t addr, uint8_t reg, uint8_t value){
+  if(!i2c_initialize())
+    return -1;
+  Wire.beginTransmission(addr);
+  Wire.write(reg);
+  Wire.write(value);
+  if(Wire.endTransmission() != ESP_OK)
+    return -1;
+  return 1;
+}
+
+NOINLINE
+int8_t i2c_write16(uint8_t addr, uint8_t reg, uint16_t value){
+  if(!i2c_initialize())
+    return -1;
+  Wire.beginTransmission(addr);
+  Wire.write(reg);
+  Wire.write((value >> 8) & 0xFF); // MSB
+  Wire.write(value & 0xFF);        // LSB
+  if(Wire.endTransmission() != ESP_OK)
+    return -1;
+  return 1;
+}
+
+NOINLINE
+uint8_t i2c_read8(uint8_t addr, uint8_t reg){
+  if(!i2c_initialize())
+    return 0xFF;
+  Wire.beginTransmission(addr);
+  Wire.write(reg);
+  if(Wire.endTransmission() != ESP_OK)
+    return 0xFF;
+  Wire.requestFrom(addr, 1);
+  uint8_t value;
+  if(Wire.available())
+    value = Wire.read();
+  else
+    return 0xFF;
+  if(Wire.endTransmission() != ESP_OK)
+    return 0xFF;
+  return value;
+}
+
+NOINLINE
+uint16_t i2c_read16(uint8_t addr, uint8_t reg){
+  if(!i2c_initialize())
+    return 0xFFFF;
+  Wire.beginTransmission(addr);
+  Wire.write(reg);
+  if(Wire.endTransmission() != ESP_OK)
+    return 0xFFFF;
+  Wire.requestFrom(addr, 2);
+  uint8_t msb, lsb;
+  if(Wire.available())
+    msb = Wire.read();
+  else
+    return 0xFFFF;
+  if(Wire.available())
+    lsb = Wire.read();
+  else
+    return 0xFFFF;
+  if(Wire.endTransmission() != ESP_OK)
+    return 0xFFFF;
+  return ((msb << 8) | lsb);
+}
+
+#endif
 
 NOINLINE
 void CFG_SAVE() {
@@ -169,6 +267,157 @@ void init_dht11(sensor_r_t *s){
 }
 
 #endif // SUPPORT_DHT11
+
+// BME280 Sensor
+#define SENSOR_BME280_HUMIDITY    {.name = "BME280 Humidity", .key = "bme280_humidity",}
+#define SENSOR_BME280_TEMPERATURE {.name = "BME280 Temperature", .key = "bme280_temperature",}
+#define SENSOR_BME280_PRESSURE    {.name = "BME280 Pressure", .key = "bme280_pressure",}
+#ifdef SUPPORT_BME280
+#define SENSOR_BME280_HUMIDITY \
+    {\
+      .name = "BME280 Humidity",\
+      .key  = "bme280_humidity",\
+      .unit_fmt = "%s:%s*%%,%.0f\r\n",\
+      .init_function = init_bme280,\
+      .pre_function = pre_bme280,\
+      .value_function = bme280_fetch_humidity,\
+      .post_function = post_bme280,\
+    }
+#define SENSOR_BME280_TEMPERATURE \
+    {\
+      .name = "BME280 Temperature",\
+      .key  = "bme280_temperature",\
+      .unit_fmt = "%s:%s*°C,%.2f\r\n",\
+      .init_function = init_bme280,\
+      .pre_function = pre_bme280,\
+      .value_function = bme280_fetch_temperature,\
+      .post_function = post_bme280,\
+    }
+#define SENSOR_BME280_PRESSURE \
+    {\
+      .name = "BME280 Pressure",\
+      .key  = "bme280_pressure",\
+      .unit_fmt = "%s:%s*hPa,%.2f\r\n",\
+      .init_function = init_bme280,\
+      .pre_function = pre_bme280,\
+      .value_function = bme280_fetch_pressure,\
+      .post_function = post_bme280,\
+    }
+
+#define BMP280_ADDR 0x76
+#define BME280_ADDR 0x76
+#define ID_REG      0xD0
+
+// Trimming parameters
+struct {
+  uint16_t dig_T1;
+  int16_t  dig_T2, dig_T3;
+  uint16_t dig_P1;
+  int16_t  dig_P2, dig_P3, dig_P4, dig_P5, dig_P6, dig_P7, dig_P8, dig_P9;
+} cal;
+
+uint8_t did_bme280 = 0; // BME280 read flag
+RTC_DATA_ATTR double last_bme280_humidity = 0.0;
+RTC_DATA_ATTR double last_bme280_temperature = 0.0;
+RTC_DATA_ATTR double last_bme280_pressure = 0.0;
+RTC_DATA_ATTR unsigned long last_bme280_read_time = 0;
+
+int8_t bme280_fetch_humidity(sensor_r_t *s, double *humidity){
+  if(humidity == NULL)
+    return -1;
+  if(!did_bme280){
+    // TODO
+    last_bme280_read_time = millis();
+    did_bme280 = 1;
+  }
+  LOG("[BME280] humidity: %f %%", last_bme280_humidity);
+  if(last_bme280_humidity < 0.0 || last_bme280_humidity > 100.0){
+    LOG("[BME280] humidity invalid or out of range: %.2f", last_bme280_humidity);
+    *humidity = 0.0;
+    return -1;
+  }
+  *humidity = last_bme280_humidity;
+  return 1;
+}
+
+int8_t bme280_fetch_temperature(sensor_r_t *s, double *temperature){
+  if(temperature == NULL)
+    return -1;
+  if(!did_bme280){
+    // TODO
+    last_bme280_read_time = millis();
+    did_bme280 = 1;
+  }
+  LOG("[BME280] temperature: %f °C", last_bme280_temperature);
+  if(last_bme280_temperature < -40.0 || last_bme280_temperature > 85.0){
+    LOG("[BME280] temperature invalid or out of range: %.2f", last_bme280_temperature);
+    *temperature = 0.0;
+    return -1;
+  }
+  *temperature = last_bme280_temperature;
+  return 1;
+}
+
+int8_t bme280_fetch_pressure(sensor_r_t *s, double *pressure){
+  if(pressure == NULL)
+    return -1;
+  if(!did_bme280){
+    // TODO
+    last_bme280_read_time = millis();
+    did_bme280 = 1;
+  }
+  LOG("[BME280] pressure: %f hPa", last_bme280_pressure);
+  if(last_bme280_pressure < 300.0 || last_bme280_pressure > 1100.0){
+    LOG("[BME280] pressure invalid or out of range: %.2f", last_bme280_pressure);
+    *pressure = 0.0;
+    return -1;
+  }
+  *pressure = last_bme280_pressure;
+  return 1;
+}
+
+void pre_bme280(sensor_r_t *s){
+  did_bme280 = 0;
+}
+
+void post_bme280(sensor_r_t *s){
+  did_bme280 = 0;
+}
+
+void init_bme280(sensor_r_t *s){
+  if(i2c_initialize() != 1)
+    return;
+
+  // read ID
+  uint8_t id = i2c_read8(BME280_ADDR, ID_REG) & 0xFF;
+  if(id != 0x60){
+    s->cfg->enabled = 0 ; // Disable in config
+    LOG("[BME280] sensor not found, read id: 0x%02X", id);
+    return;
+  }
+  LOG("[BME280] initialized on I2C address 0x%02X, id: 0x%02X", BMP280_ADDR, id);
+
+  // read Calibration Data
+  cal.dig_T1 = i2c_read16(BME280_ADDR, 0x88);
+  cal.dig_T2 = i2c_read16(BME280_ADDR, 0x8A);
+  cal.dig_T3 = i2c_read16(BME280_ADDR, 0x8C);
+  cal.dig_P1 = i2c_read16(BME280_ADDR, 0x8E);
+  cal.dig_P2 = i2c_read16(BME280_ADDR, 0x90);
+  cal.dig_P3 = i2c_read16(BME280_ADDR, 0x92);
+  cal.dig_P4 = i2c_read16(BME280_ADDR, 0x94);
+  cal.dig_P5 = i2c_read16(BME280_ADDR, 0x96);
+  cal.dig_P6 = i2c_read16(BME280_ADDR, 0x98);
+  cal.dig_P7 = i2c_read16(BME280_ADDR, 0x9A);
+  cal.dig_P8 = i2c_read16(BME280_ADDR, 0x9C);
+  cal.dig_P9 = i2c_read16(BME280_ADDR, 0x9E);
+
+  // configure sensor
+  // ctrl_meas, Temperature oversampling x2, Pressure x16, Normal mode
+  if(i2c_write(BME280_ADDR, 0xF4, 0x57) == -1)
+    LOG("[BME280] failed to write ctrl_meas");
+}
+
+#endif // SUPPORT_BME280
 
 // LDR Sensor
 #define SENSOR_LDR {.name = "LDR Illuminance", .key = "ldr_illuminance",}
@@ -347,9 +596,6 @@ void destroy_mq135_adc(sensor_r_t *s){
       .value_function = fetch_apds_color,\
     }
 
-// re-export Wire for sensors.cpp in this SENSORS namespace, note that "Wire"
-// is a global extern object
-TwoWire Wire = Wire;
 #define APDS9930_I2C_ADDRESS 0x39 // default I2C address for APDS-9930
 
 Adafruit_APDS9930 apds(APDS9930_I2C_ADDRESS);
@@ -497,12 +743,6 @@ int8_t fetch_s8_co2(sensor_r_t *s, double *co2){
       .value_function = fetch_se95_temperature,\
     }
 
-// re-export Wire for sensors.cpp in this SENSORS namespace, note that "Wire"
-// is a global extern object
-TwoWire Wire = Wire;
-#define I2C_DAT   6
-#define I2C_CLK   7
-
 #define SE95_I2C_ADDRESS      0x48 // default I2C address for SE95
 #define SE95_TEMPERATURE      0x00 // Command to read temperature from SE95 sensor
 #define SE95_CONFIGURATION    0x01 // Command to configure SE95 sensor
@@ -511,64 +751,43 @@ TwoWire Wire = Wire;
 #define SE95_ID               0x05 // Command to read the ID of the SE95 sensor
 
 void init_se95(sensor_r_t *s) {
-  // Initialize SE95 temperature sensor
-  Wire.begin();
-  #if defined(ARDUINO_ARCH_ESP32) || defined(ARDUINO_ARCH_ESP8266)
-  Wire.setPins(I2C_DAT, I2C_CLK);
-  #endif
-  // Fetch temperature from SE95 sensor
-  Wire.beginTransmission(SE95_I2C_ADDRESS);
-  if(Wire.endTransmission() != ESP_OK){
-      s->cfg->enabled = 0 ; // Disable in config
+  if(i2c_initialize() != 1)
+    return;
+
+  uint16_t raw_temp = i2c_read16(SE95_I2C_ADDRESS, SE95_TEMPERATURE);
+  if(raw_temp == 0xFFFF){
+    s->cfg->enabled = 0 ; // Disable in config
     LOG("[SE95] sensor not found");
     return;
   }
-  LOG("[SE95] temperature sensor initialized");
+  LOG("[SE95] initialized on I2C address 0x%02X", SE95_TEMPERATURE);
   return;
 }
 
 int8_t fetch_se95_temperature(sensor_r_t *s, double *temperature){
-  Wire.beginTransmission(SE95_I2C_ADDRESS);
-  Wire.write(SE95_TEMPERATURE);
-  Wire.endTransmission();
-  Wire.requestFrom(SE95_I2C_ADDRESS, 2);
-  uint8_t msb, lsb;
-  if(Wire.available()){
-    msb = Wire.read();
-  } else {
-    LOG("[SE95] temperature read error, no data available");
-    return -1; // No data available, return 0.0
-  }
-  if(Wire.available()){
-    lsb = Wire.read();
-  } else {
-    LOG("[SE95] temperature read error, no data available");
-    return -1; // No data available, return 0.0
-  }
-  if(Wire.endTransmission() != ESP_OK){
-    LOG("[SE95] temperature read error, end transmission failed");
-    return -1; // Transmission error, return 0.0
-  }
-
   // Convert the raw temperature data
   // MSB=0, +(TEMP * 0.03125)
   // MSB=1, -(TEMP two complement) * 0.03125
   // get 13 bits, shift right 3
-  uint16_t raw_temp = ((msb << 8) | lsb) >> 3;
-  double temp;
-  temp = (double)raw_temp * 0.03125;
-
-  // Fetch temperature from SE95 sensor
+  uint16_t raw_temp = i2c_read16(SE95_I2C_ADDRESS, SE95_TEMPERATURE);
+  if(raw_temp == 0xFFFF){
+    LOG("[SE95] failed to read temperature");
+    return -1;
+  }
+  raw_temp >>= 3;
+  double temp = (double)raw_temp * 0.03125;
   LOG("[SE95] temperature: %.2f °C", temp);
-  *temperature = (double)temp;
+  *temperature = temp;
   return 1;
 }
 #endif // SUPPORT_SE95
 
-
 sensor_r_t all_sensors[NR_OF_SENSORS] = {
     SENSOR_DHT11_HUMIDITY,
     SENSOR_DHT11_TEMPERATURE,
+    SENSOR_BME280_HUMIDITY,
+    SENSOR_BME280_TEMPERATURE,
+    SENSOR_BME280_PRESSURE,
     SENSOR_LDR,
     SENSOR_MQ135,
     SENSOR_APDS9930_ILLUMINANCE,
