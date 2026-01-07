@@ -144,14 +144,10 @@ uint8_t i2c_read8(uint8_t addr, uint8_t reg){
   if(Wire.endTransmission() != ESP_OK)
     return 0xFF;
   Wire.requestFrom(addr, 1);
-  uint8_t value;
   if(Wire.available())
-    value = Wire.read();
+    return Wire.read();
   else
     return 0xFF;
-  if(Wire.endTransmission() != ESP_OK)
-    return 0xFF;
-  return value;
 }
 
 NOINLINE
@@ -174,12 +170,27 @@ uint16_t i2c_read16(uint8_t addr, uint8_t reg, bool big_endian){
     b2 = Wire.read();
   else
     return 0xFFFF;
-  if(Wire.endTransmission() != ESP_OK)
-    return 0xFFFF;
   if(big_endian)
     return ((b1 << 8) | b2);
   else
     return ((b2 << 8) | b1);
+}
+
+NOINLINE
+uint16_t i2c_read16raw(uint8_t addr) {
+  if(i2c_initialize() == -1)
+    return 0xFFFF;
+
+  // No Wire.beginTransmission/write needed here!
+  // Just request the 2 bytes directly.
+  uint8_t count = Wire.requestFrom(addr, (uint8_t)2);
+  if(count != 2)
+    return 0xFFFF;
+
+  uint8_t b1 = Wire.read(); // High Byte
+  uint8_t b2 = Wire.read(); // Low Byte
+
+  return ((uint16_t)b1 << 8) | b2;
 }
 
 // read 16-bit big-endian
@@ -952,18 +963,6 @@ int8_t fetch_se95_temperature(sensor_r_t *s, double *temperature){
 
 RTC_DATA_ATTR double last_bh1750_illuminance = 0.0;
 
-// Helper function to send command to BH1750 (no register address, just command byte)
-INLINE
-int8_t bh1750_send_command(uint8_t cmd){
-  return i2c_write(BH1750_I2C_ADDRESS, cmd);
-}
-
-// Helper function to read 16-bit value from BH1750 (no register address)
-INLINE
-uint16_t bh1750_read16(){
-  return i2c_read16be(BH1750_I2C_ADDRESS, (uint8_t)2);
-}
-
 void init_bh1750(sensor_r_t *s) {
   if(i2c_ping(BH1750_I2C_ADDRESS) == -1){
     s->cfg->enabled = 0 ; // Disable in config
@@ -972,11 +971,11 @@ void init_bh1750(sensor_r_t *s) {
   }
   
   // Power on the sensor
-  bh1750_send_command(BH1750_POWER_ON);
-  bh1750_send_command(BH1750_RESET);
+  i2c_write(BH1750_I2C_ADDRESS, BH1750_POWER_ON);
+  i2c_write(BH1750_I2C_ADDRESS, BH1750_RESET);
   
-  // Set to continuous high resolution mode
-  if(bh1750_send_command(BH1750_ONE_TIME_HIGH_RES_MODE) == -1){
+  // Trigger first measurement in One-Time High Resolution Mode
+  if(i2c_write(BH1750_I2C_ADDRESS, BH1750_ONE_TIME_HIGH_RES_MODE) == -1){
     s->cfg->enabled = 0;
     LOG("[BH1750] failed to set measurement mode");
     return;
@@ -992,18 +991,21 @@ int8_t fetch_bh1750_illuminance(sensor_r_t *s, double *illuminance){
   if(illuminance == NULL)
     return -1;
   
-  // Read 2 bytes from sensor
-  uint16_t raw_value = bh1750_read16();
+  // Read 2 bytes from sensor, this is from the previous measurement command
+  uint16_t raw_value = i2c_read16raw(BH1750_I2C_ADDRESS);
   if(raw_value == 0xFFFF){
     LOG("[BH1750] failed to read data from sensor");
     *illuminance = last_bh1750_illuminance;
     return -1;
   }
+
+  // Immediately trigger the NEXT measurement so it's ready for the next fetch
+  // This allows the sensor to work in the background without blocking your main
+  // loop later
+  i2c_write(BH1750_I2C_ADDRESS, BH1750_ONE_TIME_HIGH_RES_MODE);
   
   // Convert to lux (divide by 1.2 as per datasheet)
   double lux = raw_value / 1.2;
-  
-  LOG("[BH1750] illuminance: %.2f lx", lux);
   
   if(lux < 0.0 || lux > 65535.0){
     LOG("[BH1750] illuminance out of range: %.2f", lux);
@@ -1011,6 +1013,7 @@ int8_t fetch_bh1750_illuminance(sensor_r_t *s, double *illuminance){
     return -1;
   }
   
+  LOG("[BH1750] illuminance: %.2f lx", lux);
   *illuminance = lux;
   last_bh1750_illuminance = lux;
   return 1;
