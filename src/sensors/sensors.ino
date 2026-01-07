@@ -972,22 +972,20 @@ void init_bh1750(sensor_r_t *s) {
   }
   
   // Power on the sensor
-  if(bh1750_send_command(BH1750_POWER_ON) == -1){
-    s->cfg->enabled = 0;
-    LOG("[BH1750] failed to power on sensor");
-    return;
-  }
+  bh1750_send_command(BH1750_POWER_ON);
+  bh1750_send_command(BH1750_RESET);
   
   // Set to continuous high resolution mode
-  if(bh1750_send_command(BH1750_CONTINUOUS_HIGH_RES_MODE) == -1){
+  if(bh1750_send_command(BH1750_ONE_TIME_HIGH_RES_MODE) == -1){
     s->cfg->enabled = 0;
     LOG("[BH1750] failed to set measurement mode");
     return;
   }
   
   LOG("[BH1750] initialized on I2C address 0x%02X", BH1750_I2C_ADDRESS);
-  // Wait for measurement to complete (120ms for high resolution mode)
-  delay(120);
+
+  // Wait for measurement to complete (120ms for high resolution mode), but 180ms to be safe
+  delay(180);
 }
 
 int8_t fetch_bh1750_illuminance(sensor_r_t *s, double *illuminance){
