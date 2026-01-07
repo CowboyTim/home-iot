@@ -690,22 +690,20 @@ int8_t fetch_apds_proximity(sensor_r_t *s, double *proximity_value){
     return -1;
 
   // On APDS-9930, Proximity data is 16-bit (PDATAH:PDATAL)
-  // Register 0x12 is PDATAL, 0x13 is PDATAH
+  // Register 0x18 is PDATAL, 0x19 is PDATAH
   uint16_t prox = i2c_read16le(APDS99xx_I2C_ADDRESS, APDS9930_PDATAL);
   if(prox == 0xFFFF) {
     LOG("[APDS] Proximity read failed");
     return -1;
   }
 
-  // If prox is very low, the object is close
-  // Simplified inverse relationship: Distance is roughly proportional to 1/sqrt(prox)
-  if (prox < 1) {
-    *proximity_value = 50.0; // Assume max distance if no reflection
-  } else {
-    *proximity_value = 50.0 / sqrt(prox);
-  }
+  // APDS-9930 proximity is 10-bit (0-1023)
+  // Low values (< 500) typically mean nothing is near
+  // High values (> 700) mean object is very close
+  // Just return the raw value for now - calibrate based on your setup
+  *proximity_value = (double)prox;
 
-  LOG("[APDS] prox: %u, estimated distance: %.2f cm", prox, *proximity_value);
+  LOG("[APDS] prox raw: %u", prox);
   return 1;
 }
 
