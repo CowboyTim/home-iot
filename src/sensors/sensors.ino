@@ -955,7 +955,7 @@ RTC_DATA_ATTR double last_bh1750_illuminance = 0.0;
 // Helper function to send command to BH1750 (no register address, just command byte)
 INLINE
 int8_t bh1750_send_command(uint8_t cmd){
-  return i2c_write(BH1750_I2C_ADDRESS, 0);
+  return i2c_write(BH1750_I2C_ADDRESS, cmd);
 }
 
 // Helper function to read 16-bit value from BH1750 (no register address)
