@@ -123,8 +123,9 @@
 #define SUPPORT_MQ135
 #define SUPPORT_APDS9930
 #define SUPPORT_BME280
+#define SUPPORT_BH1750
 
-#define NR_OF_SENSORS 13
+#define NR_OF_SENSORS 14
 #define SENSORS_OUTBUFFER_SIZE  128
 
 #include <Arduino.h>

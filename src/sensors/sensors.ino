@@ -40,7 +40,7 @@
 #include <DHT.h>
 #endif // SUPPORT_DHT11
 
-#if defined(SUPPORT_SE95) || defined(SUPPORT_BME280) || defined(SUPPORT_BMP280) || defined(SUPPORT_APDS9930)
+#if defined(SUPPORT_SE95) || defined(SUPPORT_BME280) || defined(SUPPORT_BMP280) || defined(SUPPORT_APDS9930) || defined(SUPPORT_BH1750)
 #define I2C_SDA     GPIO_NUM_6 // SDA: GPIO_NUM_8 -> same as LED
 #define I2C_SCL     GPIO_NUM_7 // SCL: GPIO_NUM_9
 #define I2C_BUS_NUM 0
@@ -64,7 +64,7 @@ namespace SENSORS {
 
 RTC_DATA_ATTR long l_intv_counters[NR_OF_SENSORS] = {0};
 
-#if defined(SUPPORT_SE95) || defined(SUPPORT_BME280) || defined(SUPPORT_BMP280) || defined(SUPPORT_APDS9930)
+#if defined(SUPPORT_SE95) || defined(SUPPORT_BME280) || defined(SUPPORT_BMP280) || defined(SUPPORT_APDS9930) || defined(SUPPORT_BH1750)
 // re-export Wire for sensors.cpp in this SENSORS namespace, note that "Wire"
 // is a global extern object
 TwoWire Wire = TwoWire(I2C_BUS_NUM);
@@ -105,6 +105,17 @@ int8_t i2c_write(uint8_t addr, uint8_t reg, uint8_t value){
     return -1;
   Wire.beginTransmission(addr);
   Wire.write(reg);
+  Wire.write(value);
+  if(Wire.endTransmission() != ESP_OK)
+    return -1;
+  return 1;
+}
+
+NOINLINE
+int8_t i2c_write(uint8_t addr, uint8_t value){
+  if(i2c_initialize() == -1)
+    return -1;
+  Wire.beginTransmission(addr);
   Wire.write(value);
   if(Wire.endTransmission() != ESP_OK)
     return -1;
@@ -754,7 +765,6 @@ void init_apds9930(sensor_r_t *s){
 
   // 1. Power ON (Wait for internal oscillator to stabilize)
   i2c_write(APDS99xx_I2C_ADDRESS, APDS9930_ENABLE, APDS99xx_ENABLE_PON);
-  delay(5); // Datasheet recommends at least 2.7ms
 
   // 2. Clear any lingering interrupts just in case
   i2c_write(APDS99xx_I2C_ADDRESS, APDS9930_PICLEAR, 0x00);
@@ -769,9 +779,6 @@ void init_apds9930(sensor_r_t *s){
   // power on the device
   i2c_write(APDS99xx_I2C_ADDRESS, APDS9930_ENABLE, final_enable);
   LOG("[APDS] initialized on I2C address 0x%02X, id: 0x%02X", APDS99xx_I2C_ADDRESS, id);
-
-  // wait for the sensor to be ready
-  delay(12);
 
   return;
 }
@@ -920,6 +927,98 @@ int8_t fetch_se95_temperature(sensor_r_t *s, double *temperature){
 }
 #endif // SUPPORT_SE95
 
+// BH1750 Digital Light Sensor
+#define SENSOR_BH1750_ILLUMINANCE {.name = "BH1750 Illuminance", .key = "bh1750_illuminance",}
+#ifdef SUPPORT_BH1750
+#define SENSOR_BH1750_ILLUMINANCE \
+    {\
+      .name = "BH1750 Illuminance",\
+      .key  = "bh1750_illuminance",\
+      .unit_fmt = "%s:%s*lx,%.2f\r\n",\
+      .init_function = init_bh1750,\
+      .value_function = fetch_bh1750_illuminance,\
+    }
+
+#define BH1750_I2C_ADDRESS       0x23 // default I2C address for BH1750 (ADDR pin LOW)
+#define BH1750_POWER_DOWN        0x00 // No active state
+#define BH1750_POWER_ON          0x01 // Waiting for measurement command
+#define BH1750_RESET             0x07 // Reset data register value
+#define BH1750_CONTINUOUS_HIGH_RES_MODE   0x10 // Continuous H-Resolution mode (1 lx resolution, 120ms measurement time)
+#define BH1750_CONTINUOUS_HIGH_RES_MODE_2 0x11 // Continuous H-Resolution mode 2 (0.5 lx resolution, 120ms measurement time)
+#define BH1750_CONTINUOUS_LOW_RES_MODE    0x13 // Continuous L-Resolution mode (4 lx resolution, 16ms measurement time)
+#define BH1750_ONE_TIME_HIGH_RES_MODE     0x20 // One time H-Resolution mode
+#define BH1750_ONE_TIME_HIGH_RES_MODE_2   0x21 // One time H-Resolution mode 2
+#define BH1750_ONE_TIME_LOW_RES_MODE      0x23 // One time L-Resolution mode
+
+RTC_DATA_ATTR double last_bh1750_illuminance = 0.0;
+
+// Helper function to send command to BH1750 (no register address, just command byte)
+INLINE
+int8_t bh1750_send_command(uint8_t cmd){
+  return i2c_write(BH1750_I2C_ADDRESS, 0);
+}
+
+// Helper function to read 16-bit value from BH1750 (no register address)
+INLINE
+uint16_t bh1750_read16(){
+  return i2c_read16be(BH1750_I2C_ADDRESS, (uint8_t)2);
+}
+
+void init_bh1750(sensor_r_t *s) {
+  if(i2c_ping(BH1750_I2C_ADDRESS) == -1){
+    s->cfg->enabled = 0 ; // Disable in config
+    LOG("[BH1750] sensor not found on I2C address 0x%02X", BH1750_I2C_ADDRESS);
+    return;
+  }
+  
+  // Power on the sensor
+  if(bh1750_send_command(BH1750_POWER_ON) == -1){
+    s->cfg->enabled = 0;
+    LOG("[BH1750] failed to power on sensor");
+    return;
+  }
+  
+  // Set to continuous high resolution mode
+  if(bh1750_send_command(BH1750_CONTINUOUS_HIGH_RES_MODE) == -1){
+    s->cfg->enabled = 0;
+    LOG("[BH1750] failed to set measurement mode");
+    return;
+  }
+  
+  LOG("[BH1750] initialized on I2C address 0x%02X", BH1750_I2C_ADDRESS);
+  // Wait for measurement to complete (120ms for high resolution mode)
+  delay(120);
+}
+
+int8_t fetch_bh1750_illuminance(sensor_r_t *s, double *illuminance){
+  if(illuminance == NULL)
+    return -1;
+  
+  // Read 2 bytes from sensor
+  uint16_t raw_value = bh1750_read16();
+  if(raw_value == 0xFFFF){
+    LOG("[BH1750] failed to read data from sensor");
+    *illuminance = last_bh1750_illuminance;
+    return -1;
+  }
+  
+  // Convert to lux (divide by 1.2 as per datasheet)
+  double lux = raw_value / 1.2;
+  
+  LOG("[BH1750] illuminance: %.2f lx", lux);
+  
+  if(lux < 0.0 || lux > 65535.0){
+    LOG("[BH1750] illuminance out of range: %.2f", lux);
+    *illuminance = last_bh1750_illuminance;
+    return -1;
+  }
+  
+  *illuminance = lux;
+  last_bh1750_illuminance = lux;
+  return 1;
+}
+#endif // SUPPORT_BH1750
+
 sensor_r_t all_sensors[NR_OF_SENSORS] = {
     SENSOR_DHT11_HUMIDITY,
     SENSOR_DHT11_TEMPERATURE,
@@ -932,6 +1031,7 @@ sensor_r_t all_sensors[NR_OF_SENSORS] = {
     SENSOR_APDS9930_PROXIMITY,
     SENSOR_S8,
     SENSOR_SE95_TEMPERATURE,
+    SENSOR_BH1750_ILLUMINANCE,
 };
 
 NOINLINE
