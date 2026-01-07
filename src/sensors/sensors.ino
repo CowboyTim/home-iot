@@ -975,25 +975,25 @@ void init_bh1750(sensor_r_t *s) {
     LOG("[BH1750] sensor not found on I2C address 0x%02X", BH1750_I2C_ADDRESS);
     return;
   }
-  
+
   // Power on the sensor
   i2c_write(BH1750_I2C_ADDRESS, BH1750_POWER_ON);
   i2c_write(BH1750_I2C_ADDRESS, BH1750_RESET);
-  
+
   // Trigger first measurement in One-Time High Resolution Mode
   if(i2c_write(BH1750_I2C_ADDRESS, BH1750_ONE_TIME_HIGH_RES_MODE) == -1){
     s->cfg->enabled = 0;
     LOG("[BH1750] failed to set measurement mode");
     return;
   }
-  
+
   LOG("[BH1750] initialized on I2C address 0x%02X", BH1750_I2C_ADDRESS);
 }
 
 int8_t fetch_bh1750_illuminance(sensor_r_t *s, float *illuminance){
   if(illuminance == NULL)
     return -1;
-  
+
   // Read 2 bytes from sensor, this is from the previous measurement command
   uint16_t raw_value = i2c_read16raw(BH1750_I2C_ADDRESS);
   if(raw_value == 0xFFFF){
@@ -1006,16 +1006,16 @@ int8_t fetch_bh1750_illuminance(sensor_r_t *s, float *illuminance){
   // This allows the sensor to work in the background without blocking your main
   // loop later
   i2c_write(BH1750_I2C_ADDRESS, BH1750_ONE_TIME_HIGH_RES_MODE);
-  
+
   // Convert to lux (divide by 1.2 as per datasheet)
   float lux = raw_value / 1.2f;
-  
+
   if(lux < 0.0f || lux > 65535.0f){
     LOG("[BH1750] illuminance out of range: %.2f", lux);
     *illuminance = last_bh1750_illuminance;
     return -1;
   }
-  
+
   LOG("[BH1750] illuminance: %.2f lx", lux);
   *illuminance = lux;
   last_bh1750_illuminance = lux;
