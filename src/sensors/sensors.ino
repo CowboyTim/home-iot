@@ -261,11 +261,11 @@ void CFG_INIT() {
 #define DHTPIN  A0     // GPIO_NUM_0/A0 pin for DHT11
 
 uint8_t did_dht11 = 0; // DHT11 read flag, to avoid multiple reads
-RTC_DATA_ATTR double last_dht_humidity = 0.0;
-RTC_DATA_ATTR double last_dht_temperature = 0.0;
+RTC_DATA_ATTR float last_dht_humidity = 0.0f;
+RTC_DATA_ATTR float last_dht_temperature = 0.0f;
 RTC_DATA_ATTR unsigned long last_dht_read_time = 0;
 
-int8_t dht11_fetch_humidity(sensor_r_t *s, double *humidity){
+int8_t dht11_fetch_humidity(sensor_r_t *s, float *humidity){
   if(humidity == NULL)
     return -1;
   // fetch humidity from DHT11
@@ -273,11 +273,11 @@ int8_t dht11_fetch_humidity(sensor_r_t *s, double *humidity){
     DODHT(s)->read();
     did_dht11 = 1;
   }
-  double h = (double)DODHT(s)->readHumidity();
+  float h = (float)DODHT(s)->readHumidity();
   LOG("[DHT11] humidity: %f %%", h);
-  if(isnan(h) || h < 0.0 || h > 100.0){
+  if(isnan(h) || h < 0.0f || h > 100.0f){
     LOG("[DHT11] humidity invalid or out of range, returning 0: %.2f", h);
-    *humidity = 0.0;
+    *humidity = 0.0f;
     return -1;
   }
   *humidity = h;
@@ -286,7 +286,7 @@ int8_t dht11_fetch_humidity(sensor_r_t *s, double *humidity){
   return 1;
 }
 
-int8_t dht11_fetch_temperature(sensor_r_t *s, double *temperature){
+int8_t dht11_fetch_temperature(sensor_r_t *s, float *temperature){
   if(temperature == NULL)
     return -1;
   // fetch temperature from DHT11
@@ -294,11 +294,11 @@ int8_t dht11_fetch_temperature(sensor_r_t *s, double *temperature){
     DODHT(s)->read();
     did_dht11 = 1;
   }
-  double t = (double)DODHT(s)->readTemperature();
+  float t = (float)DODHT(s)->readTemperature();
   LOG("[DHT11] temperature: %f °C", t);
-  if(isnan(t) || t < 0.0 || t > 50.0){
+  if(isnan(t) || t < 0.0f || t > 50.0f){
     LOG("[DHT11] temperature invalid or out of range, returning 0: %.2f", t);
-    *temperature = 0.0;
+    *temperature = 0.0f;
     return -1;
   }
   *temperature = t;
@@ -374,19 +374,19 @@ struct {
   int16_t  dig_P2, dig_P3, dig_P4, dig_P5, dig_P6, dig_P7, dig_P8, dig_P9;
 } cal;
 
-RTC_DATA_ATTR double last_bme280_humidity = 0.0;
-RTC_DATA_ATTR double last_bme280_temperature = 0.0;
-RTC_DATA_ATTR double last_bme280_pressure = 0.0;
+RTC_DATA_ATTR float last_bme280_humidity = 0.0f;
+RTC_DATA_ATTR float last_bme280_temperature = 0.0f;
+RTC_DATA_ATTR float last_bme280_pressure = 0.0f;
 
-int8_t bme280_fetch_humidity(sensor_r_t *s, double *humidity){
+int8_t bme280_fetch_humidity(sensor_r_t *s, float *humidity){
   if(humidity == NULL)
     return -1;
-  double humidity_raw = 0.0;
+  float humidity_raw = 0.0f;
 
   LOG("[BME280] humidity: %f %%", humidity_raw);
-  if(isnan(humidity_raw) || humidity_raw < 0.0 || humidity_raw > 100.0){
+  if(isnan(humidity_raw) || humidity_raw < 0.0f || humidity_raw > 100.0f){
     LOG("[BME280] humidity invalid or out of range: %.2f", humidity_raw);
-    *humidity = 0.0;
+    *humidity = 0.0f;
     return -1;
   }
   *humidity = humidity_raw;
@@ -394,15 +394,15 @@ int8_t bme280_fetch_humidity(sensor_r_t *s, double *humidity){
   return 1;
 }
 
-int8_t bme280_fetch_temperature(sensor_r_t *s, double *temperature){
+int8_t bme280_fetch_temperature(sensor_r_t *s, float *temperature){
   if(temperature == NULL)
     return -1;
-  double temperature_raw = 0.0;
+  float temperature_raw = 0.0f;
 
   LOG("[BME280] temperature: %f °C", temperature_raw);
   if(isnan(temperature_raw)){
     LOG("[BME280] temperature invalid or out of range: %.2f", temperature_raw);
-    *temperature = 0.0;
+    *temperature = 0.0f;
     return -1;
   }
   *temperature = temperature_raw;
@@ -410,15 +410,15 @@ int8_t bme280_fetch_temperature(sensor_r_t *s, double *temperature){
   return 1;
 }
 
-int8_t bme280_fetch_pressure(sensor_r_t *s, double *pressure){
+int8_t bme280_fetch_pressure(sensor_r_t *s, float *pressure){
   if(pressure == NULL)
     return -1;
-  double pressure_raw = 0.0;
+  float pressure_raw = 0.0f;
 
   LOG("[BME280] pressure: %f hPa", pressure_raw);
   if(isnan(pressure_raw)){
     LOG("[BME280] pressure invalid or out of range: %.2f", pressure_raw);
-    *pressure = 0.0;
+    *pressure = 0.0f;
     return -1;
   }
   *pressure = pressure_raw;
@@ -483,13 +483,13 @@ void init_bme280(sensor_r_t *s){
     }
 
 #define LDRPIN    A1 // GPIO_NUM_1/A1 pin for LDR
-int8_t fetch_ldr_adc(sensor_r_t *s, double *ldr_value){
+int8_t fetch_ldr_adc(sensor_r_t *s, float *ldr_value){
   if(ldr_value == NULL)
     return -1;
   // fetch LDR ADC value
   int ldr_adc = analogReadMilliVolts(LDRPIN); // assuming LDR is connected to LDRPIN
   LOG("[LDR/ADC] value: %d mV", ldr_adc);
-  *ldr_value = (double)ldr_adc; // convert to double for consistency
+  *ldr_value = (float)ldr_adc; // convert to float for consistency
   return 1;
 }
 
@@ -516,82 +516,82 @@ void init_ldr_adc(sensor_r_t *s){
 #include "soc/adc_channel.h"
 #define MQ135PIN           A2 // GPIO_NUM_2/A2 pin for MQ-135
 #define MQ135_ADC_CHANNEL  ADC1_GPIO2_CHANNEL
-#define MQ135_RL         22.0 // kOhm load resistor
-#define MQ135_R0        76.63 // kOhm clean air resistance
-#define MQ135_VCC         5.0 // Sensor powered by 5V (from USB)
+#define MQ135_RL         22.0f // kOhm load resistor
+#define MQ135_R0        76.63f // kOhm clean air resistance
+#define MQ135_VCC         5.0f // Sensor powered by 5V (from USB)
 #define MQ135_ADC_REF_VOLTAGE_IN_MV 3300 // ESP32 ADC reference voltage in mV
 #define MQ135_AVG_NR       50 // number of samples to average from ADC, higher = more stable, don't go too high or uint32_t overflow
 #define MQ135_ADC_MAX    4095 // 12-bit ADC max value
 #define MQ135_ADC_BITS     12 // 12-bit ADC
 
 // For CO2: a = 110.47, b = -2.862 (from datasheet)
-#define MQ135_CO2_A    110.47 // MQ-135 CO2 curve a
-#define MQ135_CO2_B    -2.862 // MQ-135 CO2 curve b
+#define MQ135_CO2_A    110.47f // MQ-135 CO2 curve a
+#define MQ135_CO2_B    -2.862f // MQ-135 CO2 curve b
 
 #define MQ135_WARMUP_TIME    30000  // MQ-135 warm-up time in ms
-#define ATMOSPHERIC_CO2_PPM  428.54 // atmospheric CO2 ppm for calibration
+#define ATMOSPHERIC_CO2_PPM  428.54f // atmospheric CO2 ppm for calibration
 
 RTC_DATA_ATTR unsigned long mq135_startup_time = 0;
 
-double mq135_adc_to_ppm(double mq135_r0, double mq135_rl, double adc_value) {
-  double RS = ((MQ135_VCC - adc_value) / adc_value ) * mq135_rl; // in kOhm
+float mq135_adc_to_ppm(float mq135_r0, float mq135_rl, float adc_value) {
+  float RS = ((MQ135_VCC - adc_value) / adc_value ) * mq135_rl; // in kOhm
 
   #ifdef SUPPORT_DHT11
   // apply a correction based on temperature and humidity if available
   if(last_dht_read_time != 0 && millis() - last_dht_read_time < 60000){ // valid DHT11 reading within last 60s
-    double cf = 0.00035 * pow(last_dht_temperature, 2) - 0.019 * last_dht_temperature + 1.224;
-    cf += (last_dht_humidity - 33.0) * -0.0018;
+    float cf = 0.00035f * pow(last_dht_temperature, 2) - 0.019f * last_dht_temperature + 1.224f;
+    cf += (last_dht_humidity - 33.0f) * -0.0018f;
     RS /= cf;
   }
   #endif // SUPPORT_DHT11
 
-  double RATIO = RS / mq135_r0;
-  double ppm = MQ135_CO2_A * pow(RATIO, MQ135_CO2_B);
+  float RATIO = RS / mq135_r0;
+  float ppm = MQ135_CO2_A * pow(RATIO, MQ135_CO2_B);
   LOG("[MQ-135] ADC Value: %f V, R0: %f kOhm, RL: %f kOhm, RS: %f kOhm, R: %f, PPM: %f", adc_value, mq135_r0, mq135_rl, RS, RATIO, ppm);
   return ppm;
 }
 
-double calibrate_mq135_r0(double mq135_rl, double adc_value) {
-  double RS = ((MQ135_VCC - adc_value) / adc_value ) * mq135_rl; // in kOhm
+float calibrate_mq135_r0(float mq135_rl, float adc_value) {
+  float RS = ((MQ135_VCC - adc_value) / adc_value ) * mq135_rl; // in kOhm
   #ifdef SUPPORT_DHT11
   // apply a correction based on temperature and humidity if available
   if(last_dht_read_time != 0 && millis() - last_dht_read_time < 60000){ // valid DHT11 reading within last 60s
-    double cf = 0.00035 * pow(last_dht_temperature, 2) - 0.019 * last_dht_temperature + 1.224;
-    cf += (last_dht_humidity - 33.0) * -0.0018;
+    float cf = 0.00035f * pow(last_dht_temperature, 2) - 0.019f * last_dht_temperature + 1.224f;
+    cf += (last_dht_humidity - 33.0f) * -0.0018f;
     RS /= cf;
   }
   #endif // SUPPORT_DHT11
-  double R0 = RS / pow((ATMOSPHERIC_CO2_PPM / MQ135_CO2_A), (1.0 / MQ135_CO2_B));
+  float R0 = RS / pow((ATMOSPHERIC_CO2_PPM / MQ135_CO2_A), (1.0f / MQ135_CO2_B));
   LOG("[MQ-135] Calibration ADC value: Voltage: %f V, RL: %f kOhm, RS: %f kOhm, R0: %f kOhm", adc_value, mq135_rl, RS, R0);
   return R0;
 }
 
-double get_adc_average(uint8_t samples) {
-  uint32_t avg_adc = 0.0;
+float get_adc_average(uint8_t samples) {
+  uint32_t avg_adc = 0.0f;
   for(uint8_t i = 0; i < samples; i++) {
     avg_adc += analogRead(MQ135PIN);
     delayMicroseconds(10);
     doYIELD;
   }
   avg_adc *= MQ135_ADC_REF_VOLTAGE_IN_MV;
-  double v_adc = (double)avg_adc / samples;
+  float v_adc = (float)avg_adc / samples;
   v_adc  /= MQ135_ADC_MAX;
-  v_adc  /= 1000.0; // convert mV to V
+  v_adc  /= 1000.0f; // convert mV to V
   return v_adc;
 }
 
-int8_t fetch_mq135_adc(sensor_r_t *s, double *ppm){
+int8_t fetch_mq135_adc(sensor_r_t *s, float *ppm){
   if(ppm == NULL)
     return -1;
   if(millis() - mq135_startup_time < MQ135_WARMUP_TIME){
     LOG("[MQ-135] sensor warming up, not ready yet, ttl: %d ms", MQ135_WARMUP_TIME - (millis() - mq135_startup_time));
     return -1; // sensor warming up
   }
-  double R0 = SENSORS::cfg.mq135_r0;
-  double RL = SENSORS::cfg.mq135_rl;
+  float R0 = SENSORS::cfg.mq135_r0;
+  float RL = SENSORS::cfg.mq135_rl;
 
   // fetch average ADC value
-  double avg_adc = get_adc_average(MQ135_AVG_NR);
+  float avg_adc = get_adc_average(MQ135_AVG_NR);
   LOG("[MQ-135] ADC AVG(nr:%d) value: %f V", MQ135_AVG_NR, avg_adc);
 
   // convert ADC to PPM using MQ-135 formula R0/RL and curve
@@ -607,8 +607,8 @@ void init_mq135_adc(sensor_r_t *s){
   analogRead(MQ135PIN);
   analogSetPinAttenuation(MQ135PIN, ADC_11db);
   analogReadResolution(MQ135_ADC_BITS);
-  double R0 = SENSORS::cfg.mq135_r0;
-  double RL = SENSORS::cfg.mq135_rl;
+  float R0 = SENSORS::cfg.mq135_r0;
+  float RL = SENSORS::cfg.mq135_rl;
   LOG("[MQ-135] ADC initialized on pin %d, ADC channel: %d, resolution: 12, attenuation 11db, R0: %0.f Ohm, RL: %0.f", MQ135PIN, MQ135_ADC_CHANNEL, R0, RL);
 
   // wait for MQ-135 to stabilize
@@ -675,9 +675,9 @@ void destroy_mq135_adc(sensor_r_t *s){
 #define APDS99xx_ENABLE_WEN  0x08 // Bit to enable wait timer
 
 
-double lpc = nan("0x12345");
+float lpc = nanf("0x12345");
 
-int8_t fetch_apds_als(sensor_r_t *s, double *illuminance){
+int8_t fetch_apds_als(sensor_r_t *s, float *illuminance){
   if(illuminance == NULL)
     return -1;
   
@@ -690,22 +690,22 @@ int8_t fetch_apds_als(sensor_r_t *s, double *illuminance){
     return -1;
 
   // Calculate Lux using the datasheet coefficients
-  double lux1 = (ch0 - 1.862 * ch1);
-  double lux2 = (0.746 * ch0 - 1.291 * ch1);
+  float lux1 = (ch0 - 1.862f * ch1);
+  float lux2 = (0.746f * ch0 - 1.291f * ch1);
   
-  double final_lux = (lux1 > lux2) ? lux1 : lux2;
+  float final_lux = (lux1 > lux2) ? lux1 : lux2;
   final_lux *= lpc;
 
   // Clean up negative values (happens in very dark/pure IR environments)
   if (final_lux < 0)
-    final_lux = 0;
+    final_lux = 0.0f;
 
   LOG("[APDS] CH0: %u, CH1: %u, Lux: %.2f", ch0, ch1, final_lux);
   *illuminance = final_lux;
   return 1;
 }
 
-int8_t fetch_apds_proximity(sensor_r_t *s, double *proximity_value){
+int8_t fetch_apds_proximity(sensor_r_t *s, float *proximity_value){
   if(proximity_value == NULL)
     return -1;
 
@@ -725,10 +725,10 @@ int8_t fetch_apds_proximity(sensor_r_t *s, double *proximity_value){
   // Low values (< 500) typically mean nothing is near
   // High values (> 700) mean object is very close
   // Just return the raw value for now - calibrate based on your setup
-  *proximity_value = (double)prox;
+  *proximity_value = (float)prox;
 
   // estimate distance in cm (very rough estimate)
-  double distance = sqrt(1000 / *proximity_value);
+  float distance = sqrt(1000 / *proximity_value);
 
   LOG("[APDS] prox raw: %u, distance: %0.2f", prox, distance);
   return 1;
@@ -736,7 +736,7 @@ int8_t fetch_apds_proximity(sensor_r_t *s, double *proximity_value){
 
 void init_apds9930(sensor_r_t *s){
   // If already initialized, skip
-  if(!isnan(lpc) && lpc != nan("0x12345"))
+  if(!isnan(lpc) && lpc != nanf("0x12345"))
     return;
 
   // ping
@@ -774,10 +774,10 @@ void init_apds9930(sensor_r_t *s){
 
   // Gain and Integration Time scaling
   // Based on your init: ALS Gain = 16x, ATIME = 100ms
-  double als_it = 101;  // ALS Integration time in ms -> 0x00=699, 0xC0=175, 0xDB=101, 0xF6=27.3, 0xFF=2.73
-  double a_gain =   8;  // ALS Gain
-  double DF = 52.0; // Device Factor from datasheet for APDS-9930
-  double GA = 0.49; // Glass Attenuation Factor, Open Air = 0.49
+  float als_it = 101.0f;  // ALS Integration time in ms -> 0x00=699, 0xC0=175, 0xDB=101, 0xF6=27.3, 0xFF=2.73
+  float a_gain =   8.0f;  // ALS Gain
+  float DF = 52.0f; // Device Factor from datasheet for APDS-9930
+  float GA = 0.49f; // Glass Attenuation Factor, Open Air = 0.49
   lpc = GA * DF / (als_it * a_gain);
 
   // 1. Power ON (Wait for internal oscillator to stabilize)
@@ -881,7 +881,7 @@ void init_s8(sensor_r_t *s) {
   return;
 }
 
-int8_t fetch_s8_co2(sensor_r_t *s, double *co2){
+int8_t fetch_s8_co2(sensor_r_t *s, float *co2){
   if(co2 == NULL)
     return -1;
   // Fetch CO2 value from S8 sensor
@@ -892,7 +892,7 @@ int8_t fetch_s8_co2(sensor_r_t *s, double *co2){
 
   sensor.co2 = sensor_S8->get_co2();
   LOG("[S8] CO2 ppm: %d", sensor.co2);
-  *co2 = (double)sensor.co2;
+  *co2 = (float)sensor.co2;
   return 1;
 }
 #endif // SUPPORT_S8
@@ -926,7 +926,7 @@ void init_se95(sensor_r_t *s) {
   return;
 }
 
-int8_t fetch_se95_temperature(sensor_r_t *s, double *temperature){
+int8_t fetch_se95_temperature(sensor_r_t *s, float *temperature){
   // Convert the raw temperature data
   // MSB=0, +(TEMP * 0.03125)
   // MSB=1, -(TEMP two complement) * 0.03125
@@ -937,7 +937,7 @@ int8_t fetch_se95_temperature(sensor_r_t *s, double *temperature){
     return -1;
   }
   raw_temp >>= 3;
-  double temp = (double)raw_temp * 0.03125;
+  float temp = (float)raw_temp * 0.03125f;
   LOG("[SE95] temperature: %.2f °C", temp);
   *temperature = temp;
   return 1;
@@ -967,7 +967,7 @@ int8_t fetch_se95_temperature(sensor_r_t *s, double *temperature){
 #define BH1750_ONE_TIME_HIGH_RES_MODE_2   0x21 // One time H-Resolution mode 2
 #define BH1750_ONE_TIME_LOW_RES_MODE      0x23 // One time L-Resolution mode
 
-RTC_DATA_ATTR double last_bh1750_illuminance = 0.0;
+RTC_DATA_ATTR float last_bh1750_illuminance = 0.0f;
 
 void init_bh1750(sensor_r_t *s) {
   if(i2c_ping(BH1750_I2C_ADDRESS) == -1){
@@ -990,7 +990,7 @@ void init_bh1750(sensor_r_t *s) {
   LOG("[BH1750] initialized on I2C address 0x%02X", BH1750_I2C_ADDRESS);
 }
 
-int8_t fetch_bh1750_illuminance(sensor_r_t *s, double *illuminance){
+int8_t fetch_bh1750_illuminance(sensor_r_t *s, float *illuminance){
   if(illuminance == NULL)
     return -1;
   
@@ -1008,9 +1008,9 @@ int8_t fetch_bh1750_illuminance(sensor_r_t *s, double *illuminance){
   i2c_write(BH1750_I2C_ADDRESS, BH1750_ONE_TIME_HIGH_RES_MODE);
   
   // Convert to lux (divide by 1.2 as per datasheet)
-  double lux = raw_value / 1.2;
+  float lux = raw_value / 1.2f;
   
-  if(lux < 0.0 || lux > 65535.0){
+  if(lux < 0.0f || lux > 65535.0f){
     LOG("[BH1750] illuminance out of range: %.2f", lux);
     *illuminance = last_bh1750_illuminance;
     return -1;
@@ -1046,12 +1046,12 @@ void init_ds18b20(sensor_r_t *s) {
   LOG("[DS18B20] Initialized OneWire on pin %d", ONEWIRE_BUS_PIN);
 }
 
-int8_t fetch_ds18b20_temperature(sensor_r_t *s, double *temperature){
+int8_t fetch_ds18b20_temperature(sensor_r_t *s, float *temperature){
   if(temperature == NULL)
     return -1;
 
   ds18b20.requestTemperatures(); 
-  double tempC = (double)ds18b20.getTempCByIndex(0);
+  float tempC = (float)ds18b20.getTempCByIndex(0);
   if(tempC == DEVICE_DISCONNECTED_C) {
     LOG("[DS18B20] ERROR: Could not read temperature data");
     return -1;
@@ -1143,7 +1143,7 @@ void sensors_loop(){
       continue;
     if(millis() - l_intv_counters[i] > s->cfg->v_intv){
       // fetch current sensor value
-      double current_v = 0.0;
+      float current_v = 0.0f;
       int8_t ok = s->value_function(s, &current_v);
       if(ok < 0){
         LOG("[SENSORS] ERROR: failed to fetch value for sensor %s, skipping", s->key);
@@ -1291,7 +1291,7 @@ const char* at_cmd_handler_sensor(const char *at_cmd, unsigned short at_len){
             if(s->pre_function != NULL)
                 s->pre_function(s);
             // fetch current sensor value
-            double current_v = 0.0;
+            float current_v = 0.0f;
             int8_t ok = s->value_function(s, &current_v);
             if(ok < 0)
               return AT_R("+ERROR: failed to fetch sensor value");
@@ -1326,7 +1326,7 @@ const char* at_cmd_handler_sensors(const char* atcmdline){
   } else if(p = at_cmd_check("AT+MQ135_R0?", atcmdline, cmd_len)){
     return AT_R_DOUBLE(SENSORS::cfg.mq135_r0);
   } else if(p = at_cmd_check("AT+MQ135_CALIBRATE_CO2", atcmdline, cmd_len)){
-    if(SENSORS::cfg.mq135_rl <= 0.0)
+    if(SENSORS::cfg.mq135_rl <= 0.0f)
       return AT_R("+ERROR: invalid MQ135 RL value, set RL first");
     if(millis() - mq135_startup_time < MQ135_WARMUP_TIME){
       char ttl_msg[100] = {0};
@@ -1335,14 +1335,14 @@ const char* at_cmd_handler_sensors(const char* atcmdline){
       return AT_R_S(String(ttl_msg));
     }
     // fetch average ADC value
-    double avg_adc = get_adc_average(MQ135_AVG_NR);
+    float avg_adc = get_adc_average(MQ135_AVG_NR);
     LOG("[MQ-135] Calibration ADC AVG(nr:%d) value: %f V", MQ135_AVG_NR, avg_adc);
     SENSORS::cfg.mq135_r0 = calibrate_mq135_r0(SENSORS::cfg.mq135_rl, avg_adc);
     CFG_SAVE();
     return AT_R_DOUBLE(SENSORS::cfg.mq135_r0);
   } else if(p = at_cmd_check("AT+MQ135_R0=", atcmdline, cmd_len)){
-    double new_r0 = atof(p);
-    if(new_r0 < 1.0 || new_r0 > 1000.0)
+    float new_r0 = strtof(p, NULL);
+    if(new_r0 < 1.0f || new_r0 > 1000.0f)
       return AT_R("+ERROR: invalid R0 value 1-1000 kOhm");
     SENSORS::cfg.mq135_r0 = new_r0;
     CFG_SAVE();
@@ -1350,8 +1350,8 @@ const char* at_cmd_handler_sensors(const char* atcmdline){
   } else if(p = at_cmd_check("AT+MQ135_RL?", atcmdline, cmd_len)){
     return AT_R_DOUBLE(SENSORS::cfg.mq135_rl);
   } else if(p = at_cmd_check("AT+MQ135_RL=", atcmdline, cmd_len)){
-    double new_r0 = atof(p);
-    if(new_r0 < 1.0 || new_r0 > 1000.0)
+    float new_r0 = strtof(p, NULL);
+    if(new_r0 < 1.0f || new_r0 > 1000.0f)
       return AT_R("+ERROR: invalid RL value 1-1000 kOhm");
     SENSORS::cfg.mq135_rl = new_r0;
     CFG_SAVE();
