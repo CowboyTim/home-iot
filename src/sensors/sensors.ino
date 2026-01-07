@@ -649,11 +649,13 @@ void destroy_mq135_adc(sensor_r_t *s){
 #define APDS9930_CH0DATAL    (APDS9930_CMD | APDS9930_AUTO_INC | 0x14)
 #define APDS9930_CH1DATAL    (APDS9930_CMD | APDS9930_AUTO_INC | 0x16)
 #define APDS9930_PDATAL      (APDS9930_CMD | APDS9930_AUTO_INC | 0x18)
+#define APDS9930_PICLEAR     (APDS9930_CMD | 0xE5) // Proximity interrupt clear
 
 #define APDS99xx_ENABLE_PON  0x01 // Bit to power on
 #define APDS99xx_ENABLE_AEN  0x02 // Bit to enable ALS
 #define APDS99xx_ENABLE_PEN  0x04 // Bit to enable Proximity
 #define APDS99xx_ENABLE_WEN  0x08 // Bit to enable wait timer
+
 
 double lpc = nan("0x12345");
 
@@ -697,13 +699,20 @@ int8_t fetch_apds_proximity(sensor_r_t *s, double *proximity_value){
     return -1;
   }
 
+  // don't allow 0
+  if(prox == 0)
+    prox = 1;
+
   // APDS-9930 proximity is 10-bit (0-1023)
   // Low values (< 500) typically mean nothing is near
   // High values (> 700) mean object is very close
   // Just return the raw value for now - calibrate based on your setup
   *proximity_value = (double)prox;
 
-  LOG("[APDS] prox raw: %u", prox);
+  // estimate distance in cm (very rough estimate)
+  double distance = sqrt(1000 / *proximity_value);
+
+  LOG("[APDS] prox raw: %u, distance: %0.2f", prox, distance);
   return 1;
 }
 
@@ -733,17 +742,16 @@ void init_apds9930(sensor_r_t *s){
     return;
   }
 
-  i2c_write(APDS99xx_I2C_ADDRESS, APDS9930_ATIME,  0xDB);  // 101ms, 0x00=699ms, 0xC0=175ms, 0xF6=27.3ms, 0xFF=2.73ms
+  i2c_write(APDS99xx_I2C_ADDRESS, APDS9930_ATIME,  0xDB);  // 101ms, 0x00=699ms, 0xDB=101ms, 0xC0=175ms, 0xF6=27.3ms, 0xFF=2.73ms
   i2c_write(APDS99xx_I2C_ADDRESS, APDS9930_PTIME,  0xFF);  // 2.73ms recommended
   i2c_write(APDS99xx_I2C_ADDRESS, APDS9930_WTIME,  0xFF);  // 2.73ms, 0x00=699, 0xb6=202, 0xff=2.73ms
-  i2c_write(APDS99xx_I2C_ADDRESS, APDS9930_PPULSE, 0x08);  // 8 pulses
+  i2c_write(APDS99xx_I2C_ADDRESS, APDS9930_PPULSE, 0x10);  // 16 pulses, 8us pulse length
 
   // note that 100mA and 8 pulses is recommended
-  uint8_t PDRIVE, PDIODE, PGAIN, AGAIN;
-  PDRIVE = 0x0 << 6; // 100mA of LED Power
-  PDIODE = 0x2 << 4; // Proximity diode selection: CH1
-  PGAIN  = 0x3 << 2; // Proximity gain 8x
-  AGAIN  = 0x1 << 0; // 8x ALS gain
+  uint8_t PDRIVE = 0x2 << 6; // 25mA (lower power to reduce crosstalk)
+  uint8_t PDIODE = 0x1 << 4; // Use Channel 0
+  uint8_t PGAIN  = 0x1 << 2; // 2x Gain
+  uint8_t AGAIN  = 0x1 << 0; // 8x Gain
   i2c_write(APDS99xx_I2C_ADDRESS, APDS9930_CONTROL, PDRIVE | PDIODE | PGAIN | AGAIN);
 
   // Gain and Integration Time scaling
@@ -754,12 +762,22 @@ void init_apds9930(sensor_r_t *s){
   double GA = 0.49; // Glass Attenuation Factor, Open Air = 0.49
   lpc = GA * DF / (als_it * a_gain);
 
+  // 1. Power ON (Wait for internal oscillator to stabilize)
+  i2c_write(APDS99xx_I2C_ADDRESS, APDS9930_ENABLE, APDS99xx_ENABLE_PON);
+  delay(5); // Datasheet recommends at least 2.7ms
+
+  // 2. Clear any lingering interrupts just in case
+  i2c_write(APDS99xx_I2C_ADDRESS, APDS9930_PICLEAR, 0x00);
+
+  // 3. Enable ALS and Proximity (and WEN if you need it)
+  // Note: If you want interrupts, add | 0x20 here
+  uint8_t final_enable = APDS99xx_ENABLE_PON | 
+                         APDS99xx_ENABLE_AEN | 
+                         APDS99xx_ENABLE_WEN |
+                         APDS99xx_ENABLE_PEN; 
+
   // power on the device
-  if(i2c_write(APDS99xx_I2C_ADDRESS, APDS9930_ENABLE, APDS99xx_ENABLE_PON|APDS99xx_ENABLE_AEN|APDS99xx_ENABLE_PEN|APDS99xx_ENABLE_WEN) == -1){
-    s->cfg->enabled = 0 ; // Disable in config
-    LOG("[APDS] failed to power on the device");
-    return;
-  }
+  i2c_write(APDS99xx_I2C_ADDRESS, APDS9930_ENABLE, final_enable);
   LOG("[APDS] initialized on I2C address 0x%02X, id: 0x%02X", APDS99xx_I2C_ADDRESS, id);
 
   // wait for the sensor to be ready
