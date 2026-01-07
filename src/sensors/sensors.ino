@@ -56,6 +56,12 @@
 #endif
 #endif
 
+#if defined(SUPPORT_DS18B20)
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#endif // SUPPORT_DS18B20
+
+
 #ifdef SUPPORT_S8
 #include "s8_uart.h"
 #endif
@@ -1017,6 +1023,47 @@ int8_t fetch_bh1750_illuminance(sensor_r_t *s, double *illuminance){
 }
 #endif // SUPPORT_BH1750
 
+#define SENSOR_DS18B20_TEMPERATURE {.name = "DS18B20 Temperature", .key = "ds18b20_temperature",}
+#ifdef SUPPORT_DS18B20
+#define SENSOR_DS18B20_TEMPERATURE \
+    {\
+      .name = "DS18B20 Temperature",\
+      .key  = "ds18b20_temperature",\
+      .unit_fmt = "%s:%s*°C,%.2f\r\n",\
+      .init_function = init_ds18b20,\
+      .value_function = fetch_ds18b20_temperature,\
+    }
+
+#define ONEWIRE_BUS_PIN GPIO_NUM_4 // GPIO where the DS18B20 is connected
+
+// Setup a oneWire instance to communicate with any OneWire devices
+OneWire oneWire(ONEWIRE_BUS_PIN);
+// Pass our oneWire reference to Dallas Temperature.
+DallasTemperature ds18b20(&oneWire);
+
+void init_ds18b20(sensor_r_t *s) {
+  ds18b20.begin();
+  LOG("[DS18B20] initialized on pin %d", ONEWIRE_BUS_PIN);
+}
+
+int8_t fetch_ds18b20_temperature(sensor_r_t *s, double *temperature){
+  if(temperature == NULL)
+    return -1;
+
+  ds18b20.requestTemperatures(); 
+  float tempC = ds18b20.getTempCByIndex(0);
+
+  if(tempC == DEVICE_DISCONNECTED_C) {
+    LOG("[DS18B20] Error: Could not read temperature data");
+    return -1;
+  }
+
+  LOG("[DS18B20] temperature: %.2f °C", tempC);
+  *temperature = tempC;
+  return 1;
+}
+#endif // SUPPORT_DS18B20
+
 sensor_r_t all_sensors[NR_OF_SENSORS] = {
     SENSOR_DHT11_HUMIDITY,
     SENSOR_DHT11_TEMPERATURE,
@@ -1030,6 +1077,7 @@ sensor_r_t all_sensors[NR_OF_SENSORS] = {
     SENSOR_S8,
     SENSOR_SE95_TEMPERATURE,
     SENSOR_BH1750_ILLUMINANCE,
+    SENSOR_DS18B20_TEMPERATURE,
 };
 
 NOINLINE
@@ -1461,6 +1509,12 @@ Available sensors:
   - S8_CO2                      - SenseAir S8 CO2 sensor
 )EOF"
 #endif // SUPPORT_S8
+
+#ifdef SUPPORT_DS18B20
+        R"EOF(
+  - DS18B20_TEMPERATURE         - DS18B20 temperature sensor
+)EOF"
+#endif // SUPPORT_DS18B20
 
         R"EOF(
 Examples:

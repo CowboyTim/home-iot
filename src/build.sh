@@ -31,6 +31,9 @@ function do_update(){
         arduino-cli --additional-urls "$DEV_URLS" lib install 'S8_UART'
         arduino-cli --additional-urls "$DEV_URLS" lib install 'I2C Temperature Sensors derived from the LM75'
         arduino-cli --additional-urls "$DEV_URLS" lib install 'Adafruit APDS9960 Library'
+        arduino-cli --additional-urls "$DEV_URLS" lib install 'OneWire'
+        arduino-cli --additional-urls "$DEV_URLS" lib install 'DallasTemperature'
+
         arduino-cli --additional-urls "$DEV_URLS" lib upgrade
         arduino-cli --additional-urls "$DEV_URLS" board list
     }
