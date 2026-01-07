@@ -1043,7 +1043,7 @@ DallasTemperature ds18b20(&oneWire);
 
 void init_ds18b20(sensor_r_t *s) {
   ds18b20.begin();
-  LOG("[DS18B20] initialized on pin %d", ONEWIRE_BUS_PIN);
+  LOG("[DS18B20] Initialized OneWire on pin %d", ONEWIRE_BUS_PIN);
 }
 
 int8_t fetch_ds18b20_temperature(sensor_r_t *s, double *temperature){
@@ -1051,10 +1051,9 @@ int8_t fetch_ds18b20_temperature(sensor_r_t *s, double *temperature){
     return -1;
 
   ds18b20.requestTemperatures(); 
-  float tempC = ds18b20.getTempCByIndex(0);
-
+  double tempC = (double)ds18b20.getTempCByIndex(0);
   if(tempC == DEVICE_DISCONNECTED_C) {
-    LOG("[DS18B20] Error: Could not read temperature data");
+    LOG("[DS18B20] ERROR: Could not read temperature data");
     return -1;
   }
 
