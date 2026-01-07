@@ -1452,6 +1452,12 @@ Available sensors:
 )EOF"
 #endif // SUPPORT_SE95
 
+#ifdef SUPPORT_BH1750
+        R"EOF(
+  - BH1750_ILLUMINANCE          - BH1750 Digital Light Sensor
+)EOF"
+#endif // SUPPORT_BH1750
+
 #ifdef SUPPORT_S8
         R"EOF(
   - S8_CO2                      - SenseAir S8 CO2 sensor
