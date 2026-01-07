@@ -144,7 +144,7 @@ uint8_t i2c_read8(uint8_t addr, uint8_t reg){
 }
 
 NOINLINE
-uint16_t i2c_read16(uint8_t addr, uint8_t reg){
+uint16_t i2c_read16(uint8_t addr, uint8_t reg, bool big_endian){
   if(i2c_initialize() == -1)
     return 0xFFFF;
   Wire.beginTransmission(addr);
@@ -152,19 +152,37 @@ uint16_t i2c_read16(uint8_t addr, uint8_t reg){
   if(Wire.endTransmission() != ESP_OK)
     return 0xFFFF;
   Wire.requestFrom(addr, 2);
-  uint8_t msb, lsb;
+  uint8_t b1, b2;
+  // first byte
   if(Wire.available())
-    msb = Wire.read();
+    b1 = Wire.read();
   else
     return 0xFFFF;
+  // second byte
   if(Wire.available())
-    lsb = Wire.read();
+    b2 = Wire.read();
   else
     return 0xFFFF;
   if(Wire.endTransmission() != ESP_OK)
     return 0xFFFF;
-  return ((msb << 8) | lsb);
+  if(big_endian)
+    return ((b1 << 8) | b2);
+  else
+    return ((b2 << 8) | b1);
 }
+
+// read 16-bit big-endian
+NOINLINE
+uint16_t i2c_read16be(uint8_t addr, uint8_t reg){
+  return i2c_read16(addr, reg, true);
+}
+
+// read 16-bit little-endian
+NOINLINE
+uint16_t i2c_read16le(uint8_t addr, uint8_t reg){
+  return i2c_read16(addr, reg, false);
+}
+
 
 #endif
 
@@ -413,18 +431,18 @@ void init_bme280(sensor_r_t *s){
   LOG("[BME280] initialized on I2C address 0x%02X, id: 0x%02X", BME280_I2C_ADDRESS, id);
 
   // read Calibration Data
-  cal.dig_T1 = i2c_read16(BME280_I2C_ADDRESS, 0x88);
-  cal.dig_T2 = i2c_read16(BME280_I2C_ADDRESS, 0x8A);
-  cal.dig_T3 = i2c_read16(BME280_I2C_ADDRESS, 0x8C);
-  cal.dig_P1 = i2c_read16(BME280_I2C_ADDRESS, 0x8E);
-  cal.dig_P2 = i2c_read16(BME280_I2C_ADDRESS, 0x90);
-  cal.dig_P3 = i2c_read16(BME280_I2C_ADDRESS, 0x92);
-  cal.dig_P4 = i2c_read16(BME280_I2C_ADDRESS, 0x94);
-  cal.dig_P5 = i2c_read16(BME280_I2C_ADDRESS, 0x96);
-  cal.dig_P6 = i2c_read16(BME280_I2C_ADDRESS, 0x98);
-  cal.dig_P7 = i2c_read16(BME280_I2C_ADDRESS, 0x9A);
-  cal.dig_P8 = i2c_read16(BME280_I2C_ADDRESS, 0x9C);
-  cal.dig_P9 = i2c_read16(BME280_I2C_ADDRESS, 0x9E);
+  cal.dig_T1 = i2c_read16be(BME280_I2C_ADDRESS, 0x88);
+  cal.dig_T2 = i2c_read16be(BME280_I2C_ADDRESS, 0x8A);
+  cal.dig_T3 = i2c_read16be(BME280_I2C_ADDRESS, 0x8C);
+  cal.dig_P1 = i2c_read16be(BME280_I2C_ADDRESS, 0x8E);
+  cal.dig_P2 = i2c_read16be(BME280_I2C_ADDRESS, 0x90);
+  cal.dig_P3 = i2c_read16be(BME280_I2C_ADDRESS, 0x92);
+  cal.dig_P4 = i2c_read16be(BME280_I2C_ADDRESS, 0x94);
+  cal.dig_P5 = i2c_read16be(BME280_I2C_ADDRESS, 0x96);
+  cal.dig_P6 = i2c_read16be(BME280_I2C_ADDRESS, 0x98);
+  cal.dig_P7 = i2c_read16be(BME280_I2C_ADDRESS, 0x9A);
+  cal.dig_P8 = i2c_read16be(BME280_I2C_ADDRESS, 0x9C);
+  cal.dig_P9 = i2c_read16be(BME280_I2C_ADDRESS, 0x9E);
 
   // configure sensor
   // ctrl_meas, Temperature oversampling x2, Pressure x16, Normal mode
@@ -627,6 +645,10 @@ void destroy_mq135_adc(sensor_r_t *s){
 #define APDS9930_WTIME       (APDS9930_CMD | 0x03) // Wait time register
 #define APDS9930_PPULSE      (APDS9930_CMD | 0x0E) // Proximity pulse count and length
 #define APDS9930_CONTROL     (APDS9930_CMD | 0x0F) // Control register (gain settings)
+#define APDS9930_AUTO_INC    0x20
+#define APDS9930_CH0DATAL    (APDS9930_CMD | APDS9930_AUTO_INC | 0x14)
+#define APDS9930_CH1DATAL    (APDS9930_CMD | APDS9930_AUTO_INC | 0x16)
+#define APDS9930_PDATAL      (APDS9930_CMD | APDS9930_AUTO_INC | 0x18)
 
 #define APDS99xx_ENABLE_PON  0x01 // Bit to power on
 #define APDS99xx_ENABLE_AEN  0x02 // Bit to enable ALS
@@ -640,8 +662,8 @@ int8_t fetch_apds_als(sensor_r_t *s, double *illuminance){
     return -1;
   
   // Read both channels (16-bit)
-  uint16_t ch0 = i2c_read16(APDS99xx_I2C_ADDRESS, APDS9930_CH0DATAL); // Visible + IR
-  uint16_t ch1 = i2c_read16(APDS99xx_I2C_ADDRESS, APDS9930_CH1DATAL); // IR only
+  uint16_t ch0 = i2c_read16le(APDS99xx_I2C_ADDRESS, APDS9930_CH0DATAL); // Visible + IR
+  uint16_t ch1 = i2c_read16le(APDS99xx_I2C_ADDRESS, APDS9930_CH1DATAL); // IR only
 
   // Check for read errors
   if (ch0 == 0xFFFF || ch1 == 0xFFFF)
@@ -669,7 +691,7 @@ int8_t fetch_apds_proximity(sensor_r_t *s, double *proximity_value){
 
   // On APDS-9930, Proximity data is 16-bit (PDATAH:PDATAL)
   // Register 0x12 is PDATAL, 0x13 is PDATAH
-  uint16_t prox = i2c_read16(APDS99xx_I2C_ADDRESS, APDS9930_PDATAL);
+  uint16_t prox = i2c_read16le(APDS99xx_I2C_ADDRESS, APDS9930_PDATAL);
   if(prox == 0xFFFF) {
     LOG("[APDS] Proximity read failed");
     return -1;
@@ -677,10 +699,13 @@ int8_t fetch_apds_proximity(sensor_r_t *s, double *proximity_value){
 
   // If prox is very low, the object is close
   // Simplified inverse relationship: Distance is roughly proportional to 1/sqrt(prox)
-  double distance_cm = 50.0 / sqrt(prox);
+  if (prox < 1) {
+    *proximity_value = 50.0; // Assume max distance if no reflection
+  } else {
+    *proximity_value = 50.0 / sqrt(prox);
+  }
 
-  LOG("[APDS] prox: %u, estimated distance: %.2f cm", prox, distance_cm);
-  *proximity_value = distance_cm;
+  LOG("[APDS] prox: %u, estimated distance: %.2f cm", prox, *proximity_value);
   return 1;
 }
 
@@ -876,7 +901,7 @@ int8_t fetch_se95_temperature(sensor_r_t *s, double *temperature){
   // MSB=0, +(TEMP * 0.03125)
   // MSB=1, -(TEMP two complement) * 0.03125
   // get 13 bits, shift right 3
-  uint16_t raw_temp = i2c_read16(SE95_I2C_ADDRESS, SE95_TEMPERATURE);
+  uint16_t raw_temp = i2c_read16be(SE95_I2C_ADDRESS, SE95_TEMPERATURE);
   if(raw_temp == 0xFFFF){
     LOG("[SE95] failed to read temperature");
     return -1;
