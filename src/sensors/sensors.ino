@@ -247,7 +247,7 @@ int8_t dht11_fetch_humidity(sensor_r_t *s, double *humidity){
   }
   double h = (double)DODHT(s)->readHumidity();
   LOG("[DHT11] humidity: %f %%", h);
-  if(h < 0.0 || h > 100.0){
+  if(isnan(h) || h < 0.0 || h > 100.0){
     LOG("[DHT11] humidity invalid or out of range, returning 0: %.2f", h);
     *humidity = 0.0;
     return -1;
@@ -268,7 +268,7 @@ int8_t dht11_fetch_temperature(sensor_r_t *s, double *temperature){
   }
   double t = (double)DODHT(s)->readTemperature();
   LOG("[DHT11] temperature: %f °C", t);
-  if(t < 0.0 || t > 50.0){
+  if(isnan(t) || t < 0.0 || t > 50.0){
     LOG("[DHT11] temperature invalid or out of range, returning 0: %.2f", t);
     *temperature = 0.0;
     return -1;
@@ -346,72 +346,62 @@ struct {
   int16_t  dig_P2, dig_P3, dig_P4, dig_P5, dig_P6, dig_P7, dig_P8, dig_P9;
 } cal;
 
-uint8_t did_bme280 = 0; // BME280 read flag
 RTC_DATA_ATTR double last_bme280_humidity = 0.0;
 RTC_DATA_ATTR double last_bme280_temperature = 0.0;
 RTC_DATA_ATTR double last_bme280_pressure = 0.0;
-RTC_DATA_ATTR unsigned long last_bme280_read_time = 0;
 
 int8_t bme280_fetch_humidity(sensor_r_t *s, double *humidity){
   if(humidity == NULL)
     return -1;
-  if(!did_bme280){
-    // TODO
-    last_bme280_read_time = millis();
-    did_bme280 = 1;
-  }
-  LOG("[BME280] humidity: %f %%", last_bme280_humidity);
-  if(last_bme280_humidity < 0.0 || last_bme280_humidity > 100.0){
-    LOG("[BME280] humidity invalid or out of range: %.2f", last_bme280_humidity);
+  double humidity_raw = 0.0;
+
+  LOG("[BME280] humidity: %f %%", humidity_raw);
+  if(isnan(humidity_raw) || humidity_raw < 0.0 || humidity_raw > 100.0){
+    LOG("[BME280] humidity invalid or out of range: %.2f", humidity_raw);
     *humidity = 0.0;
     return -1;
   }
-  *humidity = last_bme280_humidity;
+  *humidity = humidity_raw;
+  last_bme280_humidity = humidity_raw;
   return 1;
 }
 
 int8_t bme280_fetch_temperature(sensor_r_t *s, double *temperature){
   if(temperature == NULL)
     return -1;
-  if(!did_bme280){
-    // TODO
-    last_bme280_read_time = millis();
-    did_bme280 = 1;
-  }
-  LOG("[BME280] temperature: %f °C", last_bme280_temperature);
-  if(last_bme280_temperature < -40.0 || last_bme280_temperature > 85.0){
-    LOG("[BME280] temperature invalid or out of range: %.2f", last_bme280_temperature);
+  double temperature_raw = 0.0;
+
+  LOG("[BME280] temperature: %f °C", temperature_raw);
+  if(isnan(temperature_raw)){
+    LOG("[BME280] temperature invalid or out of range: %.2f", temperature_raw);
     *temperature = 0.0;
     return -1;
   }
-  *temperature = last_bme280_temperature;
+  *temperature = temperature_raw;
+  last_bme280_temperature = temperature_raw;
   return 1;
 }
 
 int8_t bme280_fetch_pressure(sensor_r_t *s, double *pressure){
   if(pressure == NULL)
     return -1;
-  if(!did_bme280){
-    // TODO
-    last_bme280_read_time = millis();
-    did_bme280 = 1;
-  }
-  LOG("[BME280] pressure: %f hPa", last_bme280_pressure);
-  if(last_bme280_pressure < 300.0 || last_bme280_pressure > 1100.0){
-    LOG("[BME280] pressure invalid or out of range: %.2f", last_bme280_pressure);
+  double pressure_raw = 0.0;
+
+  LOG("[BME280] pressure: %f hPa", pressure_raw);
+  if(isnan(pressure_raw)){
+    LOG("[BME280] pressure invalid or out of range: %.2f", pressure_raw);
     *pressure = 0.0;
     return -1;
   }
-  *pressure = last_bme280_pressure;
+  *pressure = pressure_raw;
+  last_bme280_pressure = pressure_raw;
   return 1;
 }
 
 void pre_bme280(sensor_r_t *s){
-  did_bme280 = 0;
 }
 
 void post_bme280(sensor_r_t *s){
-  did_bme280 = 0;
 }
 
 void init_bme280(sensor_r_t *s){
