@@ -59,8 +59,8 @@
 #if defined(SUPPORT_DS18B20)
 #include <OneWire.h>
 #include <DallasTemperature.h>
+OneWire oneWire;
 #endif // SUPPORT_DS18B20
-
 
 #ifdef SUPPORT_S8
 #include "s8_uart.h"
@@ -1029,35 +1029,75 @@ int8_t fetch_bh1750_illuminance(sensor_r_t *s, float *illuminance){
     {\
       .name = "DS18B20 Temperature",\
       .key  = "ds18b20_temperature",\
-      .unit_fmt = "%s:%s*°C,%.2f\r\n",\
+      .unit_fmt = "%s:%s*°C,%.4f\r\n",\
       .init_function = init_ds18b20,\
       .value_function = fetch_ds18b20_temperature,\
     }
 
 #define ONEWIRE_BUS_PIN GPIO_NUM_4 // GPIO where the DS18B20 is connected
 
-// Setup a oneWire instance to communicate with any OneWire devices
-OneWire oneWire(ONEWIRE_BUS_PIN);
-// Pass our oneWire reference to Dallas Temperature.
-DallasTemperature ds18b20(&oneWire);
+enum ds18b20_state_t {
+  DS_IDLE,
+  DS_REQUESTING
+};
+
+ds18b20_state_t sensorState = DS_IDLE;
+DallasTemperature ds18b20;
+DeviceAddress ds18b20_address;
 
 void init_ds18b20(sensor_r_t *s) {
-  ds18b20.begin();
+  // Initialize the OneWire pin
+  oneWire.begin(ONEWIRE_BUS_PIN); 
   LOG("[DS18B20] Initialized OneWire on pin %d", ONEWIRE_BUS_PIN);
+
+  // Link the ds18b20 object to our specific OneWire instance
+  ds18b20.setOneWire(&oneWire);
+
+  // Start the sensor library
+  ds18b20.begin();
+
+  // Look for the first sensor on the bus and save its address
+  if (!ds18b20.getAddress(ds18b20_address, 0)) {
+    // Set to non-blocking mode
+    ds18b20.setWaitForConversion(false);
+    // Set resolution to 12 bits (can be 9, 10, 11, or 12)
+    ds18b20.setResolution(ds18b20_address, 12);
+  
+    s->cfg->enabled = 0 ; // Disable in config
+    LOG("[DS18B20] ERROR: Could not find OneWire address for DS18B20 at Index 0");
+  } else {
+    LOG("[DS18B20] Found DS18B20 sensor with address: %16X", *((uint64_t*)ds18b20_address));
+  }
 }
 
 int8_t fetch_ds18b20_temperature(sensor_r_t *s, float *temperature){
   if(temperature == NULL)
     return -1;
 
-  ds18b20.requestTemperatures(); 
-  float tempC = (float)ds18b20.getTempCByIndex(0);
-  if(tempC == DEVICE_DISCONNECTED_C) {
-    LOG("[DS18B20] ERROR: Could not read temperature data");
-    return -1;
+  if(sensorState == DS_IDLE){
+    // Request temperature measurement
+    ds18b20.requestTemperatures(); 
+    sensorState = DS_REQUESTING;
+    LOG("[DS18B20] Requested temperature measurement");
+    return -1; // not ready yet
+  }
+  if(!ds18b20.isConversionComplete()){
+    LOG("[DS18B20] Temperature conversion not ready yet");
+    return -1; // not ready yet
   }
 
-  LOG("[DS18B20] temperature: %.2f °C", tempC);
+  // Fetch temperature in Celsius
+  float tempC = (float)ds18b20.getTempC(ds18b20_address);
+  // Check for disconnected sensor, note that DEVICE_DISCONNECTED_C returns -127.0°C
+  if(tempC <= -126.0f || tempC >= 184.0f) { 
+    LOG("[DS18B20] ERROR: Sensor disconnected or invalid read");
+    return -1;
+  }
+  // Request temperature measurement, takes ~0ms, this is for the next run
+  ds18b20.requestTemperatures(); 
+  sensorState = DS_REQUESTING;
+
+  LOG("[DS18B20] temperature: %.4f °C", tempC);
   *temperature = tempC;
   return 1;
 }
