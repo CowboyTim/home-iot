@@ -59,7 +59,6 @@
 #if defined(SUPPORT_DS18B20)
 #include <OneWire.h>
 #include <DallasTemperature.h>
-OneWire oneWire;
 #endif // SUPPORT_DS18B20
 
 #if defined(SUPPORT_NTC) || defined(SUPPORT_LDR) || defined(SUPPORT_MQ135)
@@ -81,6 +80,11 @@ OneWire oneWire;
 namespace SENSORS {
 
 RTC_DATA_ATTR long l_intv_counters[NR_OF_SENSORS] = {0};
+
+#ifdef SUPPORT_DS18B20
+RTC_DATA_ATTR unsigned long last_read_time = 0;
+RTC_DATA_ATTR float last_temperature = 0.0f;
+#endif // SUPPORT_DS18B20
 
 #if defined(ADC_NEEDED)
 // see https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/peripherals/adc_oneshot.html
@@ -368,9 +372,7 @@ void CFG_INIT() {
 
 #define DHTPIN  A0     // GPIO_NUM_0/A0 pin for DHT11
 
-RTC_DATA_ATTR float last_dht_humidity = 0.0f;
-RTC_DATA_ATTR float last_dht_temperature = 0.0f;
-RTC_DATA_ATTR unsigned long last_dht_read_time = 0;
+RTC_DATA_ATTR float last_humidity = 0.0f;
 
 int8_t dht11_fetch_humidity(sensor_r_t *s, float *humidity){
   if(humidity == NULL)
@@ -384,8 +386,9 @@ int8_t dht11_fetch_humidity(sensor_r_t *s, float *humidity){
     return -1;
   }
   *humidity = h;
-  last_dht_humidity = h;
-  last_dht_read_time = millis();
+
+  // for MQ135 air quality sensor compensation
+  last_humidity = h;
   return 1;
 }
 
@@ -401,8 +404,6 @@ int8_t dht11_fetch_temperature(sensor_r_t *s, float *temperature){
     return -1;
   }
   *temperature = t;
-  last_dht_temperature = t;
-  last_dht_read_time = millis();
   return 1;
 }
 
@@ -598,7 +599,7 @@ void init_ldr_adc(sensor_r_t *s){
     {\
       .name = "NTC Temperature",\
       .key  = "ntc_temperature",\
-      .unit_fmt = "%s:%s*°C,%.2f\r\n",\
+      .unit_fmt = "%s:%s*°C,%.4f\r\n",\
       .init_function = init_ntc_adc,\
       .value_function = fetch_ntc_temperature,\
     }
@@ -676,11 +677,14 @@ RTC_DATA_ATTR unsigned long mq135_startup_time = 0;
 float mq135_adc_to_ppm(float mq135_r0, float mq135_rl, float adc_value) {
   float RS = ((MQ135_VCC - adc_value) / adc_value ) * mq135_rl; // in kOhm
 
-  #ifdef SUPPORT_DHT11
+  #if defined(SUPPORT_DHT11) && defined(SUPPORT_DS18B20)
   // apply a correction based on temperature and humidity if available
-  if(last_dht_read_time != 0 && millis() - last_dht_read_time < 60000){ // valid DHT11 reading within last 60s
-    float cf = 0.00035f * pow(last_dht_temperature, 2) - 0.019f * last_dht_temperature + 1.224f;
-    cf += (last_dht_humidity - 33.0f) * -0.0018f;
+  if(last_read_time != 0 && millis() - last_read_time < 60000){ // valid DHT11 reading within last 60s
+    if (last_temperature == 0.0f)
+      last_temperature = 25.0f; // default to 25C if no temperature available
+    float cf = 0.00035f * pow(last_temperature, 2) - 0.019f * last_temperature + 1.224f;
+    if(last_humidity != 0.0f)
+      cf += (last_humidity - 33.0f) * -0.0018f;
     RS /= cf;
   }
   #endif // SUPPORT_DHT11
@@ -693,11 +697,14 @@ float mq135_adc_to_ppm(float mq135_r0, float mq135_rl, float adc_value) {
 
 float calibrate_mq135_r0(float mq135_rl, float adc_value) {
   float RS = ((MQ135_VCC - adc_value) / adc_value ) * mq135_rl; // in kOhm
-  #ifdef SUPPORT_DHT11
+  #if defined(SUPPORT_DHT11) && defined(SUPPORT_DS18B20)
   // apply a correction based on temperature and humidity if available
-  if(last_dht_read_time != 0 && millis() - last_dht_read_time < 60000){ // valid DHT11 reading within last 60s
-    float cf = 0.00035f * pow(last_dht_temperature, 2) - 0.019f * last_dht_temperature + 1.224f;
-    cf += (last_dht_humidity - 33.0f) * -0.0018f;
+  if(last_read_time != 0 && millis() - last_read_time < 60000){ // valid DHT11 reading within last 60s
+    if (last_temperature == 0.0f)
+      last_temperature = 25.0f; // default to 25C if no temperature available
+    float cf = 0.00035f * pow(last_temperature, 2) - 0.019f * last_temperature + 1.224f;
+    if(last_humidity != 0.0f)
+      cf += (last_humidity - 33.0f) * -0.0018f;
     RS /= cf;
   }
   #endif // SUPPORT_DHT11
@@ -1164,6 +1171,7 @@ enum ds18b20_state_t {
   DS_REQUESTING
 };
 
+OneWire oneWire; // Create OneWire instance
 ds18b20_state_t sensorState = DS_IDLE;
 DallasTemperature ds18b20;
 DeviceAddress ds18b20_address;
@@ -1222,6 +1230,9 @@ int8_t fetch_ds18b20_temperature(sensor_r_t *s, float *temperature){
 
   LOG("[DS18B20] temperature: %.4f °C", tempC);
   *temperature = tempC;
+
+  // for MQ-135 compensation
+  last_temperature = tempC;
   return 1;
 }
 #endif // SUPPORT_DS18B20
