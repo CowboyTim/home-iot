@@ -1528,7 +1528,7 @@ const char* at_cmd_handler_sensors(const char* atcmdline){
     return AT_R_DOUBLE(SENSORS::cfg.mq135_rl);
   } else if(p = at_cmd_check("AT+MQ135_RL=", atcmdline, cmd_len)){
     float new_r0 = strtof(p, NULL);
-    if(new_r0 < 1.0f || new_r0 > 1000.0f)
+    if(new_r0 < 0.001f || new_r0 > 100000.0f)
       return AT_R("+ERROR: invalid RL value 1-1000 kOhm");
     SENSORS::cfg.mq135_rl = new_r0;
     CFG_SAVE();
