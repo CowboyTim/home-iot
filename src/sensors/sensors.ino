@@ -69,7 +69,7 @@ OneWire oneWire;
 #include "soc/clk_tree_defs.h"
 #define ADC_BITS   ADC_BITWIDTH_12 // 12-bit ADC
 #define ADC_MAX               4095 // 12-bit ADC max value: 2^12 - 1 = 4095
-#define ADC_MREF_VOLTAGE   2800.0f // ESP32 ADC reference voltage in mV for attenuation 11dB, in mV
+#define ADC_MREF_VOLTAGE   2800.0f // ESP32 ADC reference voltage in mV for attenuation 12dB, in mV
 #define ADC_NEEDED
 #endif // SUPPORT_NTC || SUPPORT_LDR || SUPPORT_MQ135
 
@@ -105,7 +105,7 @@ void initialize_adc(uint8_t pin){
           LOG("[ADC] Failed to map pin %d to ADC channel, err: %d", pin, esp_err_to_name(ok));
         }
         adc_oneshot_chan_cfg_t config = {
-          .atten = ADC_ATTEN_DB_11,
+          .atten = ADC_ATTEN_DB_12,
           .bitwidth = ADC_BITS,
         };
         ok = adc_oneshot_config_channel(adc_handle[pin], adc_channel[pin], &config);
@@ -578,7 +578,7 @@ void init_bme280(sensor_r_t *s){
       .value_function = fetch_ldr_adc,\
     }
 
-#define LDRPIN    A1 // GPIO_NUM_1/A1 pin for LDR
+#define LDRPIN    A1 // GPIO_NUM_1/A1 pin for LDR, same as NTCPIN, don't use together
 int8_t fetch_ldr_adc(sensor_r_t *s, float *ldr_value){
   if(ldr_value == NULL)
     return -1;
@@ -610,10 +610,10 @@ void init_ldr_adc(sensor_r_t *s){
       .value_function = fetch_ntc_temperature,\
     }
 
-#define NTCPIN    A1 // GPIO_NUM_1/A1 pin for NTC
+#define NTCPIN    A1 // GPIO_NUM_1/A1 pin for NTC, same as LDRPIN, don't use together
 
 // NTC parameters
-#define NTC_VCC             3.315f // Vcc for the voltage divider
+#define NTC_VCC             3.316f // Vcc for the voltage divider
 #define NTC_DIVIDER_R     10250.0f // 10k ohm divider resistor
 #define NTC_BETA           3950.0f // Beta coefficient of the NTC
 #define NTC_R_NOMINAL     10000.0f // Nominal resistance at 25 C
