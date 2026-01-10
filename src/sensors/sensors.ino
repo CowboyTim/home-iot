@@ -353,9 +353,7 @@ void CFG_INIT() {
       .key  = "humidity",\
       .unit_fmt = "%s:%s*%%,%.0f\r\n",\
       .init_function = init_dht11,\
-      .pre_function = pre_dht11,\
       .value_function = dht11_fetch_humidity,\
-      .post_function = post_dht11,\
     }
 #define SENSOR_DHT11_TEMPERATURE \
     {\
@@ -363,16 +361,13 @@ void CFG_INIT() {
       .key  = "temperature",\
       .unit_fmt = "%s:%s*°C,%.2f\r\n",\
       .init_function = init_dht11,\
-      .pre_function = pre_dht11,\
       .value_function = dht11_fetch_temperature,\
-      .post_function = post_dht11,\
     }
 
 #define DODHT(s) ((DHT*)(s->userdata))
 
 #define DHTPIN  A0     // GPIO_NUM_0/A0 pin for DHT11
 
-uint8_t did_dht11 = 0; // DHT11 read flag, to avoid multiple reads
 RTC_DATA_ATTR float last_dht_humidity = 0.0f;
 RTC_DATA_ATTR float last_dht_temperature = 0.0f;
 RTC_DATA_ATTR unsigned long last_dht_read_time = 0;
@@ -381,11 +376,7 @@ int8_t dht11_fetch_humidity(sensor_r_t *s, float *humidity){
   if(humidity == NULL)
     return -1;
   // fetch humidity from DHT11
-  if(!did_dht11){
-    DODHT(s)->read();
-    did_dht11 = 1;
-  }
-  float h = (float)DODHT(s)->readHumidity();
+  float h = (float)DODHT(s)->readHumidity(false);
   LOG("[DHT11] humidity: %f %%", h);
   if(isnan(h) || h < 0.0f || h > 100.0f){
     LOG("[DHT11] humidity invalid or out of range, returning 0: %.2f", h);
@@ -402,11 +393,7 @@ int8_t dht11_fetch_temperature(sensor_r_t *s, float *temperature){
   if(temperature == NULL)
     return -1;
   // fetch temperature from DHT11
-  if(!did_dht11){
-    DODHT(s)->read();
-    did_dht11 = 1;
-  }
-  float t = (float)DODHT(s)->readTemperature();
+  float t = (float)DODHT(s)->readTemperature(false);
   LOG("[DHT11] temperature: %f °C", t);
   if(isnan(t) || t < 0.0f || t > 50.0f){
     LOG("[DHT11] temperature invalid or out of range, returning 0: %.2f", t);
@@ -419,22 +406,11 @@ int8_t dht11_fetch_temperature(sensor_r_t *s, float *temperature){
   return 1;
 }
 
-void pre_dht11(sensor_r_t *s){
-  did_dht11 = 0;
-}
-
-void post_dht11(sensor_r_t *s){
-  did_dht11 = 0;
-}
-
 void init_dht11(sensor_r_t *s){
   // initialize DHT11 sensor
   s->userdata = new DHT(DHTPIN, DHT11);
-  if(did_dht11 == 0){
-    DODHT(s)->begin();
-    LOG("[DHT11] initialized on pin %d", DHTPIN);
-    did_dht11 = 1;
-  }
+  DODHT(s)->begin();
+  LOG("[DHT11] initialized on pin %d", DHTPIN);
 }
 
 #endif // SUPPORT_DHT11
