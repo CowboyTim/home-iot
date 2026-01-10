@@ -84,10 +84,12 @@ RTC_DATA_ATTR long l_intv_counters[NR_OF_SENSORS] = {0};
 
 #if defined(ADC_NEEDED)
 // see https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/peripherals/adc_oneshot.html
-RTC_DATA_ATTR int8_t setup_adc[6] = {0}; // ADC setup flag, 0=not setup, 1=setup done, -1=setup in progress
-adc_oneshot_unit_handle_t adc_handle[6];
-adc_oneshot_unit_init_cfg_t adc_init_config[6];
-adc_channel_t adc_channel[6];
+// note that ADC1 has A0-A4 and ADC2 has A5, but ADC2 is in use by WiFi, so we only use ADC1 pins A0-A4 here
+#define ADC1_PINS 5 // A0-A4
+RTC_DATA_ATTR int8_t setup_adc[ADC1_PINS] = {0}; // ADC setup flag, 0=not setup, 1=setup done, -1=setup in progress
+adc_oneshot_unit_handle_t adc_handle[ADC1_PINS];
+adc_oneshot_unit_init_cfg_t adc_init_config[ADC1_PINS];
+adc_channel_t adc_channel[ADC1_PINS];
 
 NOINLINE
 void initialize_adc(uint8_t pin){
@@ -98,6 +100,7 @@ void initialize_adc(uint8_t pin){
     if(ok != ESP_OK){
       LOG("[ADC] Failed to map pin %d to ADC channel, err: %d", pin, esp_err_to_name(ok));
     } else {
+      // channel or ADC1 not yet initialized, so initialize
       ok = adc_oneshot_new_unit(&adc_init_config[pin], &adc_handle[pin]);
       if(ok == ESP_OK){
         // map the pin to ADC channel
@@ -112,6 +115,7 @@ void initialize_adc(uint8_t pin){
         if(ok != ESP_OK){
           LOG("[ADC] Failed to set ADC resolution to %d bits, err: %d", ADC_BITS, esp_err_to_name(ok));
         }
+        LOG("[ADC] Created new ADC handle %d, channel %d for pin %d", adc_handle[pin], adc_channel[pin], pin);
       } else {
         if(ok != ESP_ERR_NOT_FOUND){
           LOG("[ADC] Failed to create ADC unit handle, err: %d", esp_err_to_name(ok));
@@ -590,6 +594,7 @@ int8_t fetch_ldr_adc(sensor_r_t *s, float *ldr_value){
 }
 
 void init_ldr_adc(sensor_r_t *s){
+  // initialize ADC for LDR
   initialize_adc(LDRPIN);
   LOG("[LDR] initialized on pin %d", LDRPIN);
 }
@@ -646,6 +651,7 @@ int8_t fetch_ntc_temperature(sensor_r_t *s, float *temperature){
 }
 
 void init_ntc_adc(sensor_r_t *s){
+  // initialize ADC for NTC
   initialize_adc(NTCPIN);
   LOG("[NTC] initialized on pin %d", NTCPIN);
 }
@@ -724,7 +730,7 @@ int8_t fetch_mq135_adc(sensor_r_t *s, float *ppm){
 
   // fetch average value
   float avg_adc = get_adc_average(MQ135_AVG_NR, MQ135PIN);
-  LOG("[MQ-135] value: %f V", avg_adc);
+  D("[MQ-135] value: %f V", avg_adc);
 
   // convert to PPM using MQ-135 formula R0/RL and curve
   *ppm = mq135_adc_to_ppm(R0, RL, avg_adc);
@@ -733,7 +739,10 @@ int8_t fetch_mq135_adc(sensor_r_t *s, float *ppm){
 }
 
 void init_mq135_adc(sensor_r_t *s){
+  // initialize ADC for MQ-135
   initialize_adc(MQ135PIN);
+
+  // read initial R0 and RL from config
   float R0 = SENSORS::cfg.mq135_r0;
   float RL = SENSORS::cfg.mq135_rl;
   LOG("[MQ-135] initialized on pin %d, R0: %0.f Ohm, RL: %0.f", R0, RL);
