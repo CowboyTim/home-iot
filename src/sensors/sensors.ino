@@ -120,7 +120,19 @@ void initialize_adc(uint8_t pin){
         if(ok != ESP_ERR_NOT_FOUND){
           LOG("[ADC] Failed to create ADC unit handle, err: %d", esp_err_to_name(ok));
         } else {
-          LOG("[ADC] Already initialized ADC on pin %d", pin);
+          // copy over existing handle from another pin
+          uint8_t found = 0;
+          for(uint8_t i = 0; i < ADC1_PINS; i++){
+            // find out whether the ADC1 channel is already initialized for another pin
+            if((i != pin) && (setup_adc[i] == 1) && (adc_init_config[i].unit_id == adc_init_config[pin].unit_id)){
+              adc_handle[pin] = adc_handle[i];
+              LOG("[ADC] Re-used existing ADC handle %d, channel %d for pin %d", adc_handle[pin], adc_channel[pin], pin);
+              break;
+            }
+          }
+          if(found == 0){
+            LOG("[ADC] Failed to find existing ADC handle for channel %d for pin %d", adc_channel[pin], pin);
+          }
         }
       }
     }
