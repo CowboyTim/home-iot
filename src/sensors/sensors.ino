@@ -63,10 +63,13 @@ OneWire oneWire;
 #endif // SUPPORT_DS18B20
 
 #if defined(SUPPORT_NTC) || defined(SUPPORT_LDR) || defined(SUPPORT_MQ135)
-#define ADC_BITS                12 // 12-bit ADC
+#include "hal/adc_types.h"
+#include "soc/adc_channel.h"
+#include "esp_adc/adc_oneshot.h"
+#include "soc/clk_tree_defs.h"
+#define ADC_BITS   ADC_BITWIDTH_12 // 12-bit ADC
 #define ADC_MAX               4095 // 12-bit ADC max value: 2^12 - 1 = 4095
 #define ADC_MREF_VOLTAGE   2800.0f // ESP32 ADC reference voltage in mV for attenuation 11dB, in mV
-#define ADC_CHANNEL ADC1_GPIO2_CHANNEL
 #define ADC_NEEDED
 #endif // SUPPORT_NTC || SUPPORT_LDR || SUPPORT_MQ135
 
@@ -80,55 +83,85 @@ namespace SENSORS {
 RTC_DATA_ATTR long l_intv_counters[NR_OF_SENSORS] = {0};
 
 #if defined(ADC_NEEDED)
-RTC_DATA_ATTR int8_t setup_adc = 0; // ADC setup flag, 0=not setup, 1=setup done, -1=setup in progress
+// see https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/peripherals/adc_oneshot.html
+RTC_DATA_ATTR int8_t setup_adc[6] = {0}; // ADC setup flag, 0=not setup, 1=setup done, -1=setup in progress
+adc_oneshot_unit_handle_t adc_handle[6];
+adc_oneshot_unit_init_cfg_t adc_init_config[6];
+adc_channel_t adc_channel[6];
+
 NOINLINE
 void initialize_adc(uint8_t pin){
-  if(setup_adc == 0){
+  esp_err_t ok;
+  if(setup_adc[pin] == 0){
     LOG("[ADC] set ADC resolution to %d bits", ADC_BITS);
-    analogReadResolution(ADC_BITS);
-    setup_adc = 1;
+    ok = adc_oneshot_io_to_channel((int)pin, (adc_unit_t *)&adc_init_config[pin].unit_id, (adc_channel_t *)&adc_channel[pin]);
+    if(ok != ESP_OK){
+      LOG("[ADC] Failed to map pin %d to ADC channel, err: %d", pin, esp_err_to_name(ok));
+    } else {
+      ok = adc_oneshot_new_unit(&adc_init_config[pin], &adc_handle[pin]);
+      if(ok == ESP_OK){
+        // map the pin to ADC channel
+        if(ok != ESP_OK){
+          LOG("[ADC] Failed to map pin %d to ADC channel, err: %d", pin, esp_err_to_name(ok));
+        }
+        adc_oneshot_chan_cfg_t config = {
+          .atten = ADC_ATTEN_DB_11,
+          .bitwidth = ADC_BITS,
+        };
+        ok = adc_oneshot_config_channel(adc_handle[pin], adc_channel[pin], &config);
+        if(ok != ESP_OK){
+          LOG("[ADC] Failed to set ADC resolution to %d bits, err: %d", ADC_BITS, esp_err_to_name(ok));
+        }
+      } else {
+        if(ok != ESP_ERR_NOT_FOUND){
+          LOG("[ADC] Failed to create ADC unit handle, err: %d", esp_err_to_name(ok));
+        } else {
+          LOG("[ADC] Already initialized ADC on pin %d", pin);
+        }
+      }
+    }
+    setup_adc[pin] = 1;
   }
 
   // configure pin as input
-  pinMode(pin, INPUT);
-
-  // configure pin as input
-  esp_err_t ok;
   LOG("[ADC] set pin %d as input", pin);
   ok = gpio_set_direction((gpio_num_t)pin, GPIO_MODE_INPUT);
   if(ok != ESP_OK){
-    LOGE("[ADC] Failed to set pin %d as input, err: %d", pin, ok);
+    LOG("[ADC] Failed to set pin %d as input, err: %d", pin, esp_err_to_name(ok));
   }
 
   // Explicitly disable internal pull resistors
   LOG("[ADC] disable internal pull resistors on pin %d", pin);
   ok = gpio_set_pull_mode((gpio_num_t)pin, GPIO_FLOATING);
   if(ok != ESP_OK){
-    LOGE("[ADC] Failed to disable internal pull resistors on pin %d, err: %d", pin, ok);
+    LOG("[ADC] Failed to disable internal pull resistors on pin %d, err: %d", pin, esp_err_to_name(ok));
   }
-
-  // 11dB for full-scale voltage ~2.8V
-  LOG("[ADC] set pin attenuation to 11db on pin %d", pin);
-  analogSetPinAttenuation(pin, ADC_11db);
 }
 
 float get_adc_average(uint8_t samples, uint8_t pin){
   if(samples == 0)
     samples = 1;
-  float avg_adc = 0.0f;
+  int avg_adc = 0.0;
   for(uint8_t i = 0; i < samples; i++) {
-    avg_adc += (float)analogRead(pin);
+    int adc = 0.0;
+    esp_err_t ok = adc_oneshot_read(adc_handle[pin], adc_channel[pin], &adc);
+    if(ok != ESP_OK){
+      LOG("[ADC] Failed to read ADC on pin %d, err: %d", pin, esp_err_to_name(ok));
+      continue;
+    }
+    avg_adc += adc;
     if(i < (samples - 1)){
       delayMicroseconds(10);
       doYIELD;
     }
   }
-  avg_adc /= (float)samples;
-  avg_adc *= ADC_MREF_VOLTAGE;
-  avg_adc /= 0.25f;   // 11dB attenuation factor
-  avg_adc /= (float)ADC_MAX;
-  avg_adc /= 1000.0f; // convert mV to V
-  return avg_adc;
+  float avg_adc_f = (float)avg_adc;
+  avg_adc_f /= (float)samples;
+  avg_adc_f /= (float)ADC_MAX;
+  avg_adc_f *= ADC_MREF_VOLTAGE;
+  D("[ADC] Average ADC value on pin %d: %f", pin, avg_adc_f);
+  avg_adc_f /= 1000.0f; // convert mV to V
+  return avg_adc_f;
 }
 
 #endif
