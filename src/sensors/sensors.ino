@@ -687,7 +687,7 @@ float mq135_adc_to_ppm(float mq135_r0, float mq135_rl, float adc_value) {
 
   float RATIO = RS / mq135_r0;
   float ppm = MQ135_CO2_A * pow(RATIO, MQ135_CO2_B);
-  LOG("[MQ-135] Value: %f V, R0: %f kOhm, RL: %f kOhm, RS: %f kOhm, R: %f, PPM: %f", adc_value, mq135_r0, mq135_rl, RS, RATIO, ppm);
+  LOG("[MQ-135] CO2 PPM: %f, Value: %f V, R0: %f kOhm, RL: %f kOhm, RS: %f kOhm, R: %f", ppm, adc_value, mq135_r0, mq135_rl, RS, RATIO);
   return ppm;
 }
 
@@ -823,7 +823,7 @@ int8_t fetch_apds_als(sensor_r_t *s, float *illuminance){
   if (final_lux < 0)
     final_lux = 0.0f;
 
-  LOG("[APDS] CH0: %u, CH1: %u, Lux: %.2f", ch0, ch1, final_lux);
+  LOG("[APDS] Lux: %.2f, CH0: %u, CH1: %u, Lux: %.2f", final_lux, ch0, ch1);
   *illuminance = final_lux;
   return 1;
 }
