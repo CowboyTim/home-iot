@@ -631,7 +631,7 @@ int8_t fetch_ntc_temperature(sensor_r_t *s, float *temperature){
   // Standard KY-013 wiring: R_divider is to VCC, NTC is to GND
   // R_ntc = R_fixed * (V_out / (Vcc - V_out))
   float r_ntc = NTC_DIVIDER_R * (v_out / (NTC_VCC - v_out));
-  LOG("[NTC] V_out: %.2f, R_ntc: %.2f Ohms", v_out, r_ntc);
+  D("[NTC] V_out: %.2f, R_ntc: %.2f Ohms", v_out, r_ntc);
 
   // Steinhart-Hart / B-parameter
   float steinhart;
@@ -640,7 +640,7 @@ int8_t fetch_ntc_temperature(sensor_r_t *s, float *temperature){
   steinhart += 1.0f / NTC_T_NOMINAL;
   steinhart  = (1.0f / steinhart) - 273.15f;
 
-  LOG("[NTC] Temperature: %.2f °C", steinhart);
+  LOG("[NTC] temperature: %.2f °C", steinhart);
   *temperature = steinhart;
   return 1;
 }
