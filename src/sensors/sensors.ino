@@ -658,7 +658,7 @@ void init_ntc_adc(sensor_r_t *s){
       .destroy_function = destroy_mq135_adc,\
     }
 
-#define MQ135PIN           A2 // GPIO_NUM_2/A2 pin for MQ-135
+#define MQ135PIN           A2  // GPIO_NUM_2/A2 pin for MQ-135
 #define MQ135_RL         22.0f // kOhm load resistor
 #define MQ135_R0        76.63f // kOhm clean air resistance
 #define MQ135_VCC         5.0f // Sensor powered by 5V (from USB)
