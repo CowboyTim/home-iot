@@ -722,7 +722,6 @@ int8_t fetch_mq135_adc(sensor_r_t *s, float *ppm){
 
   // convert to PPM using MQ-135 formula R0/RL and curve
   *ppm = mq135_adc_to_ppm(R0, RL, avg_adc);
-  LOG("[MQ-135] CO2 PPM: %f", *ppm);
   return 1;
 }
 
