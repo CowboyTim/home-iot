@@ -62,6 +62,15 @@
 OneWire oneWire;
 #endif // SUPPORT_DS18B20
 
+#if defined(SUPPORT_NTC) || defined(SUPPORT_LDR) || defined(SUPPORT_MQ135)
+#define ADC_BITS                12 // 12-bit ADC
+#define ADC_MAX               4095 // 12-bit ADC max value: 2^12 - 1 = 4095
+#define ADC_MREF_VOLTAGE   2800.0f // ESP32 ADC reference voltage in mV for attenuation 11dB, in mV
+#define ADC_CHANNEL ADC1_GPIO2_CHANNEL
+#define ADC_NEEDED
+#endif // SUPPORT_NTC || SUPPORT_LDR || SUPPORT_MQ135
+
+
 #ifdef SUPPORT_S8
 #include "s8_uart.h"
 #endif
@@ -69,6 +78,60 @@ OneWire oneWire;
 namespace SENSORS {
 
 RTC_DATA_ATTR long l_intv_counters[NR_OF_SENSORS] = {0};
+
+#if defined(ADC_NEEDED)
+RTC_DATA_ATTR int8_t setup_adc = 0; // ADC setup flag, 0=not setup, 1=setup done, -1=setup in progress
+NOINLINE
+void initialize_adc(uint8_t pin){
+  if(setup_adc == 0){
+    LOG("[ADC] set ADC resolution to %d bits", ADC_BITS);
+    analogReadResolution(ADC_BITS);
+    setup_adc = 1;
+  }
+
+  // configure pin as input
+  pinMode(pin, INPUT);
+
+  // configure pin as input
+  esp_err_t ok;
+  LOG("[ADC] set pin %d as input", pin);
+  ok = gpio_set_direction((gpio_num_t)pin, GPIO_MODE_INPUT);
+  if(ok != ESP_OK){
+    LOGE("[ADC] Failed to set pin %d as input, err: %d", pin, ok);
+  }
+
+  // Explicitly disable internal pull resistors
+  LOG("[ADC] disable internal pull resistors on pin %d", pin);
+  ok = gpio_set_pull_mode((gpio_num_t)pin, GPIO_FLOATING);
+  if(ok != ESP_OK){
+    LOGE("[ADC] Failed to disable internal pull resistors on pin %d, err: %d", pin, ok);
+  }
+
+  // 11dB for full-scale voltage ~2.8V
+  LOG("[ADC] set pin attenuation to 11db on pin %d", pin);
+  analogSetPinAttenuation(pin, ADC_11db);
+}
+
+float get_adc_average(uint8_t samples, uint8_t pin){
+  if(samples == 0)
+    samples = 1;
+  float avg_adc = 0.0f;
+  for(uint8_t i = 0; i < samples; i++) {
+    avg_adc += (float)analogRead(pin);
+    if(i < (samples - 1)){
+      delayMicroseconds(10);
+      doYIELD;
+    }
+  }
+  avg_adc /= (float)samples;
+  avg_adc *= ADC_MREF_VOLTAGE;
+  avg_adc /= 0.25f;   // 11dB attenuation factor
+  avg_adc /= (float)ADC_MAX;
+  avg_adc /= 1000.0f; // convert mV to V
+  return avg_adc;
+}
+
+#endif
 
 #if defined(SUPPORT_SE95) || defined(SUPPORT_BME280) || defined(SUPPORT_BMP280) || defined(SUPPORT_APDS9930) || defined(SUPPORT_BH1750)
 // re-export Wire for sensors.cpp in this SENSORS namespace, note that "Wire"
@@ -486,19 +549,74 @@ void init_bme280(sensor_r_t *s){
 int8_t fetch_ldr_adc(sensor_r_t *s, float *ldr_value){
   if(ldr_value == NULL)
     return -1;
-  // fetch LDR ADC value
-  int ldr_adc = analogReadMilliVolts(LDRPIN); // assuming LDR is connected to LDRPIN
-  LOG("[LDR/ADC] value: %d mV", ldr_adc);
-  *ldr_value = (float)ldr_adc; // convert to float for consistency
+  // fetch LDR value
+  float ldr_adc = get_adc_average(10, LDRPIN);
+  LOG("[LDR] value: %d V", ldr_adc);
+  *ldr_value = ldr_adc; // convert to float for consistency
   return 1;
 }
 
 void init_ldr_adc(sensor_r_t *s){
-  // initialize LDR ADC pin
-  pinMode(LDRPIN, INPUT); // assuming LDR is connected to LDRPIN
-  LOG("[LDR/ADC] initialized on pin %d", LDRPIN);
+  initialize_adc(LDRPIN);
+  LOG("[LDR] initialized on pin %d", LDRPIN);
 }
 #endif // SUPPORT_LDR
+
+// NTC Sensor
+// This is actually the KY-013 NTC Thermistor module, see https://sensorkit.joy-it.net/en/sensors/ky-013
+// but: https://forum.arduino.cc/t/solved-ky-013-analog-temperature-sensor-incorrect-readings/203719
+// errornous pinout, should be: left to right: GND (label S) | VCC | Signal (to ADC) (labelled -)
+#define SENSOR_NTC_TEMPERATURE {.name = "NTC Temperature", .key = "ntc_temperature",}
+#ifdef SUPPORT_NTC
+#define SENSOR_NTC_TEMPERATURE \
+    {\
+      .name = "NTC Temperature",\
+      .key  = "ntc_temperature",\
+      .unit_fmt = "%s:%s*°C,%.2f\r\n",\
+      .init_function = init_ntc_adc,\
+      .value_function = fetch_ntc_temperature,\
+    }
+
+#define NTCPIN    A1 // GPIO_NUM_1/A1 pin for NTC
+
+// NTC parameters
+#define NTC_VCC             3.315f // Vcc for the voltage divider
+#define NTC_DIVIDER_R     10250.0f // 10k ohm divider resistor
+#define NTC_BETA           3950.0f // Beta coefficient of the NTC
+#define NTC_R_NOMINAL     10000.0f // Nominal resistance at 25 C
+#define NTC_T_NOMINAL      298.15f // 25 C in Kelvin
+
+int8_t fetch_ntc_temperature(sensor_r_t *s, float *temperature){
+  if(temperature == NULL)
+    return -1;
+  
+  // Get average voltage in Volts (as float)
+  float v_out = get_adc_average(10, NTCPIN);
+  if(v_out >= NTC_VCC)
+     v_out = NTC_VCC - 0.0001f; // avoid division by zero
+  
+  // Standard KY-013 wiring: R_divider is to VCC, NTC is to GND
+  // R_ntc = R_fixed * (V_out / (Vcc - V_out))
+  float r_ntc = NTC_DIVIDER_R * (v_out / (NTC_VCC - v_out));
+  LOG("[NTC] V_out: %.2f, R_ntc: %.2f Ohms", v_out, r_ntc);
+
+  // Steinhart-Hart / B-parameter
+  float steinhart;
+  steinhart  = log(r_ntc / NTC_R_NOMINAL);
+  steinhart /= NTC_BETA;
+  steinhart += 1.0f / NTC_T_NOMINAL;
+  steinhart  = (1.0f / steinhart) - 273.15f;
+
+  LOG("[NTC] Temperature: %.2f °C", steinhart);
+  *temperature = steinhart;
+  return 1;
+}
+
+void init_ntc_adc(sensor_r_t *s){
+  initialize_adc(NTCPIN);
+  LOG("[NTC] initialized on pin %d", NTCPIN);
+}
+#endif // SUPPORT_NTC
 
 // MQ-135 Air Quality Sensor
 #define SENSOR_MQ135 {.name = "MQ-135 Air Quality", .key = "air_quality",}
@@ -515,14 +633,10 @@ void init_ldr_adc(sensor_r_t *s){
 
 #include "soc/adc_channel.h"
 #define MQ135PIN           A2 // GPIO_NUM_2/A2 pin for MQ-135
-#define MQ135_ADC_CHANNEL  ADC1_GPIO2_CHANNEL
 #define MQ135_RL         22.0f // kOhm load resistor
 #define MQ135_R0        76.63f // kOhm clean air resistance
 #define MQ135_VCC         5.0f // Sensor powered by 5V (from USB)
-#define MQ135_ADC_REF_VOLTAGE_IN_MV 3300 // ESP32 ADC reference voltage in mV
-#define MQ135_AVG_NR       50 // number of samples to average from ADC, higher = more stable, don't go too high or uint32_t overflow
-#define MQ135_ADC_MAX    4095 // 12-bit ADC max value
-#define MQ135_ADC_BITS     12 // 12-bit ADC
+#define MQ135_AVG_NR        50 // number of samples to average from ADC, higher = more stable, don't go too high or uint32_t overflow
 
 // For CO2: a = 110.47, b = -2.862 (from datasheet)
 #define MQ135_CO2_A    110.47f // MQ-135 CO2 curve a
@@ -547,7 +661,7 @@ float mq135_adc_to_ppm(float mq135_r0, float mq135_rl, float adc_value) {
 
   float RATIO = RS / mq135_r0;
   float ppm = MQ135_CO2_A * pow(RATIO, MQ135_CO2_B);
-  LOG("[MQ-135] ADC Value: %f V, R0: %f kOhm, RL: %f kOhm, RS: %f kOhm, R: %f, PPM: %f", adc_value, mq135_r0, mq135_rl, RS, RATIO, ppm);
+  LOG("[MQ-135] Value: %f V, R0: %f kOhm, RL: %f kOhm, RS: %f kOhm, R: %f, PPM: %f", adc_value, mq135_r0, mq135_rl, RS, RATIO, ppm);
   return ppm;
 }
 
@@ -562,22 +676,8 @@ float calibrate_mq135_r0(float mq135_rl, float adc_value) {
   }
   #endif // SUPPORT_DHT11
   float R0 = RS / pow((ATMOSPHERIC_CO2_PPM / MQ135_CO2_A), (1.0f / MQ135_CO2_B));
-  LOG("[MQ-135] Calibration ADC value: Voltage: %f V, RL: %f kOhm, RS: %f kOhm, R0: %f kOhm", adc_value, mq135_rl, RS, R0);
+  LOG("[MQ-135] Calibration value: Voltage: %f V, RL: %f kOhm, RS: %f kOhm, R0: %f kOhm", adc_value, mq135_rl, RS, R0);
   return R0;
-}
-
-float get_adc_average(uint8_t samples) {
-  uint32_t avg_adc = 0.0f;
-  for(uint8_t i = 0; i < samples; i++) {
-    avg_adc += analogRead(MQ135PIN);
-    delayMicroseconds(10);
-    doYIELD;
-  }
-  avg_adc *= MQ135_ADC_REF_VOLTAGE_IN_MV;
-  float v_adc = (float)avg_adc / samples;
-  v_adc  /= MQ135_ADC_MAX;
-  v_adc  /= 1000.0f; // convert mV to V
-  return v_adc;
 }
 
 int8_t fetch_mq135_adc(sensor_r_t *s, float *ppm){
@@ -590,26 +690,21 @@ int8_t fetch_mq135_adc(sensor_r_t *s, float *ppm){
   float R0 = SENSORS::cfg.mq135_r0;
   float RL = SENSORS::cfg.mq135_rl;
 
-  // fetch average ADC value
-  float avg_adc = get_adc_average(MQ135_AVG_NR);
-  LOG("[MQ-135] ADC AVG(nr:%d) value: %f V", MQ135_AVG_NR, avg_adc);
+  // fetch average value
+  float avg_adc = get_adc_average(MQ135_AVG_NR, MQ135PIN);
+  LOG("[MQ-135] value: %f V", avg_adc);
 
-  // convert ADC to PPM using MQ-135 formula R0/RL and curve
+  // convert to PPM using MQ-135 formula R0/RL and curve
   *ppm = mq135_adc_to_ppm(R0, RL, avg_adc);
   LOG("[MQ-135] CO2 PPM: %f", *ppm);
   return 1;
 }
 
 void init_mq135_adc(sensor_r_t *s){
-  // initialize MQ-135 ADC pin
-  pinMode(MQ135PIN, INPUT_PULLDOWN); // assuming MQ-135 is connected to MQ135PIN
-  pinMode(MQ135PIN, ANALOG);
-  analogRead(MQ135PIN);
-  analogSetPinAttenuation(MQ135PIN, ADC_11db);
-  analogReadResolution(MQ135_ADC_BITS);
+  initialize_adc(MQ135PIN);
   float R0 = SENSORS::cfg.mq135_r0;
   float RL = SENSORS::cfg.mq135_rl;
-  LOG("[MQ-135] ADC initialized on pin %d, ADC channel: %d, resolution: 12, attenuation 11db, R0: %0.f Ohm, RL: %0.f", MQ135PIN, MQ135_ADC_CHANNEL, R0, RL);
+  LOG("[MQ-135] initialized on pin %d, R0: %0.f Ohm, RL: %0.f", R0, RL);
 
   // wait for MQ-135 to stabilize
   if(mq135_startup_time == 0)
@@ -1110,6 +1205,7 @@ sensor_r_t all_sensors[NR_OF_SENSORS] = {
     SENSOR_BME280_TEMPERATURE,
     SENSOR_BME280_PRESSURE,
     SENSOR_LDR,
+    SENSOR_NTC_TEMPERATURE,
     SENSOR_MQ135,
     SENSOR_APDS9930_ALS,
     SENSOR_APDS9930_PROXIMITY,
@@ -1374,9 +1470,9 @@ const char* at_cmd_handler_sensors(const char* atcmdline){
       snprintf(ttl_msg, sizeof(ttl_msg), "+ERROR: MQ135 sensor warming up, not ready yet, ttl: %lu ms", ttl_ms);
       return AT_R_S(String(ttl_msg));
     }
-    // fetch average ADC value
-    float avg_adc = get_adc_average(MQ135_AVG_NR);
-    LOG("[MQ-135] Calibration ADC AVG(nr:%d) value: %f V", MQ135_AVG_NR, avg_adc);
+    // fetch average value
+    float avg_adc = get_adc_average(MQ135_AVG_NR, MQ135PIN);
+    LOG("[MQ-135] Calibration value: %f V", avg_adc);
     SENSORS::cfg.mq135_r0 = calibrate_mq135_r0(SENSORS::cfg.mq135_rl, avg_adc);
     CFG_SAVE();
     return AT_R_DOUBLE(SENSORS::cfg.mq135_r0);
@@ -1517,6 +1613,12 @@ Available sensors:
   - LDR_ILLUMINANCE             - LDR light sensor
 )EOF"
 #endif // SUPPORT_LDR
+
+#ifdef SUPPORT_NTC
+        R"EOF(
+  - NTC_TEMPERATURE             - NTC temperature sensor
+)EOF"
+#endif // SUPPORT_NTC
 
 #ifdef SUPPORT_MQ135
         R"EOF(
