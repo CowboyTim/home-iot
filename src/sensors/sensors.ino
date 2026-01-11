@@ -80,6 +80,9 @@
 
 namespace SENSORS {
 
+// used alot in this file
+ALIGN(4) esp_err_t ok;
+
 RTC_DATA_ATTR long l_intv_counters[NR_OF_SENSORS] = {0};
 
 #ifdef SUPPORT_DS18B20
@@ -572,21 +575,63 @@ void init_bme280(sensor_r_t *s){
       .value_function = fetch_ldr_adc,\
     }
 
-#define LDRPIN    A1 // GPIO_NUM_1/A1 pin for LDR, same as NTCADCPIN, don't use together
+#define LDRADCPIN    A1          // GPIO_NUM_1/A1 pin for LDR, same as NTCADCPIN, don't use together
+#define LDRVCCPIN    GPIO_NUM_10 // GPIO_NUM_10 pin to power the LDR
+
 int8_t fetch_ldr_adc(sensor_r_t *s, float *ldr_value){
   if(ldr_value == NULL)
     return -1;
+
+  // Set LDR Vcc pin HIGH to power the LDR
+  ok = gpio_set_level((gpio_num_t)LDRVCCPIN, 1);
+  if(ok != ESP_OK){
+    LOG("[LDR] Failed to set pin %d HIGH to power LDR, err: %d", LDRVCCPIN, esp_err_to_name(ok));
+    return -1;
+  }
+  
   // fetch LDR value
-  float ldr_adc = get_adc_average(10, LDRPIN);
+  float ldr_adc = get_adc_average(10, LDRADCPIN);
   D("[LDR] value: %d V", ldr_adc);
+
+  // Set LDR Vcc pin LOW to save power
+  ok = gpio_set_level((gpio_num_t)LDRVCCPIN, 0);
+  if(ok != ESP_OK){
+    LOG("[LDR] Failed to set pin %d LOW to power off LDR, err: %d", LDRVCCPIN, esp_err_to_name(ok));
+    return -1;
+  }
+  
   *ldr_value = ldr_adc; // convert to float for consistency
   return 1;
 }
 
 void init_ldr_adc(sensor_r_t *s){
   // initialize ADC for LDR
-  initialize_adc(LDRPIN);
-  LOG("[LDR] initialized on pin %d", LDRPIN);
+  initialize_adc(LDRADCPIN);
+
+  // initialize the Vcc GPIO pin out to power the LDR
+  LOG("[LDR] set pin %d as Vcc OUT", LDRVCCPIN);
+  ok = gpio_set_direction((gpio_num_t)LDRVCCPIN, GPIO_MODE_OUTPUT);
+  if(ok != ESP_OK){
+    s->cfg->enabled = 0 ; // Disable in config
+    LOG("[LDR] Failed to set pin %d as Vcc OUT, err: %d", LDRVCCPIN, esp_err_to_name(ok));
+  }
+
+  gpio_config_t io_conf = {
+    .pin_bit_mask = (1ULL << LDRVCCPIN),   // Bit mask for the pin
+    .mode         = GPIO_MODE_OUTPUT,      // Set as output
+    .pull_up_en   = GPIO_PULLUP_DISABLE,   // Disable internal pull-up
+    .pull_down_en = GPIO_PULLDOWN_DISABLE, // Disable internal pull-down
+    .intr_type    = GPIO_INTR_DISABLE      // Disable interrupts
+  };
+    
+  // Apply configuration
+  ok = gpio_config(&io_conf);
+  if(ok != ESP_OK){
+    s->cfg->enabled = 0 ; // Disable in config
+    LOG("[LDR] Failed to configure pin %d as Vcc OUT, err: %d", LDRVCCPIN, esp_err_to_name(ok));
+  }
+
+  LOG("[LDR] initialized on pin %d", LDRADCPIN);
 }
 #endif // SUPPORT_LDR
 
@@ -605,7 +650,7 @@ void init_ldr_adc(sensor_r_t *s){
       .value_function = fetch_ntc_temperature,\
     }
 
-#define NTCADCPIN    A1          // GPIO_NUM_1/A1 pin for NTC, same as LDRPIN, don't use together
+#define NTCADCPIN    A1          // GPIO_NUM_1/A1 pin for NTC, same as LDRADCPIN, don't use together
 #define NTCVCCPIN    GPIO_NUM_10 // GPIO_NUM_10 pin to power the NTC
 
 // NTC parameters
@@ -614,8 +659,6 @@ void init_ldr_adc(sensor_r_t *s){
 #define NTC_BETA           3950.0f // Beta coefficient of the NTC
 #define NTC_R_NOMINAL     10000.0f // Nominal resistance at 25 C
 #define NTC_T_NOMINAL      298.15f // 25 C in Kelvin
-
-ALIGN(4) esp_err_t ok;
 
 int8_t fetch_ntc_temperature(sensor_r_t *s, float *temperature){
   if(temperature == NULL)
