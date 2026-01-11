@@ -62,6 +62,7 @@
 #endif // SUPPORT_DS18B20
 
 #if defined(SUPPORT_NTC) || defined(SUPPORT_LDR) || defined(SUPPORT_MQ135)
+#include "driver/gpio.h"
 #include "hal/adc_types.h"
 #include "soc/adc_channel.h"
 #include "esp_adc/adc_oneshot.h"
@@ -571,7 +572,7 @@ void init_bme280(sensor_r_t *s){
       .value_function = fetch_ldr_adc,\
     }
 
-#define LDRPIN    A1 // GPIO_NUM_1/A1 pin for LDR, same as NTCPIN, don't use together
+#define LDRPIN    A1 // GPIO_NUM_1/A1 pin for LDR, same as NTCADCPIN, don't use together
 int8_t fetch_ldr_adc(sensor_r_t *s, float *ldr_value){
   if(ldr_value == NULL)
     return -1;
@@ -604,7 +605,8 @@ void init_ldr_adc(sensor_r_t *s){
       .value_function = fetch_ntc_temperature,\
     }
 
-#define NTCPIN    A1 // GPIO_NUM_1/A1 pin for NTC, same as LDRPIN, don't use together
+#define NTCADCPIN    A1          // GPIO_NUM_1/A1 pin for NTC, same as LDRPIN, don't use together
+#define NTCVCCPIN    GPIO_NUM_10 // GPIO_NUM_10 pin to power the NTC
 
 // NTC parameters
 #define NTC_VCC             3.316f // Vcc for the voltage divider
@@ -613,14 +615,30 @@ void init_ldr_adc(sensor_r_t *s){
 #define NTC_R_NOMINAL     10000.0f // Nominal resistance at 25 C
 #define NTC_T_NOMINAL      298.15f // 25 C in Kelvin
 
+ALIGN(4) esp_err_t ok;
+
 int8_t fetch_ntc_temperature(sensor_r_t *s, float *temperature){
   if(temperature == NULL)
     return -1;
+
+  // Set NTC Vcc pin HIGH to power the NTC
+  ok = gpio_set_level((gpio_num_t)NTCVCCPIN, 1);
+  if(ok != ESP_OK){
+    LOG("[NTC] Failed to set pin %d HIGH to power NTC, err: %d", NTCVCCPIN, esp_err_to_name(ok));
+    return -1;
+  }
   
   // Get average voltage in Volts (as float)
-  float v_out = get_adc_average(10, NTCPIN);
+  float v_out = get_adc_average(10, NTCADCPIN);
   if(v_out >= NTC_VCC)
-     v_out = NTC_VCC - 0.0001f; // avoid division by zero
+    v_out = NTC_VCC - 0.0001f; // avoid division by zero
+
+  // Set NTC Vcc pin LOW to save power and avoid heating the NTC
+  ok = gpio_set_level((gpio_num_t)NTCVCCPIN, 0);
+  if(ok != ESP_OK){
+    LOG("[NTC] Failed to set pin %d LOW to power off NTC, err: %d", NTCVCCPIN, esp_err_to_name(ok));
+    return -1;
+  }
   
   // Standard KY-013 wiring: R_divider is to VCC, NTC is to GND
   // R_ntc = R_fixed * (V_out / (Vcc - V_out))
@@ -641,8 +659,32 @@ int8_t fetch_ntc_temperature(sensor_r_t *s, float *temperature){
 
 void init_ntc_adc(sensor_r_t *s){
   // initialize ADC for NTC
-  initialize_adc(NTCPIN);
-  LOG("[NTC] initialized on pin %d", NTCPIN);
+  initialize_adc(NTCADCPIN);
+
+  // initialize the Vcc GPIO pin out to power the NTC
+  LOG("[NTS] set pin %d as Vcc OUT", NTCVCCPIN);
+  ok = gpio_set_direction((gpio_num_t)NTCVCCPIN, GPIO_MODE_OUTPUT);
+  if(ok != ESP_OK){
+    s->cfg->enabled = 0 ; // Disable in config
+    LOG("[ADC] Failed to set pin %d as Vcc OUT, err: %d", NTCVCCPIN, esp_err_to_name(ok));
+  }
+
+  gpio_config_t io_conf = {
+    .pin_bit_mask = (1ULL << NTCVCCPIN),   // Bit mask for the pin
+    .mode         = GPIO_MODE_OUTPUT,      // Set as output
+    .pull_up_en   = GPIO_PULLUP_DISABLE,   // Disable internal pull-up
+    .pull_down_en = GPIO_PULLDOWN_DISABLE, // Disable internal pull-down
+    .intr_type    = GPIO_INTR_DISABLE      // Disable interrupts
+  };
+    
+  // Apply configuration
+  ok = gpio_config(&io_conf);
+  if(ok != ESP_OK){
+    s->cfg->enabled = 0 ; // Disable in config
+    LOG("[NTC] Failed to configure pin %d as Vcc OUT, err: %d", NTCVCCPIN, esp_err_to_name(ok));
+  }
+
+  LOG("[NTC] initialized on pin %d", NTCADCPIN);
 }
 #endif // SUPPORT_NTC
 
