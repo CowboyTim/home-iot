@@ -161,6 +161,8 @@ typedef struct s_cfg_t {
   // 16 chars + null terminator, default "unknown"
   char kvmkey[17]      = "unknown";
   uint8_t log_uart     = 0;
+  uint8_t log_time     = 0;
+  char time_fmt[32]    = "%Y-%m-%d %H:%M:%S";
   #ifdef SUPPORT_MQ135
   float mq135_r0      = 0.0f;
   float mq135_rl      = 0.0f;
@@ -188,6 +190,8 @@ extern sensor_r_t all_sensors[NR_OF_SENSORS];
 sensors_cfg_t cfg = {
   .kvmkey     = "unknown",
   .log_uart   = 0,
+  .log_time   = 0,
+  .time_fmt   = "%Y-%m-%d %H:%M:%S",
   #ifdef SUPPORT_MQ135
   .mq135_r0   = 0.0f, // default R0 for MQ-135
   .mq135_rl   = 0.0f, // default RL for MQ-135

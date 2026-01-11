@@ -1335,7 +1335,7 @@ void sensors_loop(){
       LOG("[SENSORS] ERROR: invalid value (NaN or infinity) for sensor %s, skipping", s->key);
       continue;
     }
-    LOG("[SENSORS] fetched value %.5f for sensor %s", current_v, s->key);
+    LOG("[SENSORS][%s]: value %.5f", s->key, current_v);
 
     // first, print the prefix kvmkey and sensorname
     ALIGN(4) static char sv_str[32] = {0};
@@ -1345,9 +1345,16 @@ void sensors_loop(){
       continue;
     }
     D("[SENSORS] Sensor %s value '%s'", s->key, sv_str);
+
+    // prepare output buffer
     ALIGN(4) static char ou_buf[128] = {0};
     memset(ou_buf, 0, sizeof(ou_buf));
-    int s_strl = snprintf(ou_buf, sizeof(ou_buf), "%s,%s:%s*%s\r\n", COMMON::PT("%Y-%m-%d %H:%M:%S"), SENSORS::cfg.kvmkey, s->key, sv_str);
+    int s_strl = -1;
+    if(SENSORS::cfg.log_time && SENSORS::cfg.time_fmt != NULL && strlen(SENSORS::cfg.time_fmt) > 0){
+      s_strl = snprintf(ou_buf, sizeof(ou_buf), "%s,%s:%s*%s\r\n", COMMON::PT(SENSORS::cfg.time_fmt), SENSORS::cfg.kvmkey, s->key, sv_str);
+    } else {
+      s_strl = snprintf(ou_buf, sizeof(ou_buf), "%s:%s*%s\r\n", SENSORS::cfg.kvmkey, s->key, sv_str);
+    }
     if(s_strl < 0){
       LOG("[SENSORS] ERROR: snprintf failed to format output for sensor %s: %s", s->key, strerror(errno));
       continue;
@@ -1501,14 +1508,14 @@ NOINLINE
 const char* at_cmd_handler_sensors(const char* atcmdline){
   unsigned int cmd_len = strlen(atcmdline);
   char *p = NULL;
-  if(p = at_cmd_check("AT+KVMKEY=", atcmdline, cmd_len)){
+  if(p = at_cmd_check("AT+SENSORS_KVMKEY=", atcmdline, cmd_len)){
     size_t sz = (atcmdline+cmd_len)-p+1;
     if(sz > 16)
       return AT_R("+ERROR: Location max 16 chars");
     strncpy((char *)&SENSORS::cfg.kvmkey, p, sz);
     CFG_SAVE();
     return AT_R_OK;
-  } else if(p = at_cmd_check("AT+KVMKEY?", atcmdline, cmd_len)){
+  } else if(p = at_cmd_check("AT+SENSORS_KVMKEY?", atcmdline, cmd_len)){
     return AT_R(SENSORS::cfg.kvmkey);
   #ifdef SUPPORT_MQ135
   } else if(p = at_cmd_check("AT+MQ135_R0?", atcmdline, cmd_len)){
@@ -1545,6 +1552,35 @@ const char* at_cmd_handler_sensors(const char* atcmdline){
     CFG_SAVE();
     return AT_R_OK;
   #endif // SUPPORT_MQ135
+  } else if(p = at_cmd_check("AT+SENSORS_TIMESTAMP_ADD=", atcmdline, cmd_len)){
+    char *r = NULL;
+    unsigned long val = strtoul(p, &r, 10);
+    if(errno != 0 || (val != 0 && val != 1) || (r == p))
+      return AT_R("+ERROR: LOG_TIME must be 0 or 1");
+    SENSORS::cfg.log_time = val;
+    CFG_SAVE();
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+SENSORS_TIMESTAMP_ADD?", atcmdline, cmd_len)){
+    return AT_R_INT(SENSORS::cfg.log_time);
+  } else if(p = at_cmd_check("AT+SENSORS_LOG_UART=", atcmdline, cmd_len)){
+    char *r = NULL;
+    unsigned long val = strtoul(p, &r, 10);
+    if(errno != 0 || (val != 0 && val != 1) || (r == p))
+      return AT_R("+ERROR: LOG_UART must be 0 or 1");
+    SENSORS::cfg.log_uart = val;
+    CFG_SAVE();
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+SENSORS_TIMESTAMP_FMT=", atcmdline, cmd_len)){
+    size_t sz = (atcmdline+cmd_len)-p+1;
+    if(sz > 32)
+      return AT_R("+ERROR: Timestamp format max 32 chars");
+    strncpy((char *)&SENSORS::cfg.time_fmt, p, sz);
+    CFG_SAVE();
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+SENSORS_TIMESTAMP_FMT?", atcmdline, cmd_len)){
+    return AT_R(SENSORS::cfg.time_fmt);
+  } else if(p = at_cmd_check("AT+SENSORS_LOG_UART?", atcmdline, cmd_len)){
+    return AT_R_INT(SENSORS::cfg.log_uart);
   } else if(p = at_cmd_check("AT+LOG_INTERVAL_", atcmdline, cmd_len)){
     return at_cmd_handler_sensor(atcmdline, cmd_len);
   } else if(p = at_cmd_check("AT+ENABLE_", atcmdline, cmd_len)){
@@ -1630,8 +1666,14 @@ namespace PLUGINS {
     const char * at_get_help_string(){
         return R"EOF(
 Sensor Commands:
-  AT+KVMKEY=<location>          - Set KVM key/location identifier (max 15 chars)
-  AT+KVMKEY?                    - Get KVM key/location identifier
+  AT+SENSORS_KVMKEY=<location>  - Set KVM key/location identifier (max 15 chars)
+  AT+SENSORS_KVMKEY?            - Get KVM key/location identifier
+  AT+SENSORS_TIMESTAMP_ADD=<0|1> - Enable/disable timestamp logging (1=enable, 0=disable)
+  AT+SENSORS_TIMESTAMP_ADD?     - Get timestamp logging status
+  AT+SENSORS_TIMESTAMP_FMT=<format> - Set timestamp format (strftime format)
+  AT+SENSORS_TIMESTAMP_FMT?     - Get timestamp format
+  AT+SENSORS_LOG_UART=<0|1>     - Enable/disable UART logging (1=enable, 0=disable)
+  AT+SENSORS_LOG_UART?          - Get UART logging status
 )EOF"
 
 #ifdef SUPPORT_MQ135
@@ -1714,7 +1756,10 @@ Examples:
   AT+ENABLE_HUMIDITY=1          - Enable DHT11 humidity sensor
   AT+LOG_INTERVAL_TEMPERATURE=5000 - Set temperature logging to 5 seconds
   AT+VALUE_TEMPERATURE?         - Get current temperature reading
-  AT+KVMKEY=livingroom          - Set location to "livingroom"
+  AT+SENSORS_KVMKEY=livingroom  - Set location to "livingroom"
+  AT+SENSORS_TIMESTAMP_ADD=1    - Enable timestamp logging
+  AT+SENSORS_TIMESTAMP_FMT=%Y-%m-%d %H:%M:%S - Set timestamp format
+  AT+SENSORS_LOG_UART=1         - Enable UART logging
 )EOF";
     }
 }
