@@ -82,7 +82,7 @@ char* _r_double(double val) {
   ALIGN(4) static char _obuf[24] = {0};
   // convert double to string in _obuf
   memset(_obuf, 0, sizeof(_obuf));
-  int written = snprintf(_obuf, sizeof(_obuf), "%5.2f", val);
+  int written = snprintf(_obuf, sizeof(_obuf), "%5.5f", val);
   if(written >= sizeof(_obuf))
     _obuf[sizeof(_obuf) - 1] = 0;
   return _obuf;

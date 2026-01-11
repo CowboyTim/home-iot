@@ -1539,6 +1539,7 @@ const char* at_cmd_handler_sensors(const char* atcmdline){
     float new_r0 = strtof(p, NULL);
     if(new_r0 < 1.0f || new_r0 > 1000.0f)
       return AT_R("+ERROR: invalid R0 value 1-1000 kOhm");
+    LOG("[MQ-135] Setting R0 to %f kOhm", new_r0);
     SENSORS::cfg.mq135_r0 = new_r0;
     CFG_SAVE();
     return AT_R_OK;
@@ -1547,7 +1548,8 @@ const char* at_cmd_handler_sensors(const char* atcmdline){
   } else if(p = at_cmd_check("AT+MQ135_RL=", atcmdline, cmd_len)){
     float new_r0 = strtof(p, NULL);
     if(new_r0 < 0.001f || new_r0 > 100000.0f)
-      return AT_R("+ERROR: invalid RL value 1-1000 kOhm");
+      return AT_R("+ERROR: invalid RL value 0.001-10000 kOhm");
+    LOG("[MQ-135] Setting RL to %f kOhm", new_r0);
     SENSORS::cfg.mq135_rl = new_r0;
     CFG_SAVE();
     return AT_R_OK;
