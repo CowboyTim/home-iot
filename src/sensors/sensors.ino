@@ -671,6 +671,7 @@ void init_ldr_adc(sensor_r_t *s){
 #define NTC_BETA           3950.0f // Beta coefficient of the NTC
 #define NTC_R_NOMINAL     10000.0f // Nominal resistance at 25 C
 #define NTC_T_NOMINAL      298.15f // 25 C in Kelvin
+#define NTC_EMA_ALPHA         0.2f // Smoothing factor (0.1 to 0.3 is typical)
 
 int8_t fetch_ntc_temperature(sensor_r_t *s, float *temperature){
   if(temperature == NULL)
@@ -711,7 +712,17 @@ int8_t fetch_ntc_temperature(sensor_r_t *s, float *temperature){
   steinhart  = (1.0f / steinhart) - 273.15f;
 
   D("[NTC] temperature: %.2f °C", steinhart);
-  *temperature = steinhart;
+
+  // simple low-pass filter to smooth the temperature readings using exponential moving average (EMA)
+  static float filtered_temp = -100.0f; 
+  if (filtered_temp < -90.0f) {
+    filtered_temp = steinhart; // Initial reading
+  } else {
+    filtered_temp = (NTC_EMA_ALPHA * steinhart) + (1.0f - NTC_EMA_ALPHA) * filtered_temp;
+  }
+
+  // Return the filtered temperature
+  *temperature = filtered_temp;
   return 1;
 }
 
