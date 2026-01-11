@@ -1347,7 +1347,7 @@ void sensors_loop(){
     D("[SENSORS] Sensor %s value '%s'", s->key, sv_str);
     ALIGN(4) static char ou_buf[128] = {0};
     memset(ou_buf, 0, sizeof(ou_buf));
-    int s_strl = snprintf(ou_buf, sizeof(ou_buf), "%s:%s*%s\r\n", SENSORS::cfg.kvmkey, s->key, sv_str);
+    int s_strl = snprintf(ou_buf, sizeof(ou_buf), "%s,%s:%s*%s\r\n", COMMON::PT("%Y-%m-%d %H:%M:%S"), SENSORS::cfg.kvmkey, s->key, sv_str);
     if(s_strl < 0){
       LOG("[SENSORS] ERROR: snprintf failed to format output for sensor %s: %s", s->key, strerror(errno));
       continue;
