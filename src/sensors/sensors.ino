@@ -682,6 +682,9 @@ int8_t fetch_ntc_temperature(sensor_r_t *s, float *temperature){
     LOG("[NTC] Failed to set pin %d HIGH to power NTC, err: %d", NTCVCCPIN, esp_err_to_name(esp_ok));
     return -1;
   }
+
+  // wait a bit for voltage to stabilize
+  ets_delay_us(50);
   
   // Get average voltage in Volts (as float)
   float v_out = get_adc_average(10, NTCADCPIN);
