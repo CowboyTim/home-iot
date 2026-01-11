@@ -355,7 +355,7 @@ void CFG_INIT() {
     {\
       .name = "DHT11 Humidity",\
       .key  = "humidity",\
-      .unit_fmt = "%s:%s*%%,%.0f\r\n",\
+      .unit_fmt = "%%,%.0f",\
       .init_function = init_dht11,\
       .value_function = dht11_fetch_humidity,\
     }
@@ -363,7 +363,7 @@ void CFG_INIT() {
     {\
       .name = "DHT11 Temperature",\
       .key  = "temperature",\
-      .unit_fmt = "%s:%s*°C,%.2f\r\n",\
+      .unit_fmt = "°C,%.2f",\
       .init_function = init_dht11,\
       .value_function = dht11_fetch_temperature,\
     }
@@ -425,7 +425,7 @@ void init_dht11(sensor_r_t *s){
     {\
       .name = "BME280 Humidity",\
       .key  = "bme280_humidity",\
-      .unit_fmt = "%s:%s*%%,%.0f\r\n",\
+      .unit_fmt = "%%,%.0f",\
       .init_function = init_bme280,\
       .pre_function = pre_bme280,\
       .value_function = bme280_fetch_humidity,\
@@ -435,7 +435,7 @@ void init_dht11(sensor_r_t *s){
     {\
       .name = "BME280 Temperature",\
       .key  = "bme280_temperature",\
-      .unit_fmt = "%s:%s*°C,%.2f\r\n",\
+      .unit_fmt = "°C,%.2f",\
       .init_function = init_bme280,\
       .pre_function = pre_bme280,\
       .value_function = bme280_fetch_temperature,\
@@ -445,7 +445,7 @@ void init_dht11(sensor_r_t *s){
     {\
       .name = "BME280 Pressure",\
       .key  = "bme280_pressure",\
-      .unit_fmt = "%s:%s*hPa,%.2f\r\n",\
+      .unit_fmt = "hPa,%.2f",\
       .init_function = init_bme280,\
       .pre_function = pre_bme280,\
       .value_function = bme280_fetch_pressure,\
@@ -566,7 +566,7 @@ void init_bme280(sensor_r_t *s){
     {\
       .name = "LDR Illuminance",\
       .key  = "ldr_illuminance",\
-      .unit_fmt = "%s:%s*lx,%.0f\r\n",\
+      .unit_fmt = "lx,%.0f",\
       .init_function = init_ldr_adc,\
       .value_function = fetch_ldr_adc,\
     }
@@ -599,7 +599,7 @@ void init_ldr_adc(sensor_r_t *s){
     {\
       .name = "NTC Temperature",\
       .key  = "ntc_temperature",\
-      .unit_fmt = "%s:%s*°C,%.4f\r\n",\
+      .unit_fmt = "°C,%.4f",\
       .init_function = init_ntc_adc,\
       .value_function = fetch_ntc_temperature,\
     }
@@ -653,7 +653,7 @@ void init_ntc_adc(sensor_r_t *s){
     {\
       .name = "MQ-135 Air Quality",\
       .key  = "air_quality",\
-      .unit_fmt = "%s:%s*ppm,%.0f\r\n",\
+      .unit_fmt = "ppm,%.0f",\
       .init_function = init_mq135_adc,\
       .value_function = fetch_mq135_adc,\
       .destroy_function = destroy_mq135_adc,\
@@ -764,7 +764,7 @@ void destroy_mq135_adc(sensor_r_t *s){
     {\
       .name = "APDS Ambient Light Sensor",\
       .key  = "apds_als",\
-      .unit_fmt = "%s:%s*lx,%.0f\r\n",\
+      .unit_fmt = "lx,%.0f",\
       .init_function = init_apds9930,\
       .value_function = fetch_apds_als,\
     }
@@ -772,7 +772,7 @@ void destroy_mq135_adc(sensor_r_t *s){
     {\
       .name = "APDS Proximity",\
       .key  = "apds_proximity",\
-      .unit_fmt = "%s:%s*C,%.0f\r\n",\
+      .unit_fmt = "cm,%.0f",\
       .init_function = init_apds9930,\
       .value_function = fetch_apds_proximity,\
     }
@@ -938,7 +938,7 @@ void init_apds9930(sensor_r_t *s){
     {\
       .name = "S8 CO2",\
       .key  = "s8_co2",\
-      .unit_fmt = "%s:%s*ppm,%.0f\r\n",\
+      .unit_fmt = "ppm,%.0f",\
       .init_function = init_s8,\
       .value_function = fetch_s8_co2,\
     }
@@ -1034,7 +1034,7 @@ int8_t fetch_s8_co2(sensor_r_t *s, float *co2){
     {\
       .name = "SE95 Temperature",\
       .key  = "se95_temperature",\
-      .unit_fmt = "%s:%s*°C,%.5f\r\n",\
+      .unit_fmt = "°C,%.5f",\
       .init_function = init_se95,\
       .value_function = fetch_se95_temperature,\
     }
@@ -1081,7 +1081,7 @@ int8_t fetch_se95_temperature(sensor_r_t *s, float *temperature){
     {\
       .name = "BH1750 Illuminance",\
       .key  = "bh1750_illuminance",\
-      .unit_fmt = "%s:%s*lx,%.2f\r\n",\
+      .unit_fmt = "lx,%.2f",\
       .init_function = init_bh1750,\
       .value_function = fetch_bh1750_illuminance,\
     }
@@ -1159,7 +1159,7 @@ int8_t fetch_bh1750_illuminance(sensor_r_t *s, float *illuminance){
     {\
       .name = "DS18B20 Temperature",\
       .key  = "ds18b20_temperature",\
-      .unit_fmt = "%s:%s*°C,%.4f\r\n",\
+      .unit_fmt = "°C,%.4f",\
       .init_function = init_ds18b20,\
       .value_function = fetch_ds18b20_temperature,\
     }
@@ -1294,6 +1294,8 @@ void setup(){
   }
 }
 
+ALIGN(4) char out_buf[128] = {0};
+
 NOINLINE
 void sensors_loop(){
   // loop through sensors and call pre function
@@ -1316,48 +1318,62 @@ void sensors_loop(){
     doYIELD;
     if(s->value_function == NULL)
       continue;
-    if(millis() - l_intv_counters[i] > s->cfg->v_intv){
-      // fetch current sensor value
-      float current_v = 0.0f;
-      int8_t ok = s->value_function(s, &current_v);
-      if(ok < 0){
-        LOG("[SENSORS] ERROR: failed to fetch value for sensor %s, skipping", s->key);
-        l_intv_counters[i] = millis();
-        continue;
-      }
+    if(millis() - l_intv_counters[i] <= s->cfg->v_intv)
+      continue;
 
-      // Validate the value - reject NaN and infinity
-      if(isnan(current_v) || isinf(current_v)){
-        LOG("[SENSORS] ERROR: invalid value (NaN or infinity) for sensor %s, skipping", s->key);
-        l_intv_counters[i] = millis();
-        continue;
-      }
-      memset((char*)s->out_buf, 0, sizeof(s->out_buf));
-      int h_strl = snprintf((char *)s->out_buf, sizeof(s->out_buf), s->unit_fmt, SENSORS::cfg.kvmkey, s->key, current_v);
-      if(h_strl > 0){
-        // output over UART?
-        if(SENSORS::cfg.log_uart){
-            for(size_t i = 0; i < h_strl; i++)
-              Serial.write((uint8_t)s->out_buf[i]);
-            Serial.flush();
-        }
-        // copy over to "inbuf" from esp-at.ino
-        uint8_t *b_old = ::inbuf + ::inlen;
-        uint8_t *b_new = b_old;
-        size_t copy_len_max = (size_t)::inbuf_max - (size_t)b_new;
-        if((size_t)h_strl <= copy_len_max){
-          copy_len_max = (size_t)h_strl;
-        } else {
-          LOG("[SENSORS] ERROR: only %d bytes to inbuf, had %d bytes for sensor %d", copy_len_max, h_strl, i);
-        }
-        D("[SENSORS] copying %d bytes to inbuf for sensor %s", copy_len_max, s->key);
-        memcpy(b_new, (uint8_t *)s->out_buf, copy_len_max);
-        ::inlen += copy_len_max;
-      } else {
-        LOG("[SENSORS] ERROR: snprintf failed for sensor %s: %s", s->key, strerror(errno));
-      }
-      l_intv_counters[i] = millis();
+    // update last interval counter
+    l_intv_counters[i] = millis();
+
+    // fetch current sensor value
+    float current_v = 0.0f;
+    int8_t ok = s->value_function(s, &current_v);
+    if(ok < 0){
+      LOG("[SENSORS] ERROR: failed to fetch value for sensor %s, skipping", s->key);
+      continue;
     }
+
+    // Validate the value - reject NaN and infinity
+    if(isnan(current_v) || isinf(current_v)){
+      LOG("[SENSORS] ERROR: invalid value (NaN or infinity) for sensor %s, skipping", s->key);
+      continue;
+    }
+    LOG("[SENSORS] fetched value %.5f for sensor %s", current_v, s->key);
+
+    // first, print the prefix kvmkey and sensorname
+    char sv_str[32] = {0};
+    int h_strl = snprintf((char *)&sv_str, sizeof(sv_str), s->unit_fmt, current_v);
+    if(h_strl < 0){
+      LOG("[SENSORS] ERROR: snprintf failed for sensor %s: %s", s->key, strerror(errno));
+      continue;
+    }
+    LOG("[SENSORS] Sensor %s value '%s'", s->key, sv_str);
+    int s_strl = snprintf(out_buf, sizeof(out_buf), "%s:%s*%s\r\n", SENSORS::cfg.kvmkey, s->key, sv_str);
+    if(s_strl < 0){
+      LOG("[SENSORS] ERROR: snprintf failed to format output for sensor %s: %s", s->key, strerror(errno));
+      continue;
+    }
+
+    // output over UART?
+    if(SENSORS::cfg.log_uart){
+      for(size_t i = 0; i < s_strl; i++)
+        Serial.write(out_buf[i]);
+      Serial.flush();
+    }
+    // copy over to "inbuf" from esp-at.ino
+    uint8_t *b_old = ::inbuf + ::inlen;
+    uint8_t *b_new = b_old;
+    size_t copy_len_max = (size_t)::inbuf_max - (size_t)b_new;
+    if((size_t)s_strl <= copy_len_max){
+      copy_len_max = (size_t)s_strl;
+    } else {
+      LOG("[SENSORS] ERROR: only %d bytes to inbuf, had %d bytes for sensor %d", copy_len_max, s_strl, i);
+    }
+    D("[SENSORS] copying %d bytes to inbuf for sensor %s", copy_len_max, s->key);
+    memcpy(b_new, (uint8_t *)out_buf, copy_len_max);
+    ::inlen += copy_len_max;
+
+    // clear out_buf
+    memset(out_buf, 0, sizeof(out_buf));
   }
 
   // loop through sensors and call post function

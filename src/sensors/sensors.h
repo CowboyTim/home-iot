@@ -171,8 +171,7 @@ typedef struct s_cfg_t {
 typedef struct sensor_r_t {
   const char name[32] = {0};
   const char key[32] = {0};
-  const char unit_fmt[24] = {0};
-  const char out_buf[32] = {0};
+  const char unit_fmt[12] = {0};
   void *userdata = NULL;
   sensor_c_t *cfg = NULL;
   void   (*init_function)(sensor_r_t*);
