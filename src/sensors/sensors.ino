@@ -81,7 +81,7 @@
 namespace SENSORS {
 
 // used alot in this file
-ALIGN(4) esp_err_t ok;
+ALIGN(4) esp_err_t esp_ok;
 
 RTC_DATA_ATTR long l_intv_counters[NR_OF_SENSORS] = {0};
 
@@ -101,32 +101,31 @@ adc_channel_t adc_channel[ADC1_PINS];
 
 NOINLINE
 void initialize_adc(uint8_t pin){
-  esp_err_t ok;
   if(setup_adc[pin] == 0){
     LOG("[ADC] set ADC resolution to %d bits", ADC_BITS);
-    ok = adc_oneshot_io_to_channel((int)pin, (adc_unit_t *)&adc_init_config[pin].unit_id, (adc_channel_t *)&adc_channel[pin]);
-    if(ok != ESP_OK){
-      LOG("[ADC] Failed to map pin %d to ADC channel, err: %d", pin, esp_err_to_name(ok));
+    esp_ok = adc_oneshot_io_to_channel((int)pin, (adc_unit_t *)&adc_init_config[pin].unit_id, (adc_channel_t *)&adc_channel[pin]);
+    if(esp_ok != ESP_OK){
+      LOG("[ADC] Failed to map pin %d to ADC channel, err: %d", pin, esp_err_to_name(esp_ok));
     } else {
       // channel or ADC1 not yet initialized, so initialize
-      ok = adc_oneshot_new_unit(&adc_init_config[pin], &adc_handle[pin]);
-      if(ok == ESP_OK){
+      esp_ok = adc_oneshot_new_unit(&adc_init_config[pin], &adc_handle[pin]);
+      if(esp_ok == ESP_OK){
         // map the pin to ADC channel
-        if(ok != ESP_OK){
-          LOG("[ADC] Failed to map pin %d to ADC channel, err: %d", pin, esp_err_to_name(ok));
+        if(esp_ok != ESP_OK){
+          LOG("[ADC] Failed to map pin %d to ADC channel, err: %d", pin, esp_err_to_name(esp_ok));
         }
         adc_oneshot_chan_cfg_t config = {
           .atten = ADC_ATTEN_DB_12,
           .bitwidth = ADC_BITS,
         };
-        ok = adc_oneshot_config_channel(adc_handle[pin], adc_channel[pin], &config);
-        if(ok != ESP_OK){
-          LOG("[ADC] Failed to set ADC resolution to %d bits, err: %d", ADC_BITS, esp_err_to_name(ok));
+        esp_ok = adc_oneshot_config_channel(adc_handle[pin], adc_channel[pin], &config);
+        if(esp_ok != ESP_OK){
+          LOG("[ADC] Failed to set ADC resolution to %d bits, err: %d", ADC_BITS, esp_err_to_name(esp_ok));
         }
         LOG("[ADC] Created new ADC handle %d, channel %d for pin %d", adc_handle[pin], adc_channel[pin], pin);
       } else {
-        if(ok != ESP_ERR_NOT_FOUND){
-          LOG("[ADC] Failed to create ADC unit handle, err: %d", esp_err_to_name(ok));
+        if(esp_ok != ESP_ERR_NOT_FOUND){
+          LOG("[ADC] Failed to create ADC unit handle, err: %d", esp_err_to_name(esp_ok));
         } else {
           // copy over existing handle from another pin
           uint8_t found = 0;
@@ -149,16 +148,16 @@ void initialize_adc(uint8_t pin){
 
   // configure pin as input
   LOG("[ADC] set pin %d as input", pin);
-  ok = gpio_set_direction((gpio_num_t)pin, GPIO_MODE_INPUT);
-  if(ok != ESP_OK){
-    LOG("[ADC] Failed to set pin %d as input, err: %d", pin, esp_err_to_name(ok));
+  esp_ok = gpio_set_direction((gpio_num_t)pin, GPIO_MODE_INPUT);
+  if(esp_ok != ESP_OK){
+    LOG("[ADC] Failed to set pin %d as input, err: %d", pin, esp_err_to_name(esp_ok));
   }
 
   // Explicitly disable internal pull resistors
   LOG("[ADC] disable internal pull resistors on pin %d", pin);
-  ok = gpio_set_pull_mode((gpio_num_t)pin, GPIO_FLOATING);
-  if(ok != ESP_OK){
-    LOG("[ADC] Failed to disable internal pull resistors on pin %d, err: %d", pin, esp_err_to_name(ok));
+  esp_ok = gpio_set_pull_mode((gpio_num_t)pin, GPIO_FLOATING);
+  if(esp_ok != ESP_OK){
+    LOG("[ADC] Failed to disable internal pull resistors on pin %d, err: %d", pin, esp_err_to_name(esp_ok));
   }
 }
 
@@ -168,9 +167,9 @@ float get_adc_average(uint8_t samples, uint8_t pin){
   int avg_adc = 0.0;
   for(uint8_t i = 0; i < samples; i++) {
     int adc = 0.0;
-    esp_err_t ok = adc_oneshot_read(adc_handle[pin], adc_channel[pin], &adc);
-    if(ok != ESP_OK){
-      LOG("[ADC] Failed to read ADC on pin %d, err: %d", pin, esp_err_to_name(ok));
+    esp_ok = adc_oneshot_read(adc_handle[pin], adc_channel[pin], &adc);
+    if(esp_ok != ESP_OK){
+      LOG("[ADC] Failed to read ADC on pin %d, err: %d", pin, esp_err_to_name(esp_ok));
       continue;
     }
     avg_adc += adc;
@@ -583,9 +582,9 @@ int8_t fetch_ldr_adc(sensor_r_t *s, float *ldr_value){
     return -1;
 
   // Set LDR Vcc pin HIGH to power the LDR
-  ok = gpio_set_level((gpio_num_t)LDRVCCPIN, 1);
-  if(ok != ESP_OK){
-    LOG("[LDR] Failed to set pin %d HIGH to power LDR, err: %d", LDRVCCPIN, esp_err_to_name(ok));
+  esp_ok = gpio_set_level((gpio_num_t)LDRVCCPIN, 1);
+  if(esp_ok != ESP_OK){
+    LOG("[LDR] Failed to set pin %d HIGH to power LDR, err: %d", LDRVCCPIN, esp_err_to_name(esp_ok));
     return -1;
   }
   
@@ -594,9 +593,9 @@ int8_t fetch_ldr_adc(sensor_r_t *s, float *ldr_value){
   D("[LDR] value: %d V", ldr_adc);
 
   // Set LDR Vcc pin LOW to save power
-  ok = gpio_set_level((gpio_num_t)LDRVCCPIN, 0);
-  if(ok != ESP_OK){
-    LOG("[LDR] Failed to set pin %d LOW to power off LDR, err: %d", LDRVCCPIN, esp_err_to_name(ok));
+  esp_ok = gpio_set_level((gpio_num_t)LDRVCCPIN, 0);
+  if(esp_ok != ESP_OK){
+    LOG("[LDR] Failed to set pin %d LOW to power off LDR, err: %d", LDRVCCPIN, esp_err_to_name(esp_ok));
     return -1;
   }
   
@@ -610,10 +609,10 @@ void init_ldr_adc(sensor_r_t *s){
 
   // initialize the Vcc GPIO pin out to power the LDR
   LOG("[LDR] set pin %d as Vcc OUT", LDRVCCPIN);
-  ok = gpio_set_direction((gpio_num_t)LDRVCCPIN, GPIO_MODE_OUTPUT);
-  if(ok != ESP_OK){
+  esp_ok = gpio_set_direction((gpio_num_t)LDRVCCPIN, GPIO_MODE_OUTPUT);
+  if(esp_ok != ESP_OK){
     s->cfg->enabled = 0 ; // Disable in config
-    LOG("[LDR] Failed to set pin %d as Vcc OUT, err: %d", LDRVCCPIN, esp_err_to_name(ok));
+    LOG("[LDR] Failed to set pin %d as Vcc OUT, err: %d", LDRVCCPIN, esp_err_to_name(esp_ok));
   }
 
   gpio_config_t io_conf = {
@@ -625,10 +624,10 @@ void init_ldr_adc(sensor_r_t *s){
   };
     
   // Apply configuration
-  ok = gpio_config(&io_conf);
-  if(ok != ESP_OK){
+  esp_ok = gpio_config(&io_conf);
+  if(esp_ok != ESP_OK){
     s->cfg->enabled = 0 ; // Disable in config
-    LOG("[LDR] Failed to configure pin %d as Vcc OUT, err: %d", LDRVCCPIN, esp_err_to_name(ok));
+    LOG("[LDR] Failed to configure pin %d as Vcc OUT, err: %d", LDRVCCPIN, esp_err_to_name(esp_ok));
   }
 
   LOG("[LDR] initialized on pin %d", LDRADCPIN);
@@ -665,9 +664,9 @@ int8_t fetch_ntc_temperature(sensor_r_t *s, float *temperature){
     return -1;
 
   // Set NTC Vcc pin HIGH to power the NTC
-  ok = gpio_set_level((gpio_num_t)NTCVCCPIN, 1);
-  if(ok != ESP_OK){
-    LOG("[NTC] Failed to set pin %d HIGH to power NTC, err: %d", NTCVCCPIN, esp_err_to_name(ok));
+  esp_ok = gpio_set_level((gpio_num_t)NTCVCCPIN, 1);
+  if(esp_ok != ESP_OK){
+    LOG("[NTC] Failed to set pin %d HIGH to power NTC, err: %d", NTCVCCPIN, esp_err_to_name(esp_ok));
     return -1;
   }
   
@@ -677,9 +676,9 @@ int8_t fetch_ntc_temperature(sensor_r_t *s, float *temperature){
     v_out = NTC_VCC - 0.0001f; // avoid division by zero
 
   // Set NTC Vcc pin LOW to save power and avoid heating the NTC
-  ok = gpio_set_level((gpio_num_t)NTCVCCPIN, 0);
-  if(ok != ESP_OK){
-    LOG("[NTC] Failed to set pin %d LOW to power off NTC, err: %d", NTCVCCPIN, esp_err_to_name(ok));
+  esp_ok = gpio_set_level((gpio_num_t)NTCVCCPIN, 0);
+  if(esp_ok != ESP_OK){
+    LOG("[NTC] Failed to set pin %d LOW to power off NTC, err: %d", NTCVCCPIN, esp_err_to_name(esp_ok));
     return -1;
   }
   
@@ -706,10 +705,10 @@ void init_ntc_adc(sensor_r_t *s){
 
   // initialize the Vcc GPIO pin out to power the NTC
   LOG("[NTS] set pin %d as Vcc OUT", NTCVCCPIN);
-  ok = gpio_set_direction((gpio_num_t)NTCVCCPIN, GPIO_MODE_OUTPUT);
-  if(ok != ESP_OK){
+  esp_ok = gpio_set_direction((gpio_num_t)NTCVCCPIN, GPIO_MODE_OUTPUT);
+  if(esp_ok != ESP_OK){
     s->cfg->enabled = 0 ; // Disable in config
-    LOG("[ADC] Failed to set pin %d as Vcc OUT, err: %d", NTCVCCPIN, esp_err_to_name(ok));
+    LOG("[ADC] Failed to set pin %d as Vcc OUT, err: %d", NTCVCCPIN, esp_err_to_name(esp_ok));
   }
 
   gpio_config_t io_conf = {
@@ -721,10 +720,10 @@ void init_ntc_adc(sensor_r_t *s){
   };
     
   // Apply configuration
-  ok = gpio_config(&io_conf);
-  if(ok != ESP_OK){
+  esp_ok = gpio_config(&io_conf);
+  if(esp_ok != ESP_OK){
     s->cfg->enabled = 0 ; // Disable in config
-    LOG("[NTC] Failed to configure pin %d as Vcc OUT, err: %d", NTCVCCPIN, esp_err_to_name(ok));
+    LOG("[NTC] Failed to configure pin %d as Vcc OUT, err: %d", NTCVCCPIN, esp_err_to_name(esp_ok));
   }
 
   LOG("[NTC] initialized on pin %d", NTCADCPIN);
