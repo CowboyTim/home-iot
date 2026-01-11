@@ -100,12 +100,13 @@ adc_oneshot_unit_init_cfg_t adc_init_config[ADC1_PINS];
 adc_channel_t adc_channel[ADC1_PINS];
 
 NOINLINE
-void initialize_adc(uint8_t pin){
+int8_t initialize_adc(uint8_t pin){
   if(setup_adc[pin] == 0){
     LOG("[ADC] set ADC resolution to %d bits", ADC_BITS);
     esp_ok = adc_oneshot_io_to_channel((int)pin, (adc_unit_t *)&adc_init_config[pin].unit_id, (adc_channel_t *)&adc_channel[pin]);
     if(esp_ok != ESP_OK){
       LOG("[ADC] Failed to map pin %d to ADC channel, err: %d", pin, esp_err_to_name(esp_ok));
+      return -1;
     } else {
       // channel or ADC1 not yet initialized, so initialize
       esp_ok = adc_oneshot_new_unit(&adc_init_config[pin], &adc_handle[pin]);
@@ -113,6 +114,7 @@ void initialize_adc(uint8_t pin){
         // map the pin to ADC channel
         if(esp_ok != ESP_OK){
           LOG("[ADC] Failed to map pin %d to ADC channel, err: %d", pin, esp_err_to_name(esp_ok));
+          return -1;
         }
         adc_oneshot_chan_cfg_t config = {
           .atten = ADC_ATTEN_DB_12,
@@ -121,11 +123,13 @@ void initialize_adc(uint8_t pin){
         esp_ok = adc_oneshot_config_channel(adc_handle[pin], adc_channel[pin], &config);
         if(esp_ok != ESP_OK){
           LOG("[ADC] Failed to set ADC resolution to %d bits, err: %d", ADC_BITS, esp_err_to_name(esp_ok));
+          return -1;
         }
         LOG("[ADC] Created new ADC handle %d, channel %d for pin %d", adc_handle[pin], adc_channel[pin], pin);
       } else {
         if(esp_ok != ESP_ERR_NOT_FOUND){
           LOG("[ADC] Failed to create ADC unit handle, err: %d", esp_err_to_name(esp_ok));
+          return -1;
         } else {
           // copy over existing handle from another pin
           uint8_t found = 0;
@@ -134,11 +138,13 @@ void initialize_adc(uint8_t pin){
             if((i != pin) && (setup_adc[i] == 1) && (adc_init_config[i].unit_id == adc_init_config[pin].unit_id)){
               adc_handle[pin] = adc_handle[i];
               LOG("[ADC] Re-used existing ADC handle %d, channel %d for pin %d", adc_handle[pin], adc_channel[pin], pin);
+              found = 1;
               break;
             }
           }
           if(found == 0){
             LOG("[ADC] Failed to find existing ADC handle for channel %d for pin %d", adc_channel[pin], pin);
+            return -1;
           }
         }
       }
@@ -151,6 +157,7 @@ void initialize_adc(uint8_t pin){
   esp_ok = gpio_set_direction((gpio_num_t)pin, GPIO_MODE_INPUT);
   if(esp_ok != ESP_OK){
     LOG("[ADC] Failed to set pin %d as input, err: %d", pin, esp_err_to_name(esp_ok));
+    return -1;
   }
 
   // Explicitly disable internal pull resistors
@@ -158,7 +165,9 @@ void initialize_adc(uint8_t pin){
   esp_ok = gpio_set_pull_mode((gpio_num_t)pin, GPIO_FLOATING);
   if(esp_ok != ESP_OK){
     LOG("[ADC] Failed to disable internal pull resistors on pin %d, err: %d", pin, esp_err_to_name(esp_ok));
+    return -1;
   }
+  return 1;
 }
 
 float get_adc_average(uint8_t samples, uint8_t pin){
@@ -605,7 +614,11 @@ int8_t fetch_ldr_adc(sensor_r_t *s, float *ldr_value){
 
 void init_ldr_adc(sensor_r_t *s){
   // initialize ADC for LDR
-  initialize_adc(LDRADCPIN);
+  if(initialize_adc(LDRADCPIN) == -1){
+    s->cfg->enabled = 0 ; // Disable in config
+    LOG("[LDR] Failed to initialize ADC on pin %d", LDRADCPIN);
+    return;
+  }
 
   // initialize the Vcc GPIO pin out to power the LDR
   LOG("[LDR] set pin %d as Vcc OUT", LDRVCCPIN);
@@ -701,7 +714,11 @@ int8_t fetch_ntc_temperature(sensor_r_t *s, float *temperature){
 
 void init_ntc_adc(sensor_r_t *s){
   // initialize ADC for NTC
-  initialize_adc(NTCADCPIN);
+  if(initialize_adc(NTCADCPIN) == -1){
+    s->cfg->enabled = 0 ; // Disable in config
+    LOG("[NTC] Failed to initialize ADC on pin %d", NTCADCPIN);
+    return;
+  }
 
   // initialize the Vcc GPIO pin out to power the NTC
   LOG("[NTS] set pin %d as Vcc OUT", NTCVCCPIN);
@@ -818,7 +835,11 @@ int8_t fetch_mq135_adc(sensor_r_t *s, float *ppm){
 
 void init_mq135_adc(sensor_r_t *s){
   // initialize ADC for MQ-135
-  initialize_adc(MQ135PIN);
+  if(initialize_adc(MQ135PIN) == -1){
+    s->cfg->enabled = 0 ; // Disable in config
+    LOG("[MQ-135] Failed to initialize ADC on pin %d", MQ135PIN);
+    return;
+  }
 
   // read initial R0 and RL from config
   float R0 = SENSORS::cfg.mq135_r0;
