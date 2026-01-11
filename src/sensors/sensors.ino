@@ -379,7 +379,7 @@ int8_t dht11_fetch_humidity(sensor_r_t *s, float *humidity){
     return -1;
   // fetch humidity from DHT11
   float h = (float)DODHT(s)->readHumidity(false);
-  LOG("[DHT11] humidity: %f %%", h);
+  D("[DHT11] humidity: %f %%", h);
   if(isnan(h) || h < 0.0f || h > 100.0f){
     LOG("[DHT11] humidity invalid or out of range, returning 0: %.2f", h);
     *humidity = 0.0f;
@@ -397,7 +397,7 @@ int8_t dht11_fetch_temperature(sensor_r_t *s, float *temperature){
     return -1;
   // fetch temperature from DHT11
   float t = (float)DODHT(s)->readTemperature(false);
-  LOG("[DHT11] temperature: %f °C", t);
+  D("[DHT11] temperature: %f °C", t);
   if(isnan(t) || t < 0.0f || t > 50.0f){
     LOG("[DHT11] temperature invalid or out of range, returning 0: %.2f", t);
     *temperature = 0.0f;
@@ -577,7 +577,7 @@ int8_t fetch_ldr_adc(sensor_r_t *s, float *ldr_value){
     return -1;
   // fetch LDR value
   float ldr_adc = get_adc_average(10, LDRPIN);
-  LOG("[LDR] value: %d V", ldr_adc);
+  D("[LDR] value: %d V", ldr_adc);
   *ldr_value = ldr_adc; // convert to float for consistency
   return 1;
 }
@@ -634,7 +634,7 @@ int8_t fetch_ntc_temperature(sensor_r_t *s, float *temperature){
   steinhart += 1.0f / NTC_T_NOMINAL;
   steinhart  = (1.0f / steinhart) - 273.15f;
 
-  LOG("[NTC] temperature: %.2f °C", steinhart);
+  D("[NTC] temperature: %.2f °C", steinhart);
   *temperature = steinhart;
   return 1;
 }
@@ -691,7 +691,7 @@ float mq135_adc_to_ppm(float mq135_r0, float mq135_rl, float adc_value) {
 
   float RATIO = RS / mq135_r0;
   float ppm = MQ135_CO2_A * pow(RATIO, MQ135_CO2_B);
-  LOG("[MQ-135] CO2 PPM: %f, Value: %f V, R0: %f kOhm, RL: %f kOhm, RS: %f kOhm, R: %f", ppm, adc_value, mq135_r0, mq135_rl, RS, RATIO);
+  D("[MQ-135] CO2 PPM: %f, Value: %f V, R0: %f kOhm, RL: %f kOhm, RS: %f kOhm, R: %f", ppm, adc_value, mq135_r0, mq135_rl, RS, RATIO);
   return ppm;
 }
 
@@ -739,7 +739,7 @@ void init_mq135_adc(sensor_r_t *s){
   // read initial R0 and RL from config
   float R0 = SENSORS::cfg.mq135_r0;
   float RL = SENSORS::cfg.mq135_rl;
-  LOG("[MQ-135] initialized on pin %d, R0: %0.f Ohm, RL: %0.f", R0, RL);
+  D("[MQ-135] initialized on pin %d, R0: %0.f Ohm, RL: %0.f", R0, RL);
 
   // wait for MQ-135 to stabilize
   if(mq135_startup_time == 0)
@@ -830,7 +830,7 @@ int8_t fetch_apds_als(sensor_r_t *s, float *illuminance){
   if (final_lux < 0)
     final_lux = 0.0f;
 
-  LOG("[APDS] Lux: %.2f, CH0: %u, CH1: %u, Lux: %.2f", final_lux, ch0, ch1);
+  D("[APDS] Lux: %.2f, CH0: %u, CH1: %u, Lux: %.2f", final_lux, ch0, ch1);
   *illuminance = final_lux;
   return 1;
 }
@@ -860,7 +860,7 @@ int8_t fetch_apds_proximity(sensor_r_t *s, float *proximity_value){
   // estimate distance in cm (very rough estimate)
   float distance = sqrt(1000 / *proximity_value);
 
-  LOG("[APDS] prox raw: %u, distance: %0.2f", prox, distance);
+  D("[APDS] prox raw: %u, distance: %0.2f", prox, distance);
   return 1;
 }
 
@@ -1021,7 +1021,7 @@ int8_t fetch_s8_co2(sensor_r_t *s, float *co2){
   }
 
   sensor.co2 = sensor_S8->get_co2();
-  LOG("[S8] CO2 ppm: %d", sensor.co2);
+  D("[S8] CO2 ppm: %d", sensor.co2);
   *co2 = (float)sensor.co2;
   return 1;
 }
@@ -1068,7 +1068,7 @@ int8_t fetch_se95_temperature(sensor_r_t *s, float *temperature){
   }
   raw_temp >>= 3;
   float temp = (float)raw_temp * 0.03125f;
-  LOG("[SE95] temperature: %.2f °C", temp);
+  D("[SE95] temperature: %.2f °C", temp);
   *temperature = temp;
   return 1;
 }
@@ -1146,7 +1146,7 @@ int8_t fetch_bh1750_illuminance(sensor_r_t *s, float *illuminance){
     return -1;
   }
 
-  LOG("[BH1750] illuminance: %.2f lx", lux);
+  D("[BH1750] illuminance: %.2f lx", lux);
   *illuminance = lux;
   last_bh1750_illuminance = lux;
   return 1;
@@ -1228,7 +1228,7 @@ int8_t fetch_ds18b20_temperature(sensor_r_t *s, float *temperature){
   ds18b20.requestTemperatures(); 
   sensorState = DS_REQUESTING;
 
-  LOG("[DS18B20] temperature: %.4f °C", tempC);
+  D("[DS18B20] temperature: %.4f °C", tempC);
   *temperature = tempC;
 
   // for MQ-135 compensation
@@ -1294,8 +1294,6 @@ void setup(){
   }
 }
 
-ALIGN(4) char out_buf[128] = {0};
-
 NOINLINE
 void sensors_loop(){
   // loop through sensors and call pre function
@@ -1340,14 +1338,16 @@ void sensors_loop(){
     LOG("[SENSORS] fetched value %.5f for sensor %s", current_v, s->key);
 
     // first, print the prefix kvmkey and sensorname
-    char sv_str[32] = {0};
+    ALIGN(4) static char sv_str[32] = {0};
     int h_strl = snprintf((char *)&sv_str, sizeof(sv_str), s->unit_fmt, current_v);
     if(h_strl < 0){
       LOG("[SENSORS] ERROR: snprintf failed for sensor %s: %s", s->key, strerror(errno));
       continue;
     }
-    LOG("[SENSORS] Sensor %s value '%s'", s->key, sv_str);
-    int s_strl = snprintf(out_buf, sizeof(out_buf), "%s:%s*%s\r\n", SENSORS::cfg.kvmkey, s->key, sv_str);
+    D("[SENSORS] Sensor %s value '%s'", s->key, sv_str);
+    ALIGN(4) static char ou_buf[128] = {0};
+    memset(ou_buf, 0, sizeof(ou_buf));
+    int s_strl = snprintf(ou_buf, sizeof(ou_buf), "%s:%s*%s\r\n", SENSORS::cfg.kvmkey, s->key, sv_str);
     if(s_strl < 0){
       LOG("[SENSORS] ERROR: snprintf failed to format output for sensor %s: %s", s->key, strerror(errno));
       continue;
@@ -1356,7 +1356,7 @@ void sensors_loop(){
     // output over UART?
     if(SENSORS::cfg.log_uart){
       for(size_t i = 0; i < s_strl; i++)
-        Serial.write(out_buf[i]);
+        Serial.write(ou_buf[i]);
       Serial.flush();
     }
     // copy over to "inbuf" from esp-at.ino
@@ -1369,11 +1369,8 @@ void sensors_loop(){
       LOG("[SENSORS] ERROR: only %d bytes to inbuf, had %d bytes for sensor %d", copy_len_max, s_strl, i);
     }
     D("[SENSORS] copying %d bytes to inbuf for sensor %s", copy_len_max, s->key);
-    memcpy(b_new, (uint8_t *)out_buf, copy_len_max);
+    memcpy(b_new, (uint8_t *)ou_buf, copy_len_max);
     ::inlen += copy_len_max;
-
-    // clear out_buf
-    memset(out_buf, 0, sizeof(out_buf));
   }
 
   // loop through sensors and call post function
