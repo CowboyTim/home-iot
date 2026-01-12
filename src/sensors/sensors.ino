@@ -1383,8 +1383,11 @@ void init_apds9930(sensor_r_t *s){
       .value_function = fetch_s8_co2,\
     }
 
+uint8_t is_calibrating = 0;
 S8_UART *sensor_S8 = NULL;
 S8_sensor sensor;
+
+NOINLINE
 void init_s8(sensor_r_t *s) {
   LOG("[S8] Initializing SenseAir S8 NDIR CO2 sensor");
   UART1.begin(S8_BAUDRATE, SERIAL_8N1, 1, 0);
@@ -1451,6 +1454,7 @@ void init_s8(sensor_r_t *s) {
   return;
 }
 
+NOINLINE
 int8_t fetch_s8_co2(sensor_r_t *s, float *co2){
   if(co2 == NULL)
     return -1;
@@ -1460,10 +1464,55 @@ int8_t fetch_s8_co2(sensor_r_t *s, float *co2){
     return -1;
   }
 
+  // check if calibration is in progress
+  if(is_calibrating == 1){
+    sensor.ack = sensor_S8->get_acknowledgement();
+    if(sensor.ack & S8_MASK_CO2_BACKGROUND_CALIBRATION){
+      LOG("[S8] Background calibration is finished");
+      is_calibrating = 0;
+    } else {
+      LOG("[S8] Calibration in progress");
+      return -1;
+    }
+  }
+
+  // read CO2 value
   sensor.co2 = sensor_S8->get_co2();
   D("[S8] CO2 ppm: %d", sensor.co2);
   *co2 = (float)sensor.co2;
   return 1;
+}
+
+NOINLINE
+char * calibrate_s8(){
+  if(sensor_S8 == NULL) {
+    LOG("[S8] sensor not initialized");
+    return AT_R("+ERROR: sensor not initialized");
+  }
+  if(is_calibrating == 1){
+    LOG("[S8] Calibration already in progress");
+    sensor.ack = sensor_S8->get_acknowledgement();
+    if(sensor.ack & S8_MASK_CO2_BACKGROUND_CALIBRATION)
+      is_calibrating = 0;
+    return AT_R("+ERROR: calibration already in progress");
+  }
+  LOG("[S8] Starting calibration...");
+  if(!sensor_S8->manual_calibration()){
+    LOG("[S8] Calibration command failed!");
+    return AT_R("+ERROR: calibration command failed");
+  }
+  is_calibrating = 1;
+  LOG("[S8] Calibration command sent");
+  return AT_R_OK;
+}
+
+NOINLINE
+const char *atcmd_sensors_s8(const char *atcmdline, size_t cmd_len){
+  char *p = NULL;
+  if(p = at_cmd_check("AT+S8_CALIBRATE_ZERO", atcmdline, cmd_len)){
+    return calibrate_s8();
+  }
+  return AT_R("+ERROR: unknown command");
 }
 #endif // SUPPORT_S8
 
@@ -2002,6 +2051,10 @@ const char* at_cmd_handler_sensors(const char* atcmdline){
   } else if(p = at_cmd_check("AT+NTC_",atcmdline, cmd_len)){
     return atcmd_sensors_ntc(atcmdline, cmd_len);
   #endif // SUPPORT_NTC
+  #ifdef SUPPORT_S8
+  } else if(p = at_cmd_check("AT+S8_",atcmdline, cmd_len)){
+    return atcmd_sensors_s8(atcmdline, cmd_len);
+  #endif // SUPPORT_S8
   } else if(p = at_cmd_check("AT+LOG_INTERVAL_", atcmdline, cmd_len)){
     return at_cmd_handler_sensor(atcmdline, cmd_len);
   } else if(p = at_cmd_check("AT+ENABLE_", atcmdline, cmd_len)){
@@ -2132,6 +2185,12 @@ R"EOF(
   AT+NTC_EMA_ALPHA?             - Get NTC EMA alpha
 )EOF"
 #endif // SUPPORT_NTC
+
+#ifdef SUPPORT_S8
+R"EOF(
+  AT+S8_CALIBRATE_ZERO          - Calibrate SenseAir S8 zero point
+)EOF"
+#endif // SUPPORT_S8
 
         R"EOF(
   AT+ENABLE_<sensor>=<0|1>      - Enable/disable sensor (1=enable, 0=disable)
