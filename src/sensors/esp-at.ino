@@ -103,6 +103,7 @@ uint8_t current_button = BUTTON_BUILTIN;
 
 #ifdef SUPPORT_BLE_UART1
 #define SUPPORT_UART1
+#define BLUETOOTH_UART_AT
 #endif // SUPPORT_BLE_UART1
 
 #ifndef VERBOSE
@@ -5036,7 +5037,7 @@ void setup_cfg() {
   }
 
   // default BLE security to usable values
-  #ifdef SUPPORT_BLE_UART
+  #if defined(BLUETOOTH_UART_AT)
   cfg.ble_pin = BLUETOOTH_UART_DEFAULT_PIN; // Default PIN
   cfg.ble_security_mode = 0; // No security
   cfg.ble_io_cap = 3;        // NoInputNoOutput
@@ -5798,7 +5799,7 @@ int determine_led_state() {
       led_brightness_off = LED_BRIGHTNESS_MEDIUM; // Return to steady connected state
     }
     #endif // SUPPORT_WIFI
-  #ifdef SUPPORT_BLE_UART
+  #if defined(SUPPORT_BLE_UART1) || defined(BLUETOOTH_UART_AT)
   } else if ((ble_advertising_start != 0) && !(deviceConnected == 1)) {
     // BLE advertising (button pressed, waiting for connection): fast blink
     led_interval = LED_BLINK_INTERVAL_FAST;
@@ -5809,7 +5810,7 @@ int determine_led_state() {
     led_interval = LED_BLINK_INTERVAL_SLOW;
     led_brightness_on = LED_BRIGHTNESS_MEDIUM;
     led_brightness_off = LED_BRIGHTNESS_LOW;
-  #endif // SUPPORT_BLE_UART
+  #endif
   #ifdef WIFI_WPS
   } else if (wps_running) {
     // WPS active: slow blink
@@ -7049,7 +7050,7 @@ void do_loop_delay() {
   #endif
 
   // BLE connected or advertising, or data in inbuf?
-  #if defined(SUPPORT_BLE_UART1)
+  #if defined(SUPPORT_BLE_UART1) || defined(BLUETOOTH_UART_AT)
   if(deviceConnected == 1 || ble_advertising_start != 0)
     return;
   #endif // SUPPORT_BLE_UART1
