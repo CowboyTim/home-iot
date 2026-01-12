@@ -128,11 +128,8 @@
 #define SUPPORT_NTC
 
 #define NR_OF_SENSORS 15
-#define SENSORS_OUTBUFFER_SIZE  128
 
-#include <Arduino.h>
-
-// implemented in sensors/sensors.ino
+// implement PLUGINS namespace functions
 namespace PLUGINS {
   void initialize();
   void setup();
@@ -158,30 +155,11 @@ typedef struct sensor_c_t {
 
 /* sensors/plugin config */
 typedef struct s_cfg_t {
-  // 16 chars + null terminator, default "unknown"
-  char kvmkey[17]      = "unknown";
-  uint8_t log_uart     = 0;
-  uint8_t log_time     = 0;
-  char time_fmt[32]    = "%Y-%m-%d %H:%M:%S";
-  #ifdef SUPPORT_MQ135
-  float mq135_r0      = 0.0f;
-  float mq135_rl      = 0.0f;
-  #endif // SUPPORT_MQ135
-  #ifdef SUPPORT_NTC
-  float ntc_vcc           = 3.3f;   // Vcc for the voltage divider
-  float ntc_divider_r     = 10250.0f; // 10k ohm divider resistor
-  float ntc_beta          = 3950.0f;  // Beta coefficient of the NTC
-  float ntc_r_nominal     = 10000.0f; // Nominal resistance at 25 C
-  float ntc_t_nominal     = 25.0f;    // 25 C
-  float ntc_ema_alpha     = 0.2f;     // Smoothing factor (0.1 to 0.3 is typical)
-  #endif // SUPPORT_NTC
-  #ifdef SUPPORT_LDR
-  float ldr_vcc           = 3.3f;     // Vcc for the voltage divider
-  float ldr_divider_r     = 10000.0f; // 10k ohm divider resistor
-  float ldr_ema_alpha     = 0.2f;     // Smoothing factor (0.1 to 0.3 is typical)
-  float ldr_r10           = 10000.0f; // Reference resistance at 1 lux
-  float ldr_gamma         = 0.7f;     // Gamma value for the LDR
-  #endif // SUPPORT_LDR
+  // 15 chars + null terminator, default "unknown"
+  char kvmkey[16]   = {0};
+  uint8_t log_uart  = 0;
+  uint8_t log_time  = 0;
+  char time_fmt[32] = "%Y-%m-%d %H:%M:%S";
   sensor_c_t sensor_cfg[NR_OF_SENSORS] = {0};
 } sensors_cfg_t;
 
@@ -200,35 +178,6 @@ typedef struct sensor_r_t {
 
 /* all sensors runtime */
 extern sensor_r_t all_sensors[NR_OF_SENSORS];
-
-/* main config */
-sensors_cfg_t cfg = {
-  .kvmkey     = "unknown",
-  .log_uart   = 0,
-  .log_time   = 0,
-  .time_fmt   = "%Y-%m-%d %H:%M:%S",
-  #ifdef SUPPORT_MQ135
-  .mq135_r0   = 0.0f, // default R0 for MQ-135
-  .mq135_rl   = 0.0f, // default RL for MQ-135
-  #endif // SUPPORT_MQ135
-  #ifdef SUPPORT_NTC
-  .ntc_vcc         = 3.3f,
-  .ntc_divider_r   = 10250.0f,
-  .ntc_beta        = 3950.0f,
-  .ntc_r_nominal   = 10000.0f,
-  .ntc_t_nominal   = 25.0f,
-  .ntc_ema_alpha   = 0.2f,
-  #endif // SUPPORT_NTC
-  #ifdef SUPPORT_LDR
-  .ldr_vcc         = 3.3f,
-  .ldr_divider_r   = 10300.0f,
-  .ldr_ema_alpha   = 0.2f,
-  .ldr_r10         = 10000.0f,
-  .ldr_gamma       = 0.7f,
-  #endif // SUPPORT_LDR
-  .sensor_cfg = {0}
-};
-
 
 } // namespace SENSORS
 #endif // _SENSORS_H

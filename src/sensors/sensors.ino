@@ -80,11 +80,22 @@
 
 namespace SENSORS {
 
+// sensors/plugin config
+ALIGN(4) sensors_cfg_t cfg = {
+  .kvmkey     = {0},
+  .log_uart   = 0,
+  .log_time   = 0,
+  .time_fmt   = "%Y-%m-%d %H:%M:%S",
+  .sensor_cfg = {0}
+};
+
 // used alot in this file
 ALIGN(4) esp_err_t esp_ok;
 
+// last interval counters
 RTC_DATA_ATTR long l_intv_counters[NR_OF_SENSORS] = {0};
 
+// DS18B20 temperature sensor for use with MQ135 temp compensation
 #ifdef SUPPORT_DS18B20
 RTC_DATA_ATTR unsigned long last_read_time = 0;
 RTC_DATA_ATTR float last_temperature = 0.0f;
@@ -384,20 +395,57 @@ uint16_t i2c_read16le(uint8_t addr, uint8_t reg){
 
 #endif
 
+#define CFG_PARTITION     "esp-at"
+#define CFG_NAMESPACE     "sensors"
+#define CFG_STORAGE       "main"
+
+nvs_handle_t nvs_handle;
+
+NOINLINE
+void CFG_SAVE_NS(const char *st, void *p, size_t s) {
+  LOG("[CFG] Saving config for key '%s' to NVS", st);
+  if(p == NULL || s == 0)
+    return;
+  CFG::SAVE_H(&nvs_handle, CFG_PARTITION, CFG_NAMESPACE, st, p, s);
+  return;
+}
+
 NOINLINE
 void CFG_SAVE() {
-    CFG::SAVE("esp-at", "sensors", "sensors", (void *)&SENSORS::cfg, sizeof(SENSORS::cfg));
+  LOG("[CFG] Saving sensors config to NVS");
+  CFG::SAVE_H(&nvs_handle, CFG_PARTITION, CFG_NAMESPACE, CFG_STORAGE, (void *)&SENSORS::cfg, sizeof(SENSORS::cfg));
+  return;
 }
 
 NOINLINE
 void CFG_INIT() {
-  if(!CFG::INIT("esp-at", "sensors")){
-    LOGE("[CFG] Failed to initialize NVS storage for sensors");
+  LOG("[CFG] Initializing NVS storage for '%s', '%s'", CFG_PARTITION, CFG_NAMESPACE);
+  if(!CFG::INIT_H(&nvs_handle, CFG_PARTITION, CFG_NAMESPACE)) {
+    LOG("[CFG] Failed to initialize NVS storage for '%s', '%s': %s", CFG_PARTITION, CFG_NAMESPACE, esp_err_to_name(esp_ok));
     ESP.restart();
   } else {
-    LOG("[CFG] NVS storage initialized for sensors");
+    LOG("[CFG] NVS storage initialized for '%s', '%s'", CFG_PARTITION, CFG_NAMESPACE);
   }
-  CFG::LOAD("esp-at", "sensors", "sensors", (void *)&SENSORS::cfg, sizeof(SENSORS::cfg));
+  return;
+}
+
+NOINLINE
+void CFG_LOAD(const char *st, void *p, size_t s) {
+    LOG("[CFG] Loading config for key '%s' from NVS", st);
+    CFG::LOAD_H(&nvs_handle, CFG_PARTITION, CFG_NAMESPACE, st, p, s);
+    return;
+}
+
+NOINLINE
+void CFG_CLEAR(const char *st) {
+    LOG("[CFG] Clearing config for key '%s' from NVS", (st == NULL) ? "ALL_KEYS" : st);
+    if(st == NULL){
+      for(uint8_t i = 0; i < NR_OF_SENSORS; i++)
+        CFG::CLEAR_H(&nvs_handle, CFG_PARTITION, CFG_NAMESPACE, SENSORS::all_sensors[i].key);
+      return;
+    }
+    CFG::CLEAR_H(&nvs_handle, CFG_PARTITION, CFG_NAMESPACE, st);
+    return;
 }
 
 NOINLINE
@@ -439,6 +487,7 @@ char* at_cmd_check(const char *cmd, const char *at_cmd, unsigned short at_len) {
 
 #define DHTPIN  A0     // GPIO_NUM_0/A0 pin for DHT11
 
+// last humidity for MQ135 compensation
 RTC_DATA_ATTR float last_humidity = 0.0f;
 
 int8_t dht11_fetch_humidity(sensor_r_t *s, float *humidity){
@@ -648,6 +697,25 @@ void init_bme280(sensor_r_t *s){
 #define LDRADCPIN    A1          // GPIO_NUM_1/A1 pin for LDR, same as NTCADCPIN, don't use together
 #define LDRVCCPIN    GPIO_NUM_10 // GPIO_NUM_10 pin to power the LDR
 
+#define LDR_KEY      "ldr"
+#define LDR_CFG(k)   SENSORS::ldr_cfg.k
+#define LDR_SAVE()   CFG_SAVE_NS(LDR_KEY, (void *)&SENSORS::ldr_cfg, sizeof(SENSORS::ldr_cfg));
+
+typedef struct ldr_cfg_t {
+  float vcc           = 3.3f;     // Vcc for the voltage divider
+  float divider_r     = 10000.0f; // 10k ohm divider resistor
+  float ema_alpha     = 0.2f;     // Smoothing factor (0.1 to 0.3 is typical)
+  float r10           = 10000.0f; // Reference resistance at 1 lux
+  float gamma         = 0.7f;     // Gamma value for the LDR
+} ldr_cfg_t;
+ALIGN(4) ldr_cfg_t ldr_cfg = {
+  .vcc         = 3.3f,
+  .divider_r   = 10300.0f,
+  .ema_alpha   = 0.2f,
+  .r10         = 10000.0f,
+  .gamma       = 0.7f,
+};
+
 int8_t fetch_ldr_adc(sensor_r_t *s, float *ldr_value){
   if(ldr_value == NULL)
     return -1;
@@ -666,13 +734,13 @@ int8_t fetch_ldr_adc(sensor_r_t *s, float *ldr_value){
   // use the LDR_DIVIDER_R and Vcc to convert ADC voltage to illuminance in lux
   // Standard wiring: R_divider is to VCC, LDR is to GND
   // R_ntc = R_fixed * (V_out / (Vcc - V_out))
-  float r_ldr = SENSORS::cfg.ldr_divider_r * (v_out / (SENSORS::cfg.ldr_vcc - v_out));
+  float r_ldr = LDR_CFG(divider_r) * (v_out / (LDR_CFG(vcc) - v_out));
   D("[LDR] V_out: %.5f, R_ldr: %.2f Ohms", v_out, r_ldr);
 
   // Standard LDR formula: Lux = A * R_LDR ^ B
   // float lux = LDR_A / (r_ldr / LDR_B);
   // Alternative formula with Gamma correction
-  float lux = 10.0 * pow((SENSORS::cfg.ldr_r10 / r_ldr), (1.0 / SENSORS::cfg.ldr_gamma));
+  float lux = 10.0 * pow((LDR_CFG(r10) / r_ldr), (1.0 / LDR_CFG(gamma)));
 
   *ldr_value = lux;
   return 1;
@@ -692,13 +760,16 @@ float calibrate_ldr_r10_gamma(float known_lux){
       LOG("[LDR] Failed to set Vcc pin low after calibration");
     }
   }
-  float r_ldr = SENSORS::cfg.ldr_divider_r * (v_out / (SENSORS::cfg.ldr_vcc - v_out));
-  float new_r10 = r_ldr * pow((known_lux / 10.0f), SENSORS::cfg.ldr_gamma);
-  LOG("[LDR] Calibrated R10: %.2f Ohms based on lux: %.2f, using Rldr: %f, Rdivider: %f, Vcc: %f, Vldr: %f, gamma: %f", new_r10, known_lux, r_ldr, SENSORS::cfg.ldr_divider_r, SENSORS::cfg.ldr_vcc, v_out, SENSORS::cfg.ldr_gamma);
+  float r_ldr = LDR_CFG(divider_r) * (v_out / (LDR_CFG(vcc) - v_out));
+  float new_r10 = r_ldr * pow((known_lux / 10.0f), LDR_CFG(gamma));
+  LOG("[LDR] Calibrated R10: %.2f Ohms based on lux: %.2f, using Rldr: %f, Rdivider: %f, Vcc: %f, Vldr: %f, gamma: %f", new_r10, known_lux, r_ldr, LDR_CFG(divider_r), LDR_CFG(vcc), v_out, LDR_CFG(gamma));
   return new_r10;
 }
 
 void init_ldr_adc(sensor_r_t *s){
+  // load LDR config
+  CFG_LOAD(LDR_KEY, (void *)&ldr_cfg, sizeof(ldr_cfg));
+
   // initialize ADC for LDR
   if(initialize_adc(LDRADCPIN) == -1){
     s->cfg->enabled = 0 ; // Disable in config
@@ -720,34 +791,34 @@ NOINLINE
 const char *atcmd_sensors_ldr(const char *atcmdline, unsigned short cmd_len) {
   char *p = NULL;
   if(p = at_cmd_check("AT+LDR_VCC?", atcmdline, cmd_len)){
-    return AT_R_DOUBLE(SENSORS::cfg.ldr_vcc);
+    return AT_R_DOUBLE(LDR_CFG(vcc));
   } else if(p = at_cmd_check("AT+LDR_VCC=", atcmdline, cmd_len)){
     float new_vcc = strtof(p, NULL);
     if(new_vcc < 0.0f || new_vcc > 5.0f)
       return AT_R("+ERROR: invalid VCC value 0-5 V");
     LOG("[LDR] Setting VCC to %f V", new_vcc);
-    SENSORS::cfg.ldr_vcc = new_vcc;
-    CFG_SAVE();
+    LDR_CFG(vcc) = new_vcc;
+    LDR_SAVE();
     return AT_R_OK;
   } else if(p = at_cmd_check("AT+LDR_DIVIDER_R?", atcmdline, cmd_len)){
-    return AT_R_DOUBLE(SENSORS::cfg.ldr_divider_r);
+    return AT_R_DOUBLE(LDR_CFG(divider_r));
   } else if(p = at_cmd_check("AT+LDR_DIVIDER_R=", atcmdline, cmd_len)){
     float new_r = strtof(p, NULL);
     if(new_r < 0.0f)
       return AT_R("+ERROR: invalid divider resistance value");
     LOG("[LDR] Setting divider resistance to %f Ohm", new_r);
-    SENSORS::cfg.ldr_divider_r = new_r;
-    CFG_SAVE();
+    LDR_CFG(divider_r) = new_r;
+    LDR_SAVE();
     return AT_R_OK;
   } else if(p = at_cmd_check("AT+LDR_EMA_ALPHA?", atcmdline, cmd_len)){
-    return AT_R_DOUBLE(SENSORS::cfg.ldr_ema_alpha);
+    return AT_R_DOUBLE(LDR_CFG(ema_alpha));
   } else if(p = at_cmd_check("AT+LDR_EMA_ALPHA=", atcmdline, cmd_len)){
     float new_ema_alpha = strtof(p, NULL);
     if(new_ema_alpha < 0.0f || new_ema_alpha > 1.0f)
       return AT_R("+ERROR: invalid EMA alpha value 0-1");
     LOG("[LDR] Setting EMA alpha to %f", new_ema_alpha);
-    SENSORS::cfg.ldr_ema_alpha = new_ema_alpha;
-    CFG_SAVE();
+    LDR_CFG(ema_alpha) = new_ema_alpha;
+    LDR_SAVE();
     return AT_R_OK;
   } else if(p = at_cmd_check("AT+LDR_CALIBRATE_LUX=", atcmdline, cmd_len)){
     float known_lux = strtof(p, NULL);
@@ -757,28 +828,28 @@ const char *atcmd_sensors_ldr(const char *atcmdline, unsigned short cmd_len) {
     float r_ldr_r10 = calibrate_ldr_r10_gamma(known_lux);
     if(r_ldr_r10 < 0.0f)
       return AT_R("+ERROR: failed to calibrate LDR");
-    SENSORS::cfg.ldr_r10 = r_ldr_r10;
-    CFG_SAVE();
+    LDR_CFG(r10) = r_ldr_r10;
+    LDR_SAVE();
     return AT_R_OK;
   } else if(p = at_cmd_check("AT+LDR_R10?", atcmdline, cmd_len)){
-    return AT_R_DOUBLE(SENSORS::cfg.ldr_r10);
+    return AT_R_DOUBLE(LDR_CFG(r10));
   } else if(p = at_cmd_check("AT+LDR_R10=", atcmdline, cmd_len)){
     float new_r10 = strtof(p, NULL);
     if(new_r10 <= 0.0f)
       return AT_R("+ERROR: invalid R10 value");
     LOG("[LDR] Setting R10 to %f Ohm", new_r10);
-    SENSORS::cfg.ldr_r10 = new_r10;
-    CFG_SAVE();
+    LDR_CFG(r10) = new_r10;
+    LDR_SAVE();
     return AT_R_OK;
   } else if(p = at_cmd_check("AT+LDR_GAMMA?", atcmdline, cmd_len)){
-    return AT_R_DOUBLE(SENSORS::cfg.ldr_gamma);
+    return AT_R_DOUBLE(LDR_CFG(gamma));
   } else if(p = at_cmd_check("AT+LDR_GAMMA=", atcmdline, cmd_len)){
     float new_gamma = strtof(p, NULL);
     if(new_gamma <= 0.0f)
       return AT_R("+ERROR: invalid gamma value");
     LOG("[LDR] Setting gamma to %f", new_gamma);
-    SENSORS::cfg.ldr_gamma = new_gamma;
-    CFG_SAVE();
+    LDR_CFG(gamma) = new_gamma;
+    LDR_SAVE();
     return AT_R_OK;
   }
   return AT_R("+ERROR: unknown command");
@@ -803,6 +874,27 @@ const char *atcmd_sensors_ldr(const char *atcmdline, unsigned short cmd_len) {
 #define NTCADCPIN    A1          // GPIO_NUM_1/A1 pin for NTC, same as LDRADCPIN, don't use together
 #define NTCVCCPIN    GPIO_NUM_10 // GPIO_NUM_10 pin to power the NTC
 
+#define NTC_KEY      "ntc"
+#define NTC_CFG(k)   SENSORS::ntc_cfg.k
+#define NTC_SAVE()   CFG_SAVE_NS(NTC_KEY, (void *)&SENSORS::ntc_cfg, sizeof(SENSORS::ntc_cfg));
+
+typedef struct ntc_cfg_t {
+  float vcc           = 3.3f;     // Vcc for the voltage divider
+  float divider_r     = 10250.0f; // 10k ohm divider resistor
+  float beta          = 3950.0f;  // Beta coefficient of the NTC
+  float r_nominal     = 10000.0f; // Nominal resistance at 25 C
+  float t_nominal     = 25.0f;    // 25 C
+  float ema_alpha     = 0.2f;     // Smoothing factor (0.1 to 0.3 is typical)
+} ntc_cfg_t;
+ALIGN(4) ntc_cfg_t ntc_cfg = {
+  .vcc         = 3.3f,
+  .divider_r   = 10250.0f,
+  .beta        = 3950.0f,
+  .r_nominal   = 10000.0f,
+  .t_nominal   = 25.0f,
+  .ema_alpha   = 0.2f,
+};
+
 int8_t fetch_ntc_temperature(sensor_r_t *s, float *temperature){
   if(temperature == NULL)
     return -1;
@@ -813,8 +905,8 @@ int8_t fetch_ntc_temperature(sensor_r_t *s, float *temperature){
 
   // Get average voltage in Volts (as float)
   float v_out = get_adc_average(10, NTCADCPIN);
-  if(v_out >= SENSORS::cfg.ntc_vcc)
-    v_out = SENSORS::cfg.ntc_vcc - 0.0001f; // avoid division by zero
+  if(v_out >= NTC_CFG(vcc))
+    v_out = NTC_CFG(vcc) - 0.0001f; // avoid division by zero
 
   // Set NTC Vcc pin LOW to save power and avoid heating the NTC
   if(set_pin_low(NTCVCCPIN) == -1)
@@ -822,14 +914,14 @@ int8_t fetch_ntc_temperature(sensor_r_t *s, float *temperature){
   
   // Standard KY-013 wiring: R_divider is to VCC, NTC is to GND
   // R_ntc = R_fixed * (V_out / (Vcc - V_out))
-  float r_ntc = SENSORS::cfg.ntc_divider_r * (v_out / (SENSORS::cfg.ntc_vcc - v_out));
+  float r_ntc = NTC_CFG(divider_r) * (v_out / (NTC_CFG(vcc) - v_out));
   D("[NTC] V_out: %.2f, R_ntc: %.2f Ohms", v_out, r_ntc);
 
   // Steinhart-Hart / B-parameter
   float steinhart;
-  steinhart  = log(r_ntc / SENSORS::cfg.ntc_r_nominal);
-  steinhart /= SENSORS::cfg.ntc_beta;
-  steinhart += 1.0f / (SENSORS::cfg.ntc_t_nominal + 273.15f);
+  steinhart  = log(r_ntc / NTC_CFG(r_nominal));
+  steinhart /= NTC_CFG(beta);
+  steinhart += 1.0f / (NTC_CFG(t_nominal) + 273.15f);
   steinhart  = (1.0f / steinhart) - 273.15f;
 
   D("[NTC] temperature: %.2f °C", steinhart);
@@ -839,7 +931,7 @@ int8_t fetch_ntc_temperature(sensor_r_t *s, float *temperature){
   if (filtered_temp < -90.0f) {
     filtered_temp = steinhart; // Initial reading
   } else {
-    filtered_temp = (SENSORS::cfg.ntc_ema_alpha * steinhart) + (1.0f - SENSORS::cfg.ntc_ema_alpha) * filtered_temp;
+    filtered_temp = (NTC_CFG(ema_alpha) * steinhart) + (1.0f - NTC_CFG(ema_alpha)) * filtered_temp;
   }
 
   // Return the filtered temperature
@@ -848,6 +940,9 @@ int8_t fetch_ntc_temperature(sensor_r_t *s, float *temperature){
 }
 
 void init_ntc_adc(sensor_r_t *s){
+  // load NTC config
+  CFG_LOAD(NTC_KEY, (void *)&ntc_cfg, sizeof(ntc_cfg));
+
   // initialize ADC for NTC
   if(initialize_adc(NTCADCPIN) == -1){
     s->cfg->enabled = 0 ; // Disable in config
@@ -869,62 +964,62 @@ NOINLINE
 const char *atcmd_sensors_ntc(const char *atcmdline, size_t cmd_len){
   char *p = NULL;
   if(p = at_cmd_check("AT+NTC_VCC?", atcmdline, cmd_len)){
-    return AT_R_DOUBLE(SENSORS::cfg.ntc_vcc);
+    return AT_R_DOUBLE(NTC_CFG(vcc));
   } else if(p = at_cmd_check("AT+NTC_VCC=", atcmdline, cmd_len)){
     float new_vcc = strtof(p, NULL);
     if(new_vcc < 0.0f || new_vcc > 5.0f)
       return AT_R("+ERROR: invalid VCC value 0-5 V");
     LOG("[NTC] Setting VCC to %f V", new_vcc);
-    SENSORS::cfg.ntc_vcc = new_vcc;
-    CFG_SAVE();
+    NTC_CFG(vcc) = new_vcc;
+    NTC_SAVE();
     return AT_R_OK;
   } else if(p = at_cmd_check("AT+NTC_DIVIDER_R?", atcmdline, cmd_len)){
-    return AT_R_DOUBLE(SENSORS::cfg.ntc_divider_r);
+    return AT_R_DOUBLE(NTC_CFG(divider_r));
   } else if(p = at_cmd_check("AT+NTC_DIVIDER_R=", atcmdline, cmd_len)){
     float new_r = strtof(p, NULL);
     if(new_r < 0.0f)
       return AT_R("+ERROR: invalid divider resistance value");
     LOG("[NTC] Setting divider resistance to %f Ohm", new_r);
-    SENSORS::cfg.ntc_divider_r = new_r;
-    CFG_SAVE();
+    NTC_CFG(divider_r) = new_r;
+    NTC_SAVE();
     return AT_R_OK;
   } else if(p = at_cmd_check("AT+NTC_BETA?", atcmdline, cmd_len)){
-    return AT_R_DOUBLE(SENSORS::cfg.ntc_beta);
+    return AT_R_DOUBLE(NTC_CFG(beta));
   } else if(p = at_cmd_check("AT+NTC_BETA=", atcmdline, cmd_len)){
     float new_beta = strtof(p, NULL);
     if(new_beta < 0.0f)
       return AT_R("+ERROR: invalid beta value");
     LOG("[NTC] Setting beta to %f", new_beta);
-    SENSORS::cfg.ntc_beta = new_beta;
-    CFG_SAVE();
+    NTC_CFG(beta) = new_beta;
+    NTC_SAVE();
     return AT_R_OK;
   } else if(p = at_cmd_check("AT+NTC_R_NOMINAL?", atcmdline, cmd_len)){
-    return AT_R_DOUBLE(SENSORS::cfg.ntc_r_nominal);
+    return AT_R_DOUBLE(NTC_CFG(r_nominal));
   } else if(p = at_cmd_check("AT+NTC_R_NOMINAL=", atcmdline, cmd_len)){
     float new_r_nominal = strtof(p, NULL);
     if(new_r_nominal < 0.0f)
       return AT_R("+ERROR: invalid nominal resistance value");
     LOG("[NTC] Setting nominal resistance to %f Ohm", new_r_nominal);
-    SENSORS::cfg.ntc_r_nominal = new_r_nominal;
-    CFG_SAVE();
+    NTC_CFG(r_nominal) = new_r_nominal;
+    NTC_SAVE();
     return AT_R_OK;
   } else if(p = at_cmd_check("AT+NTC_T_NOMINAL?", atcmdline, cmd_len)){
-    return AT_R_DOUBLE(SENSORS::cfg.ntc_t_nominal);
+    return AT_R_DOUBLE(NTC_CFG(t_nominal));
   } else if(p = at_cmd_check("AT+NTC_T_NOMINAL=", atcmdline, cmd_len)){
     float new_t_nominal = strtof(p, NULL);
     LOG("[NTC] Setting nominal temperature to %f C", new_t_nominal);
-    SENSORS::cfg.ntc_t_nominal = new_t_nominal;
-    CFG_SAVE();
+    NTC_CFG(t_nominal) = new_t_nominal;
+    NTC_SAVE();
     return AT_R_OK;
   } else if(p = at_cmd_check("AT+NTC_EMA_ALPHA?", atcmdline, cmd_len)){
-    return AT_R_DOUBLE(SENSORS::cfg.ntc_ema_alpha);
+    return AT_R_DOUBLE(NTC_CFG(ema_alpha));
   } else if(p = at_cmd_check("AT+NTC_EMA_ALPHA=", atcmdline, cmd_len)){
     float new_ema_alpha = strtof(p, NULL);
     if(new_ema_alpha < 0.0f || new_ema_alpha > 1.0f)
       return AT_R("+ERROR: invalid EMA alpha value 0-1");
     LOG("[NTC] Setting EMA alpha to %f", new_ema_alpha);
-    SENSORS::cfg.ntc_ema_alpha = new_ema_alpha;
-    CFG_SAVE();
+    NTC_CFG(ema_alpha) = new_ema_alpha;
+    NTC_SAVE();
     return AT_R_OK;
   }
   return AT_R("+ERROR: unknown command");
@@ -954,6 +1049,19 @@ const char *atcmd_sensors_ntc(const char *atcmdline, size_t cmd_len){
 
 #define MQ135_WARMUP_TIME    30000  // MQ-135 warm-up time in ms
 #define ATMOSPHERIC_CO2_PPM  428.54f // atmospheric CO2 ppm for calibration
+
+#define MQ135_KEY      "mq135"
+#define MQ135_CFG(k)   SENSORS::mq135_cfg.k
+#define MQ135_SAVE()   CFG_SAVE_NS(MQ135_KEY, (void *)&SENSORS::mq135_cfg, sizeof(SENSORS::mq135_cfg));
+
+typedef struct mq135_cfg_t {
+  float r0      = 0.0f;
+  float rl      = 0.0f;
+} mq135_cfg_t;
+ALIGN(4) mq135_cfg_t mq135_cfg = {
+  .r0   = 0.0f, // default R0 for MQ-135
+  .rl   = 0.0f, // default RL for MQ-135
+};
 
 RTC_DATA_ATTR unsigned long mq135_startup_time = 0;
 
@@ -1003,19 +1111,22 @@ int8_t fetch_mq135_adc(sensor_r_t *s, float *ppm){
     LOG("[MQ-135] sensor warming up, not ready yet, ttl: %d ms", MQ135_WARMUP_TIME - (millis() - mq135_startup_time));
     return -1; // sensor warming up
   }
-  float R0 = SENSORS::cfg.mq135_r0;
-  float RL = SENSORS::cfg.mq135_rl;
 
   // fetch average value
   float avg_adc = get_adc_average(MQ135_AVG_NR, MQ135PIN);
   D("[MQ-135] value: %f V", avg_adc);
 
   // convert to PPM using MQ-135 formula R0/RL and curve
+  float R0 = MQ135_CFG(r0);
+  float RL = MQ135_CFG(rl);
   *ppm = mq135_adc_to_ppm(R0, RL, avg_adc);
   return 1;
 }
 
 void init_mq135_adc(sensor_r_t *s){
+  // Load MQ-135 config
+  CFG_LOAD(MQ135_KEY, (void *)&mq135_cfg, sizeof(mq135_cfg));
+
   // initialize ADC for MQ-135
   if(initialize_adc(MQ135PIN) == -1){
     s->cfg->enabled = 0 ; // Disable in config
@@ -1024,8 +1135,8 @@ void init_mq135_adc(sensor_r_t *s){
   }
 
   // read initial R0 and RL from config
-  float R0 = SENSORS::cfg.mq135_r0;
-  float RL = SENSORS::cfg.mq135_rl;
+  float R0 = MQ135_CFG(r0);
+  float RL = MQ135_CFG(rl);
   D("[MQ-135] initialized on pin %d, R0: %0.f Ohm, RL: %0.f", R0, RL);
 
   // wait for MQ-135 to stabilize
@@ -1037,9 +1148,9 @@ NOINLINE
 const char *atcmd_sensors_mq135(const char *atcmdline, size_t cmd_len){
   char *p = NULL;
   if(p = at_cmd_check("AT+MQ135_R0?", atcmdline, cmd_len)){
-    return AT_R_DOUBLE(SENSORS::cfg.mq135_r0);
+    return AT_R_DOUBLE(MQ135_CFG(r0));
   } else if(p = at_cmd_check("AT+MQ135_CALIBRATE_CO2", atcmdline, cmd_len)){
-    if(SENSORS::cfg.mq135_rl <= 0.0f)
+    if(MQ135_CFG(rl) <= 0.0f)
       return AT_R("+ERROR: invalid MQ135 RL value, set RL first");
     if(millis() - mq135_startup_time < MQ135_WARMUP_TIME){
       char ttl_msg[100] = {0};
@@ -1050,26 +1161,26 @@ const char *atcmd_sensors_mq135(const char *atcmdline, size_t cmd_len){
     // fetch average value
     float avg_adc = get_adc_average(MQ135_AVG_NR, MQ135PIN);
     LOG("[MQ-135] Calibration value: %f V", avg_adc);
-    SENSORS::cfg.mq135_r0 = calibrate_mq135_r0(SENSORS::cfg.mq135_rl, avg_adc);
-    CFG_SAVE();
-    return AT_R_DOUBLE(SENSORS::cfg.mq135_r0);
+    MQ135_CFG(r0) = calibrate_mq135_r0(MQ135_CFG(rl), avg_adc);
+    MQ135_SAVE();
+    return AT_R_DOUBLE(MQ135_CFG(r0));
   } else if(p = at_cmd_check("AT+MQ135_R0=", atcmdline, cmd_len)){
     float new_r0 = strtof(p, NULL);
     if(new_r0 < 1.0f || new_r0 > 1000.0f)
       return AT_R("+ERROR: invalid R0 value 1-1000 kOhm");
     LOG("[MQ-135] Setting R0 to %f kOhm", new_r0);
-    SENSORS::cfg.mq135_r0 = new_r0;
-    CFG_SAVE();
+    MQ135_CFG(r0) = new_r0;
+    MQ135_SAVE();
     return AT_R_OK;
   } else if(p = at_cmd_check("AT+MQ135_RL?", atcmdline, cmd_len)){
-    return AT_R_DOUBLE(SENSORS::cfg.mq135_rl);
+    return AT_R_DOUBLE(MQ135_CFG(rl));
   } else if(p = at_cmd_check("AT+MQ135_RL=", atcmdline, cmd_len)){
-    float new_r0 = strtof(p, NULL);
-    if(new_r0 < 0.001f || new_r0 > 100000.0f)
+    float new_rl = strtof(p, NULL);
+    if(new_rl < 0.001f || new_rl > 100000.0f)
       return AT_R("+ERROR: invalid RL value 0.001-10000 kOhm");
-    LOG("[MQ-135] Setting RL to %f kOhm", new_r0);
-    SENSORS::cfg.mq135_rl = new_r0;
-    CFG_SAVE();
+    LOG("[MQ-135] Setting RL to %f kOhm", new_rl);
+    MQ135_CFG(rl) = new_rl;
+    MQ135_SAVE();
     return AT_R_OK;
   }
   return AT_R("+ERROR: unknown command");
@@ -1595,8 +1706,11 @@ void initialize(){
 NOINLINE
 void setup(){
 
-  // load config
+  // initialize config system, loads partition/namespace handle
   CFG_INIT();
+
+  // load main sensors config
+  CFG_LOAD(CFG_STORAGE, &SENSORS::cfg, sizeof(SENSORS::cfg));
 
   // sensors config check for interval, when 0, assume 1000ms
   for(int i = 0; i < NR_OF_SENSORS; i++){
@@ -1666,7 +1780,7 @@ void sensors_loop(){
     }
     LOG("[SENSORS][%s]: value %.5f", s->key, current_v);
 
-    // first, print the prefix kvmkey and sensorname
+    // format sensor value string
     ALIGN(4) static char sv_str[32] = {0};
     int h_strl = snprintf((char *)&sv_str, sizeof(sv_str), s->unit_fmt, current_v);
     if(h_strl < 0){
@@ -1680,9 +1794,17 @@ void sensors_loop(){
     memset(ou_buf, 0, sizeof(ou_buf));
     int s_strl = -1;
     if(SENSORS::cfg.log_time && SENSORS::cfg.time_fmt != NULL && strlen(SENSORS::cfg.time_fmt) > 0){
-      s_strl = snprintf(ou_buf, sizeof(ou_buf), "%s,%s:%s*%s\r\n", COMMON::PT(SENSORS::cfg.time_fmt), SENSORS::cfg.kvmkey, s->key, sv_str);
+      if(SENSORS::cfg.kvmkey == NULL || strlen(SENSORS::cfg.kvmkey) == 0){
+        s_strl = snprintf(ou_buf, sizeof(ou_buf), "%s,%s*%s\r\n", COMMON::PT(SENSORS::cfg.time_fmt), s->key, sv_str);
+      } else {
+        s_strl = snprintf(ou_buf, sizeof(ou_buf), "%s,%s:%s*%s\r\n", COMMON::PT(SENSORS::cfg.time_fmt), SENSORS::cfg.kvmkey, s->key, sv_str);
+      }
     } else {
-      s_strl = snprintf(ou_buf, sizeof(ou_buf), "%s:%s*%s\r\n", SENSORS::cfg.kvmkey, s->key, sv_str);
+      if(SENSORS::cfg.kvmkey == NULL || strlen(SENSORS::cfg.kvmkey) == 0){
+        s_strl = snprintf(ou_buf, sizeof(ou_buf), "%s*%s\r\n", s->key, sv_str);
+      } else {
+        s_strl = snprintf(ou_buf, sizeof(ou_buf), "%s:%s*%s\r\n", SENSORS::cfg.kvmkey, s->key, sv_str);
+      }
     }
     if(s_strl < 0){
       LOG("[SENSORS] ERROR: snprintf failed to format output for sensor %s: %s", s->key, strerror(errno));
@@ -1825,10 +1947,13 @@ const char* at_cmd_handler_sensors(const char* atcmdline){
   unsigned int cmd_len = strlen(atcmdline);
   char *p = NULL;
   if(p = at_cmd_check("AT+SENSORS_KVMKEY=", atcmdline, cmd_len)){
-    size_t sz = (atcmdline+cmd_len)-p+1;
-    if(sz > 16)
-      return AT_R("+ERROR: Location max 16 chars");
-    strncpy((char *)&SENSORS::cfg.kvmkey, p, sz);
+    size_t sz = strlen(p);
+    if(sz+1 > 16)
+      return AT_R("+ERROR: Location max 15 chars");
+    if(sz == 0)
+      SENSORS::cfg.kvmkey[0] = '\0';
+    else
+      strncpy((char *)&SENSORS::cfg.kvmkey, p, sz);
     CFG_SAVE();
     return AT_R_OK;
   } else if(p = at_cmd_check("AT+SENSORS_KVMKEY?", atcmdline, cmd_len)){
@@ -1852,10 +1977,13 @@ const char* at_cmd_handler_sensors(const char* atcmdline){
     CFG_SAVE();
     return AT_R_OK;
   } else if(p = at_cmd_check("AT+SENSORS_TIMESTAMP_FMT=", atcmdline, cmd_len)){
-    size_t sz = (atcmdline+cmd_len)-p+1;
-    if(sz > 32)
-      return AT_R("+ERROR: Timestamp format max 32 chars");
-    strncpy((char *)&SENSORS::cfg.time_fmt, p, sz);
+    size_t sz = strlen(p);
+    if(sz+1 > 32)
+      return AT_R("+ERROR: Timestamp format max 31 chars");
+    if(sz == 0)
+      SENSORS::cfg.time_fmt[0] = '\0';
+    else
+      strncpy((char *)&SENSORS::cfg.time_fmt, p, sz);
     CFG_SAVE();
     return AT_R_OK;
   } else if(p = at_cmd_check("AT+SENSORS_TIMESTAMP_FMT?", atcmdline, cmd_len)){
@@ -1917,19 +2045,12 @@ long max_sleep_time(){
   return min_time;
 }
 
-NOINLINE
-void erase_config(){
-    // erase NVS config for sensors
-    CFG::CLEAR("esp-at", "sensors", "sensors");
-}
-
-
 } // namespace SENSORS
 
 namespace PLUGINS {
     NOINLINE
     void clear_config(){
-        SENSORS::erase_config();
+        SENSORS::CFG_CLEAR(NULL);
     }
     NOINLINE
     void setup(){
