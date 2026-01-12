@@ -32,90 +32,12 @@
 #ifndef _SENSORS_H
 #define _SENSORS_H
 
-// Logging setup for esp32c3
-
-#define SUPPORT_PLUGINS
-
-#ifndef LOGUART
-#define LOGUART
-#endif // LOGUART
-#undef LOGUART
-
-#ifndef BLUETOOTH_UART_AT
-#define BLUETOOTH_UART_AT
-#endif // BLUETOOTH_UART_AT
-
-#ifndef SUPPORT_ESP_LOG_INFO
-#define SUPPORT_ESP_LOG_INFO
-#endif // SUPPORT_ESP_LOG_INFO
-
-#ifndef TIMELOG
-#define TIMELOG
-#endif // TIMELOG
-#undef TIMELOG
-
-#ifndef LOOP_DELAY
-#define LOOP_DELAY
-#endif // LOOP_DELAY
-
-#ifndef DEFAULT_HOSTNAME
-#define DEFAULT_HOSTNAME "sensors"
-#endif // DEFAULT_HOSTNAME
-
-#ifndef UART_AT
-#define UART_AT
-#endif // UART_AT
-
-#ifndef SUPPORT_UART1
-#define SUPPORT_UART1
-#endif // SUPPORT_UART1
-#undef SUPPORT_UART1
-
-#ifndef SUPPORT_BLE_UART1
-#define SUPPORT_BLE_UART1
-#endif // SUPPORT_BLE_UART1
-#undef SUPPORT_BLE_UART1
-
-#ifndef SUPPORT_GPIO
-#define SUPPORT_GPIO
-#endif // SUPPORT_GPIO
-#undef SUPPORT_GPIO
-
-#ifndef SUPPORT_WIFI
-#define SUPPORT_WIFI
-#endif // SUPPORT_WIFI
-
-#ifdef SUPPORT_WIFI
-
-// WiFi support enabled, enable related features if not explicitly disabled
-#ifndef WIFI_WPS
-#define WIFI_WPS
-#endif // WIFI_WPS
-
-#undef SUPPORT_TCP_SERVER
-
-#undef SUPPORT_TCP
-
-#undef SUPPORT_TLS
-
-#ifndef SUPPORT_UDP
-#define SUPPORT_UDP
-#endif // SUPPORT_UDP
-
-#ifndef SUPPORT_NTP
-#define SUPPORT_NTP
-#endif // SUPPORT_NTP
-
-#ifndef SUPPORT_MDNS
-#define SUPPORT_MDNS
-#endif // SUPPORT_MDNS
-
-#endif // SUPPORT_WIFI
-
 /*
  * Sensor support configuration
+ *
  */
 
+#define SUPPORT_PLUGINS
 #define SUPPORT_S8
 #define SUPPORT_SE95
 #define SUPPORT_DHT11
@@ -126,6 +48,35 @@
 #define SUPPORT_BH1750
 #define SUPPORT_DS18B20
 #define SUPPORT_NTC
+#define SUPPORT_WIFI
+#define SUPPORT_ESP_LOG_INFO
+#define UART_AT
+#define BLUETOOTH_UART_AT
+#define LOOP_DELAY
+
+#undef LOGUART
+#undef TIMELOG
+#undef SUPPORT_GPIO
+
+// Disable UART1 support on S8 builds, as S8 uses UART1 for communication
+#ifdef SUPPORT_S8
+#undef SUPPORT_BLE_UART1
+#undef SUPPORT_UART1
+#endif
+
+#ifndef DEFAULT_HOSTNAME
+#define DEFAULT_HOSTNAME "sensors"
+#endif
+
+#ifdef SUPPORT_WIFI
+#undef SUPPORT_TCP_SERVER
+#undef SUPPORT_TCP
+#undef SUPPORT_TLS
+#define WIFI_WPS
+#define SUPPORT_UDP
+#define SUPPORT_NTP
+#define SUPPORT_MDNS
+#endif
 
 #define NR_OF_SENSORS 15
 

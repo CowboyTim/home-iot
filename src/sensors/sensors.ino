@@ -1387,8 +1387,8 @@ S8_UART *sensor_S8 = NULL;
 S8_sensor sensor;
 void init_s8(sensor_r_t *s) {
   LOG("[S8] Initializing SenseAir S8 NDIR CO2 sensor");
-  Serial1.begin(S8_BAUDRATE, SERIAL_8N1, 1, 0);
-  sensor_S8 = new S8_UART(Serial1);
+  UART1.begin(S8_BAUDRATE, SERIAL_8N1, 1, 0);
+  sensor_S8 = new S8_UART(UART1);
 
   // Check if S8 is available
   sensor_S8->get_firmware_version(sensor.firm_version);
