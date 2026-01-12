@@ -168,13 +168,20 @@ typedef struct s_cfg_t {
   float mq135_rl      = 0.0f;
   #endif // SUPPORT_MQ135
   #ifdef SUPPORT_NTC
-  float ntc_vcc           = 3.316f;   // Vcc for the voltage divider
+  float ntc_vcc           = 3.3f;   // Vcc for the voltage divider
   float ntc_divider_r     = 10250.0f; // 10k ohm divider resistor
   float ntc_beta          = 3950.0f;  // Beta coefficient of the NTC
   float ntc_r_nominal     = 10000.0f; // Nominal resistance at 25 C
   float ntc_t_nominal     = 25.0f;    // 25 C
   float ntc_ema_alpha     = 0.2f;     // Smoothing factor (0.1 to 0.3 is typical)
   #endif // SUPPORT_NTC
+  #ifdef SUPPORT_LDR
+  float ldr_vcc           = 3.3f;     // Vcc for the voltage divider
+  float ldr_divider_r     = 10000.0f; // 10k ohm divider resistor
+  float ldr_ema_alpha     = 0.2f;     // Smoothing factor (0.1 to 0.3 is typical)
+  float ldr_r10           = 10000.0f; // Reference resistance at 1 lux
+  float ldr_gamma         = 0.7f;     // Gamma value for the LDR
+  #endif // SUPPORT_LDR
   sensor_c_t sensor_cfg[NR_OF_SENSORS] = {0};
 } sensors_cfg_t;
 
@@ -212,6 +219,13 @@ sensors_cfg_t cfg = {
   .ntc_t_nominal   = 25.0f,
   .ntc_ema_alpha   = 0.2f,
   #endif // SUPPORT_NTC
+  #ifdef SUPPORT_LDR
+  .ldr_vcc         = 3.3f,
+  .ldr_divider_r   = 10300.0f,
+  .ldr_ema_alpha   = 0.2f,
+  .ldr_r10         = 10000.0f,
+  .ldr_gamma       = 0.7f,
+  #endif // SUPPORT_LDR
   .sensor_cfg = {0}
 };
 

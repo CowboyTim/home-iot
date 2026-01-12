@@ -170,6 +170,7 @@ int8_t initialize_adc(uint8_t pin){
   return 1;
 }
 
+NOINLINE
 float get_adc_average(uint8_t samples, uint8_t pin){
   if(samples == 0)
     samples = 1;
@@ -194,6 +195,47 @@ float get_adc_average(uint8_t samples, uint8_t pin){
   D("[ADC] Average ADC value on pin %d: %f", pin, avg_adc_f);
   avg_adc_f /= 1000.0f; // convert mV to V
   return avg_adc_f;
+}
+
+NOINLINE
+int8_t set_pin_high(uint8_t pin){
+  esp_ok = gpio_set_level((gpio_num_t)pin, 1);
+  if(esp_ok != ESP_OK){
+    LOG("[ADC] Failed to set pin %d high, err: %d", pin, esp_err_to_name(esp_ok));
+    return -1;
+  }
+  ets_delay_us(50);
+  return 1;
+}
+
+NOINLINE
+int8_t set_pin_low(uint8_t pin){
+  esp_ok = gpio_set_level((gpio_num_t)pin, 0);
+  if(esp_ok != ESP_OK){
+    LOG("[ADC] Failed to set pin %d low, err: %d", pin, esp_err_to_name(esp_ok));
+    return -1;
+  }
+  return 1;
+}
+
+NOINLINE
+int8_t initialize_pin_out(uint8_t pin){
+  esp_ok = gpio_set_direction((gpio_num_t)pin, GPIO_MODE_OUTPUT);
+  if(esp_ok != ESP_OK)
+    return -1;
+
+  gpio_config_t io_conf = {
+    .pin_bit_mask = (1ULL << pin),         // Bit mask for the pin
+    .mode         = GPIO_MODE_OUTPUT,      // Set as output
+    .pull_up_en   = GPIO_PULLUP_DISABLE,   // Disable internal pull-up
+    .pull_down_en = GPIO_PULLDOWN_DISABLE, // Disable internal pull-down
+    .intr_type    = GPIO_INTR_DISABLE      // Disable interrupts
+  };
+ 
+  esp_ok = gpio_config(&io_conf);
+  if(esp_ok != ESP_OK)
+    return -1;
+  return 1;
 }
 
 #endif
@@ -571,6 +613,13 @@ void init_bme280(sensor_r_t *s){
 
 #endif // SUPPORT_BME280
 
+/*
+  KY-018 LDR Lux Meter also wrong pinout, should be:
+  Connections:
+  S (Signal) -> GND
+  Middle (VCC) -> 5V
+  - (GND) -> Signal to ADC pin (A1)
+*/
 // LDR Sensor
 #define SENSOR_LDR {.name = "LDR Illuminance", .key = "ldr_illuminance",}
 #ifdef SUPPORT_LDR
@@ -591,25 +640,49 @@ int8_t fetch_ldr_adc(sensor_r_t *s, float *ldr_value){
     return -1;
 
   // Set LDR Vcc pin HIGH to power the LDR
-  esp_ok = gpio_set_level((gpio_num_t)LDRVCCPIN, 1);
-  if(esp_ok != ESP_OK){
-    LOG("[LDR] Failed to set pin %d HIGH to power LDR, err: %d", LDRVCCPIN, esp_err_to_name(esp_ok));
+  if(set_pin_high(LDRVCCPIN) == -1)
     return -1;
-  }
   
-  // fetch LDR value
-  float ldr_adc = get_adc_average(10, LDRADCPIN);
-  D("[LDR] value: %d V", ldr_adc);
+  // fetch ADC value
+  float v_out = get_adc_average(10, LDRADCPIN);
+  D("[LDR] value: %.5f V", v_out);
 
-  // Set LDR Vcc pin LOW to save power
-  esp_ok = gpio_set_level((gpio_num_t)LDRVCCPIN, 0);
-  if(esp_ok != ESP_OK){
-    LOG("[LDR] Failed to set pin %d LOW to power off LDR, err: %d", LDRVCCPIN, esp_err_to_name(esp_ok));
+  if(set_pin_low(LDRVCCPIN) == -1)
     return -1;
-  }
-  
-  *ldr_value = ldr_adc; // convert to float for consistency
+
+  // use the LDR_DIVIDER_R and Vcc to convert ADC voltage to illuminance in lux
+  // Standard wiring: R_divider is to VCC, LDR is to GND
+  // R_ntc = R_fixed * (V_out / (Vcc - V_out))
+  float r_ldr = SENSORS::cfg.ldr_divider_r * (v_out / (SENSORS::cfg.ldr_vcc - v_out));
+  D("[LDR] V_out: %.5f, R_ldr: %.2f Ohms", v_out, r_ldr);
+
+  // Standard LDR formula: Lux = A * R_LDR ^ B
+  // float lux = LDR_A / (r_ldr / LDR_B);
+  // Alternative formula with Gamma correction
+  float lux = 10.0 * pow((SENSORS::cfg.ldr_r10 / r_ldr), (1.0 / SENSORS::cfg.ldr_gamma));
+
+  *ldr_value = lux;
   return 1;
+}
+
+float calibrate_ldr_r10_gamma(float known_lux){
+  // Calibrate R10 and GAMMA based on known lux and measured lux
+  // known_lux = 10 * (R10 / R_ldr)^(1/GAMMA)
+  // Rearranged to find R10:
+  // R10 = R_ldr * (known_lux / 10) ^ GAMMA
+  float v_out = 0.0f;
+  if(set_pin_high(LDRVCCPIN) == -1){
+    LOG("[LDR] Failed to set Vcc pin high for calibration");
+  } else {
+    v_out = get_adc_average(10, LDRADCPIN);
+    if(set_pin_low(LDRVCCPIN) == -1){
+      LOG("[LDR] Failed to set Vcc pin low after calibration");
+    }
+  }
+  float r_ldr = SENSORS::cfg.ldr_divider_r * (v_out / (SENSORS::cfg.ldr_vcc - v_out));
+  float new_r10 = r_ldr * pow((known_lux / 10.0f), SENSORS::cfg.ldr_gamma);
+  LOG("[LDR] Calibrated R10: %.2f Ohms based on lux: %.2f, using Rldr: %f, Rdivider: %f, Vcc: %f, Vldr: %f, gamma: %f", new_r10, known_lux, r_ldr, SENSORS::cfg.ldr_divider_r, SENSORS::cfg.ldr_vcc, v_out, SENSORS::cfg.ldr_gamma);
+  return new_r10;
 }
 
 void init_ldr_adc(sensor_r_t *s){
@@ -622,27 +695,11 @@ void init_ldr_adc(sensor_r_t *s){
 
   // initialize the Vcc GPIO pin out to power the LDR
   LOG("[LDR] set pin %d as Vcc OUT", LDRVCCPIN);
-  esp_ok = gpio_set_direction((gpio_num_t)LDRVCCPIN, GPIO_MODE_OUTPUT);
-  if(esp_ok != ESP_OK){
+  if(initialize_pin_out(LDRVCCPIN) == -1){
     s->cfg->enabled = 0 ; // Disable in config
-    LOG("[LDR] Failed to set pin %d as Vcc OUT, err: %d", LDRVCCPIN, esp_err_to_name(esp_ok));
+    LOG("[LDR] Failed to set pin %d as Vcc OUT", LDRVCCPIN);
+    return;
   }
-
-  gpio_config_t io_conf = {
-    .pin_bit_mask = (1ULL << LDRVCCPIN),   // Bit mask for the pin
-    .mode         = GPIO_MODE_OUTPUT,      // Set as output
-    .pull_up_en   = GPIO_PULLUP_DISABLE,   // Disable internal pull-up
-    .pull_down_en = GPIO_PULLDOWN_DISABLE, // Disable internal pull-down
-    .intr_type    = GPIO_INTR_DISABLE      // Disable interrupts
-  };
-    
-  // Apply configuration
-  esp_ok = gpio_config(&io_conf);
-  if(esp_ok != ESP_OK){
-    s->cfg->enabled = 0 ; // Disable in config
-    LOG("[LDR] Failed to configure pin %d as Vcc OUT, err: %d", LDRVCCPIN, esp_err_to_name(esp_ok));
-  }
-
   LOG("[LDR] initialized on pin %d", LDRADCPIN);
 }
 #endif // SUPPORT_LDR
@@ -670,26 +727,17 @@ int8_t fetch_ntc_temperature(sensor_r_t *s, float *temperature){
     return -1;
 
   // Set NTC Vcc pin HIGH to power the NTC
-  esp_ok = gpio_set_level((gpio_num_t)NTCVCCPIN, 1);
-  if(esp_ok != ESP_OK){
-    LOG("[NTC] Failed to set pin %d HIGH to power NTC, err: %d", NTCVCCPIN, esp_err_to_name(esp_ok));
+  if(set_pin_high(NTCVCCPIN) == -1)
     return -1;
-  }
 
-  // wait a bit for voltage to stabilize
-  ets_delay_us(50);
-  
   // Get average voltage in Volts (as float)
   float v_out = get_adc_average(10, NTCADCPIN);
   if(v_out >= SENSORS::cfg.ntc_vcc)
     v_out = SENSORS::cfg.ntc_vcc - 0.0001f; // avoid division by zero
 
   // Set NTC Vcc pin LOW to save power and avoid heating the NTC
-  esp_ok = gpio_set_level((gpio_num_t)NTCVCCPIN, 0);
-  if(esp_ok != ESP_OK){
-    LOG("[NTC] Failed to set pin %d LOW to power off NTC, err: %d", NTCVCCPIN, esp_err_to_name(esp_ok));
+  if(set_pin_low(NTCVCCPIN) == -1)
     return -1;
-  }
   
   // Standard KY-013 wiring: R_divider is to VCC, NTC is to GND
   // R_ntc = R_fixed * (V_out / (Vcc - V_out))
@@ -728,27 +776,11 @@ void init_ntc_adc(sensor_r_t *s){
 
   // initialize the Vcc GPIO pin out to power the NTC
   LOG("[NTS] set pin %d as Vcc OUT", NTCVCCPIN);
-  esp_ok = gpio_set_direction((gpio_num_t)NTCVCCPIN, GPIO_MODE_OUTPUT);
-  if(esp_ok != ESP_OK){
+  if(initialize_pin_out(NTCVCCPIN) == -1){
     s->cfg->enabled = 0 ; // Disable in config
-    LOG("[ADC] Failed to set pin %d as Vcc OUT, err: %d", NTCVCCPIN, esp_err_to_name(esp_ok));
+    LOG("[NTC] Failed to set pin %d as Vcc OUT", NTCVCCPIN);
+    return;
   }
-
-  gpio_config_t io_conf = {
-    .pin_bit_mask = (1ULL << NTCVCCPIN),   // Bit mask for the pin
-    .mode         = GPIO_MODE_OUTPUT,      // Set as output
-    .pull_up_en   = GPIO_PULLUP_DISABLE,   // Disable internal pull-up
-    .pull_down_en = GPIO_PULLDOWN_DISABLE, // Disable internal pull-down
-    .intr_type    = GPIO_INTR_DISABLE      // Disable interrupts
-  };
-    
-  // Apply configuration
-  esp_ok = gpio_config(&io_conf);
-  if(esp_ok != ESP_OK){
-    s->cfg->enabled = 0 ; // Disable in config
-    LOG("[NTC] Failed to configure pin %d as Vcc OUT, err: %d", NTCVCCPIN, esp_err_to_name(esp_ok));
-  }
-
   LOG("[NTC] initialized on pin %d", NTCADCPIN);
 }
 #endif // SUPPORT_NTC
@@ -1663,6 +1695,69 @@ const char* at_cmd_handler_sensors(const char* atcmdline){
     CFG_SAVE();
     return AT_R_OK;
   #endif // SUPPORT_MQ135
+  #ifdef SUPPORT_LDR
+  } else if(p = at_cmd_check("AT+LDR_VCC?", atcmdline, cmd_len)){
+    return AT_R_DOUBLE(SENSORS::cfg.ldr_vcc);
+  } else if(p = at_cmd_check("AT+LDR_VCC=", atcmdline, cmd_len)){
+    float new_vcc = strtof(p, NULL);
+    if(new_vcc < 0.0f || new_vcc > 5.0f)
+      return AT_R("+ERROR: invalid VCC value 0-5 V");
+    LOG("[LDR] Setting VCC to %f V", new_vcc);
+    SENSORS::cfg.ldr_vcc = new_vcc;
+    CFG_SAVE();
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+LDR_DIVIDER_R?", atcmdline, cmd_len)){
+    return AT_R_DOUBLE(SENSORS::cfg.ldr_divider_r);
+  } else if(p = at_cmd_check("AT+LDR_DIVIDER_R=", atcmdline, cmd_len)){
+    float new_r = strtof(p, NULL);
+    if(new_r < 0.0f)
+      return AT_R("+ERROR: invalid divider resistance value");
+    LOG("[LDR] Setting divider resistance to %f Ohm", new_r);
+    SENSORS::cfg.ldr_divider_r = new_r;
+    CFG_SAVE();
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+LDR_EMA_ALPHA?", atcmdline, cmd_len)){
+    return AT_R_DOUBLE(SENSORS::cfg.ldr_ema_alpha);
+  } else if(p = at_cmd_check("AT+LDR_EMA_ALPHA=", atcmdline, cmd_len)){
+    float new_ema_alpha = strtof(p, NULL);
+    if(new_ema_alpha < 0.0f || new_ema_alpha > 1.0f)
+      return AT_R("+ERROR: invalid EMA alpha value 0-1");
+    LOG("[LDR] Setting EMA alpha to %f", new_ema_alpha);
+    SENSORS::cfg.ldr_ema_alpha = new_ema_alpha;
+    CFG_SAVE();
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+LDR_CALIBRATE_LUX=", atcmdline, cmd_len)){
+    float known_lux = strtof(p, NULL);
+    if(known_lux <= 0.0f)
+      return AT_R("+ERROR: invalid known lux value");
+    LOG("[LDR] Calibrating LDR with known lux value %f lx", known_lux);
+    float r_ldr_r10 = calibrate_ldr_r10_gamma(known_lux);
+    if(r_ldr_r10 < 0.0f)
+      return AT_R("+ERROR: failed to calibrate LDR");
+    SENSORS::cfg.ldr_r10 = r_ldr_r10;
+    CFG_SAVE();
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+LDR_R10?", atcmdline, cmd_len)){
+    return AT_R_DOUBLE(SENSORS::cfg.ldr_r10);
+  } else if(p = at_cmd_check("AT+LDR_R10=", atcmdline, cmd_len)){
+    float new_r10 = strtof(p, NULL);
+    if(new_r10 <= 0.0f)
+      return AT_R("+ERROR: invalid R10 value");
+    LOG("[LDR] Setting R10 to %f Ohm", new_r10);
+    SENSORS::cfg.ldr_r10 = new_r10;
+    CFG_SAVE();
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+LDR_GAMMA?", atcmdline, cmd_len)){
+    return AT_R_DOUBLE(SENSORS::cfg.ldr_gamma);
+  } else if(p = at_cmd_check("AT+LDR_GAMMA=", atcmdline, cmd_len)){
+    float new_gamma = strtof(p, NULL);
+    if(new_gamma <= 0.0f)
+      return AT_R("+ERROR: invalid gamma value");
+    LOG("[LDR] Setting gamma to %f", new_gamma);
+    SENSORS::cfg.ldr_gamma = new_gamma;
+    CFG_SAVE();
+    return AT_R_OK;
+  #endif // SUPPORT_LDR
   #ifdef SUPPORT_NTC
   } else if(p = at_cmd_check("AT+NTC_VCC?", atcmdline, cmd_len)){
     return AT_R_DOUBLE(SENSORS::cfg.ntc_vcc);
