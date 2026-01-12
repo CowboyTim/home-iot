@@ -665,14 +665,6 @@ void init_ldr_adc(sensor_r_t *s){
 #define NTCADCPIN    A1          // GPIO_NUM_1/A1 pin for NTC, same as LDRADCPIN, don't use together
 #define NTCVCCPIN    GPIO_NUM_10 // GPIO_NUM_10 pin to power the NTC
 
-// NTC parameters
-#define NTC_VCC             3.316f // Vcc for the voltage divider
-#define NTC_DIVIDER_R     10250.0f // 10k ohm divider resistor
-#define NTC_BETA           3950.0f // Beta coefficient of the NTC
-#define NTC_R_NOMINAL     10000.0f // Nominal resistance at 25 C
-#define NTC_T_NOMINAL      298.15f // 25 C in Kelvin
-#define NTC_EMA_ALPHA         0.2f // Smoothing factor (0.1 to 0.3 is typical)
-
 int8_t fetch_ntc_temperature(sensor_r_t *s, float *temperature){
   if(temperature == NULL)
     return -1;
@@ -689,8 +681,8 @@ int8_t fetch_ntc_temperature(sensor_r_t *s, float *temperature){
   
   // Get average voltage in Volts (as float)
   float v_out = get_adc_average(10, NTCADCPIN);
-  if(v_out >= NTC_VCC)
-    v_out = NTC_VCC - 0.0001f; // avoid division by zero
+  if(v_out >= SENSORS::cfg.ntc_vcc)
+    v_out = SENSORS::cfg.ntc_vcc - 0.0001f; // avoid division by zero
 
   // Set NTC Vcc pin LOW to save power and avoid heating the NTC
   esp_ok = gpio_set_level((gpio_num_t)NTCVCCPIN, 0);
@@ -701,14 +693,14 @@ int8_t fetch_ntc_temperature(sensor_r_t *s, float *temperature){
   
   // Standard KY-013 wiring: R_divider is to VCC, NTC is to GND
   // R_ntc = R_fixed * (V_out / (Vcc - V_out))
-  float r_ntc = NTC_DIVIDER_R * (v_out / (NTC_VCC - v_out));
+  float r_ntc = SENSORS::cfg.ntc_divider_r * (v_out / (SENSORS::cfg.ntc_vcc - v_out));
   D("[NTC] V_out: %.2f, R_ntc: %.2f Ohms", v_out, r_ntc);
 
   // Steinhart-Hart / B-parameter
   float steinhart;
-  steinhart  = log(r_ntc / NTC_R_NOMINAL);
-  steinhart /= NTC_BETA;
-  steinhart += 1.0f / NTC_T_NOMINAL;
+  steinhart  = log(r_ntc / SENSORS::cfg.ntc_r_nominal);
+  steinhart /= SENSORS::cfg.ntc_beta;
+  steinhart += 1.0f / (SENSORS::cfg.ntc_t_nominal + 273.15f);
   steinhart  = (1.0f / steinhart) - 273.15f;
 
   D("[NTC] temperature: %.2f °C", steinhart);
@@ -718,7 +710,7 @@ int8_t fetch_ntc_temperature(sensor_r_t *s, float *temperature){
   if (filtered_temp < -90.0f) {
     filtered_temp = steinhart; // Initial reading
   } else {
-    filtered_temp = (NTC_EMA_ALPHA * steinhart) + (1.0f - NTC_EMA_ALPHA) * filtered_temp;
+    filtered_temp = (SENSORS::cfg.ntc_ema_alpha * steinhart) + (1.0f - SENSORS::cfg.ntc_ema_alpha) * filtered_temp;
   }
 
   // Return the filtered temperature
@@ -1673,6 +1665,66 @@ const char* at_cmd_handler_sensors(const char* atcmdline){
     CFG_SAVE();
     return AT_R_OK;
   #endif // SUPPORT_MQ135
+  #ifdef SUPPORT_NTC
+  } else if(p = at_cmd_check("AT+NTC_VCC?", atcmdline, cmd_len)){
+    return AT_R_DOUBLE(SENSORS::cfg.ntc_vcc);
+  } else if(p = at_cmd_check("AT+NTC_VCC=", atcmdline, cmd_len)){
+    float new_vcc = strtof(p, NULL);
+    if(new_vcc < 0.0f || new_vcc > 5.0f)
+      return AT_R("+ERROR: invalid VCC value 0-5 V");
+    LOG("[NTC] Setting VCC to %f V", new_vcc);
+    SENSORS::cfg.ntc_vcc = new_vcc;
+    CFG_SAVE();
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+NTC_DIVIDER_R?", atcmdline, cmd_len)){
+    return AT_R_DOUBLE(SENSORS::cfg.ntc_divider_r);
+  } else if(p = at_cmd_check("AT+NTC_DIVIDER_R=", atcmdline, cmd_len)){
+    float new_r = strtof(p, NULL);
+    if(new_r < 0.0f)
+      return AT_R("+ERROR: invalid divider resistance value");
+    LOG("[NTC] Setting divider resistance to %f Ohm", new_r);
+    SENSORS::cfg.ntc_divider_r = new_r;
+    CFG_SAVE();
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+NTC_BETA?", atcmdline, cmd_len)){
+    return AT_R_DOUBLE(SENSORS::cfg.ntc_beta);
+  } else if(p = at_cmd_check("AT+NTC_BETA=", atcmdline, cmd_len)){
+    float new_beta = strtof(p, NULL);
+    if(new_beta < 0.0f)
+      return AT_R("+ERROR: invalid beta value");
+    LOG("[NTC] Setting beta to %f", new_beta);
+    SENSORS::cfg.ntc_beta = new_beta;
+    CFG_SAVE();
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+NTC_R_NOMINAL?", atcmdline, cmd_len)){
+    return AT_R_DOUBLE(SENSORS::cfg.ntc_r_nominal);
+  } else if(p = at_cmd_check("AT+NTC_R_NOMINAL=", atcmdline, cmd_len)){
+    float new_r_nominal = strtof(p, NULL);
+    if(new_r_nominal < 0.0f)
+      return AT_R("+ERROR: invalid nominal resistance value");
+    LOG("[NTC] Setting nominal resistance to %f Ohm", new_r_nominal);
+    SENSORS::cfg.ntc_r_nominal = new_r_nominal;
+    CFG_SAVE();
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+NTC_T_NOMINAL?", atcmdline, cmd_len)){
+    return AT_R_DOUBLE(SENSORS::cfg.ntc_t_nominal);
+  } else if(p = at_cmd_check("AT+NTC_T_NOMINAL=", atcmdline, cmd_len)){
+    float new_t_nominal = strtof(p, NULL);
+    LOG("[NTC] Setting nominal temperature to %f C", new_t_nominal);
+    SENSORS::cfg.ntc_t_nominal = new_t_nominal;
+    CFG_SAVE();
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+NTC_EMA_ALPHA?", atcmdline, cmd_len)){
+    return AT_R_DOUBLE(SENSORS::cfg.ntc_ema_alpha);
+  } else if(p = at_cmd_check("AT+NTC_EMA_ALPHA=", atcmdline, cmd_len)){
+    float new_ema_alpha = strtof(p, NULL);
+    if(new_ema_alpha < 0.0f || new_ema_alpha > 1.0f)
+      return AT_R("+ERROR: invalid EMA alpha value 0-1");
+    LOG("[NTC] Setting EMA alpha to %f", new_ema_alpha);
+    SENSORS::cfg.ntc_ema_alpha = new_ema_alpha;
+    CFG_SAVE();
+    return AT_R_OK;
+  #endif // SUPPORT_NTC
   } else if(p = at_cmd_check("AT+SENSORS_TIMESTAMP_ADD=", atcmdline, cmd_len)){
     char *r = NULL;
     unsigned long val = strtoul(p, &r, 10);
@@ -1805,6 +1857,23 @@ Sensor Commands:
   AT+MQ135_RL?                  - Get MQ-135 RL load resistance value
 )EOF"
 #endif // SUPPORT_MQ135
+
+#ifdef SUPPORT_NTC
+R"EOF(
+  AT+NTC_VCC=<value>            - Set NTC VCC voltage (0-5V)
+  AT+NTC_VCC?                   - Get NTC VCC voltage
+  AT+NTC_DIVIDER_R=<value>      - Set NTC divider resistance in Ohm
+  AT+NTC_DIVIDER_R?             - Get NTC divider resistance
+  AT+NTC_BETA=<value>           - Set NTC beta coefficient
+  AT+NTC_BETA?                  - Get NTC beta coefficient
+  AT+NTC_R_NOMINAL=<value>      - Set NTC nominal resistance in Ohm
+  AT+NTC_R_NOMINAL?             - Get NTC nominal resistance
+  AT+NTC_T_NOMINAL=<value>      - Set NTC nominal temperature in Celsius
+  AT+NTC_T_NOMINAL?             - Get NTC nominal temperature
+  AT+NTC_EMA_ALPHA=<value>      - Set NTC EMA alpha for smoothing (0-1)
+  AT+NTC_EMA_ALPHA?             - Get NTC EMA alpha
+)EOF"
+#endif // SUPPORT_NTC
 
         R"EOF(
   AT+ENABLE_<sensor>=<0|1>      - Enable/disable sensor (1=enable, 0=disable)

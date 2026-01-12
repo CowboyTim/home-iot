@@ -167,6 +167,14 @@ typedef struct s_cfg_t {
   float mq135_r0      = 0.0f;
   float mq135_rl      = 0.0f;
   #endif // SUPPORT_MQ135
+  #ifdef SUPPORT_NTC
+  float ntc_vcc           = 3.316f;   // Vcc for the voltage divider
+  float ntc_divider_r     = 10250.0f; // 10k ohm divider resistor
+  float ntc_beta          = 3950.0f;  // Beta coefficient of the NTC
+  float ntc_r_nominal     = 10000.0f; // Nominal resistance at 25 C
+  float ntc_t_nominal     = 25.0f;    // 25 C
+  float ntc_ema_alpha     = 0.2f;     // Smoothing factor (0.1 to 0.3 is typical)
+  #endif // SUPPORT_NTC
   sensor_c_t sensor_cfg[NR_OF_SENSORS] = {0};
 } sensors_cfg_t;
 
@@ -196,6 +204,14 @@ sensors_cfg_t cfg = {
   .mq135_r0   = 0.0f, // default R0 for MQ-135
   .mq135_rl   = 0.0f, // default RL for MQ-135
   #endif // SUPPORT_MQ135
+  #ifdef SUPPORT_NTC
+  .ntc_vcc         = 3.3f,
+  .ntc_divider_r   = 10250.0f,
+  .ntc_beta        = 3950.0f,
+  .ntc_r_nominal   = 10000.0f,
+  .ntc_t_nominal   = 25.0f,
+  .ntc_ema_alpha   = 0.2f,
+  #endif // SUPPORT_NTC
   .sensor_cfg = {0}
 };
 
