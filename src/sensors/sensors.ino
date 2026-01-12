@@ -366,7 +366,7 @@ void CFG_INIT() {
 #define SENSOR_DHT11_HUMIDITY \
     {\
       .name = "DHT11 Humidity",\
-      .key  = "humidity",\
+      .key  = "dht11_humidity",\
       .unit_fmt = "%%,%.0f",\
       .init_function = init_dht11,\
       .value_function = dht11_fetch_humidity,\
@@ -374,7 +374,7 @@ void CFG_INIT() {
 #define SENSOR_DHT11_TEMPERATURE \
     {\
       .name = "DHT11 Temperature",\
-      .key  = "temperature",\
+      .key  = "dht11_temperature",\
       .unit_fmt = "°C,%.2f",\
       .init_function = init_dht11,\
       .value_function = dht11_fetch_temperature,\
