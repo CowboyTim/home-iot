@@ -1033,6 +1033,48 @@ void init_mq135_adc(sensor_r_t *s){
     mq135_startup_time = millis();
 }
 
+NOINLINE
+const char *atcmd_sensors_mq135(const char *atcmdline, size_t cmd_len){
+  char *p = NULL;
+  if(p = at_cmd_check("AT+MQ135_R0?", atcmdline, cmd_len)){
+    return AT_R_DOUBLE(SENSORS::cfg.mq135_r0);
+  } else if(p = at_cmd_check("AT+MQ135_CALIBRATE_CO2", atcmdline, cmd_len)){
+    if(SENSORS::cfg.mq135_rl <= 0.0f)
+      return AT_R("+ERROR: invalid MQ135 RL value, set RL first");
+    if(millis() - mq135_startup_time < MQ135_WARMUP_TIME){
+      char ttl_msg[100] = {0};
+      unsigned long ttl_ms = MQ135_WARMUP_TIME - (millis() - mq135_startup_time);
+      snprintf(ttl_msg, sizeof(ttl_msg), "+ERROR: MQ135 sensor warming up, not ready yet, ttl: %lu ms", ttl_ms);
+      return AT_R_S(String(ttl_msg));
+    }
+    // fetch average value
+    float avg_adc = get_adc_average(MQ135_AVG_NR, MQ135PIN);
+    LOG("[MQ-135] Calibration value: %f V", avg_adc);
+    SENSORS::cfg.mq135_r0 = calibrate_mq135_r0(SENSORS::cfg.mq135_rl, avg_adc);
+    CFG_SAVE();
+    return AT_R_DOUBLE(SENSORS::cfg.mq135_r0);
+  } else if(p = at_cmd_check("AT+MQ135_R0=", atcmdline, cmd_len)){
+    float new_r0 = strtof(p, NULL);
+    if(new_r0 < 1.0f || new_r0 > 1000.0f)
+      return AT_R("+ERROR: invalid R0 value 1-1000 kOhm");
+    LOG("[MQ-135] Setting R0 to %f kOhm", new_r0);
+    SENSORS::cfg.mq135_r0 = new_r0;
+    CFG_SAVE();
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+MQ135_RL?", atcmdline, cmd_len)){
+    return AT_R_DOUBLE(SENSORS::cfg.mq135_rl);
+  } else if(p = at_cmd_check("AT+MQ135_RL=", atcmdline, cmd_len)){
+    float new_r0 = strtof(p, NULL);
+    if(new_r0 < 0.001f || new_r0 > 100000.0f)
+      return AT_R("+ERROR: invalid RL value 0.001-10000 kOhm");
+    LOG("[MQ-135] Setting RL to %f kOhm", new_r0);
+    SENSORS::cfg.mq135_rl = new_r0;
+    CFG_SAVE();
+    return AT_R_OK;
+  }
+  return AT_R("+ERROR: unknown command");
+}
+
 void destroy_mq135_adc(sensor_r_t *s){
   // free userdata
   if(s->userdata != NULL){
@@ -1791,51 +1833,6 @@ const char* at_cmd_handler_sensors(const char* atcmdline){
     return AT_R_OK;
   } else if(p = at_cmd_check("AT+SENSORS_KVMKEY?", atcmdline, cmd_len)){
     return AT_R(SENSORS::cfg.kvmkey);
-  #ifdef SUPPORT_MQ135
-  } else if(p = at_cmd_check("AT+MQ135_R0?", atcmdline, cmd_len)){
-    return AT_R_DOUBLE(SENSORS::cfg.mq135_r0);
-  } else if(p = at_cmd_check("AT+MQ135_CALIBRATE_CO2", atcmdline, cmd_len)){
-    if(SENSORS::cfg.mq135_rl <= 0.0f)
-      return AT_R("+ERROR: invalid MQ135 RL value, set RL first");
-    if(millis() - mq135_startup_time < MQ135_WARMUP_TIME){
-      char ttl_msg[100] = {0};
-      unsigned long ttl_ms = MQ135_WARMUP_TIME - (millis() - mq135_startup_time);
-      snprintf(ttl_msg, sizeof(ttl_msg), "+ERROR: MQ135 sensor warming up, not ready yet, ttl: %lu ms", ttl_ms);
-      return AT_R_S(String(ttl_msg));
-    }
-    // fetch average value
-    float avg_adc = get_adc_average(MQ135_AVG_NR, MQ135PIN);
-    LOG("[MQ-135] Calibration value: %f V", avg_adc);
-    SENSORS::cfg.mq135_r0 = calibrate_mq135_r0(SENSORS::cfg.mq135_rl, avg_adc);
-    CFG_SAVE();
-    return AT_R_DOUBLE(SENSORS::cfg.mq135_r0);
-  } else if(p = at_cmd_check("AT+MQ135_R0=", atcmdline, cmd_len)){
-    float new_r0 = strtof(p, NULL);
-    if(new_r0 < 1.0f || new_r0 > 1000.0f)
-      return AT_R("+ERROR: invalid R0 value 1-1000 kOhm");
-    LOG("[MQ-135] Setting R0 to %f kOhm", new_r0);
-    SENSORS::cfg.mq135_r0 = new_r0;
-    CFG_SAVE();
-    return AT_R_OK;
-  } else if(p = at_cmd_check("AT+MQ135_RL?", atcmdline, cmd_len)){
-    return AT_R_DOUBLE(SENSORS::cfg.mq135_rl);
-  } else if(p = at_cmd_check("AT+MQ135_RL=", atcmdline, cmd_len)){
-    float new_r0 = strtof(p, NULL);
-    if(new_r0 < 0.001f || new_r0 > 100000.0f)
-      return AT_R("+ERROR: invalid RL value 0.001-10000 kOhm");
-    LOG("[MQ-135] Setting RL to %f kOhm", new_r0);
-    SENSORS::cfg.mq135_rl = new_r0;
-    CFG_SAVE();
-    return AT_R_OK;
-  #endif // SUPPORT_MQ135
-  #ifdef SUPPORT_LDR
-  } else if(p = at_cmd_check("AT+LDR_",atcmdline, cmd_len)){
-    return atcmd_sensors_ldr(atcmdline, cmd_len);
-  #endif // SUPPORT_LDR
-  #ifdef SUPPORT_NTC
-  } else if(p = at_cmd_check("AT+NTC_",atcmdline, cmd_len)){
-    return atcmd_sensors_ntc(atcmdline, cmd_len);
-  #endif // SUPPORT_NTC
   } else if(p = at_cmd_check("AT+SENSORS_TIMESTAMP_ADD=", atcmdline, cmd_len)){
     char *r = NULL;
     unsigned long val = strtoul(p, &r, 10);
@@ -1865,6 +1862,18 @@ const char* at_cmd_handler_sensors(const char* atcmdline){
     return AT_R(SENSORS::cfg.time_fmt);
   } else if(p = at_cmd_check("AT+SENSORS_LOG_UART?", atcmdline, cmd_len)){
     return AT_R_INT(SENSORS::cfg.log_uart);
+  #ifdef SUPPORT_MQ135
+  } else if(p = at_cmd_check("AT+MQ135_",atcmdline, cmd_len)){
+    return atcmd_sensors_mq135(atcmdline, cmd_len);
+  #endif // SUPPORT_MQ135
+  #ifdef SUPPORT_LDR
+  } else if(p = at_cmd_check("AT+LDR_",atcmdline, cmd_len)){
+    return atcmd_sensors_ldr(atcmdline, cmd_len);
+  #endif // SUPPORT_LDR
+  #ifdef SUPPORT_NTC
+  } else if(p = at_cmd_check("AT+NTC_",atcmdline, cmd_len)){
+    return atcmd_sensors_ntc(atcmdline, cmd_len);
+  #endif // SUPPORT_NTC
   } else if(p = at_cmd_check("AT+LOG_INTERVAL_", atcmdline, cmd_len)){
     return at_cmd_handler_sensor(atcmdline, cmd_len);
   } else if(p = at_cmd_check("AT+ENABLE_", atcmdline, cmd_len)){
