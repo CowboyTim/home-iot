@@ -2096,8 +2096,25 @@ Sensor Commands:
   AT+MQ135_R0?                  - Get MQ-135 R0 resistance value
   AT+MQ135_RL=<value>           - Set MQ-135 RL load resistance value (1-1000 kOhms)
   AT+MQ135_RL?                  - Get MQ-135 RL load resistance value
+  AT+MQ135_CALIBRATE_CO2        - Calibrate MQ-135 R0 for current atmospheric CO2
 )EOF"
 #endif // SUPPORT_MQ135
+
+#ifdef SUPPORT_LDR
+R"EOF(
+  AT+LDR_VCC=<value>            - Set LDR VCC voltage (0-5V)
+  AT+LDR_VCC?                   - Get LDR VCC voltage
+  AT+LDR_DIVIDER_R=<value>      - Set LDR divider resistance in Ohm
+  AT+LDR_DIVIDER_R?             - Get LDR divider resistance
+  AT+LDR_EMA_ALPHA=<value>      - Set LDR EMA alpha for smoothing (0-1)
+  AT+LDR_EMA_ALPHA?             - Get LDR EMA alpha
+  AT+LDR_CALIBRATE_LUX=<value>  - Calibrate LDR with known lux value
+  AT+LDR_R10=<value>            - Set LDR R10 reference resistance in Ohm
+  AT+LDR_R10?                   - Get LDR R10 reference resistance
+  AT+LDR_GAMMA=<value>          - Set LDR gamma value
+  AT+LDR_GAMMA?                 - Get LDR gamma value
+)EOF"
+#endif // SUPPORT_LDR
 
 #ifdef SUPPORT_NTC
 R"EOF(
