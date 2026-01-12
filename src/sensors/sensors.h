@@ -116,7 +116,7 @@
  * Sensor support configuration
  */
 
-#undef SUPPORT_S8
+#define SUPPORT_S8
 #define SUPPORT_SE95
 #define SUPPORT_DHT11
 #define SUPPORT_LDR
