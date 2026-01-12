@@ -412,7 +412,7 @@ void CFG_SAVE_NS(const char *st, void *p, size_t s) {
 
 NOINLINE
 void CFG_SAVE() {
-  LOG("[CFG] Saving sensors config to NVS");
+  LOG("[CFG] Saving config to NVS: '%s', '%s'", CFG_PARTITION, CFG_NAMESPACE);
   CFG::SAVE_H(&nvs_handle, CFG_PARTITION, CFG_NAMESPACE, CFG_STORAGE, (void *)&SENSORS::cfg, sizeof(SENSORS::cfg));
   return;
 }
@@ -1709,10 +1709,10 @@ void setup(){
   // initialize config system, loads partition/namespace handle
   CFG_INIT();
 
-  // load main sensors config
+  // load main config
   CFG_LOAD(CFG_STORAGE, &SENSORS::cfg, sizeof(SENSORS::cfg));
 
-  // sensors config check for interval, when 0, assume 1000ms
+  // config check for interval, when 0, assume 1000ms
   for(int i = 0; i < NR_OF_SENSORS; i++){
     sensor_r_t *s = &SENSORS::all_sensors[i];
 
