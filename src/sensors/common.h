@@ -237,6 +237,11 @@ extern NOINLINE void SAVE(const char* pa, const char* ns, const char* st, void* 
 extern NOINLINE void CLEAR(const char* pa, const char* ns, const char* st);
 extern NOINLINE void LOAD(const char* pa, const char* ns, const char* st, void* cfg, size_t rs);
 
+extern NOINLINE bool INIT_H(nvs_handle_t *, const char* pa, const char* ns);
+extern NOINLINE void SAVE_H(nvs_handle_t *, const char* pa, const char* ns, const char* st, void* cfg, size_t rs);
+extern NOINLINE void CLEAR_H(nvs_handle_t *, const char* pa, const char* ns, const char* st);
+extern NOINLINE void LOAD_H(nvs_handle_t *, const char* pa, const char* ns, const char* st, void* cfg, size_t rs);
+
 
 } // namespace CFG
 

@@ -277,12 +277,12 @@ void _debug_e(const char *fmt, ...) {
 
 namespace CFG {
 
-nvs_handle_t nvs_c;
+nvs_handle_t nvs_handle;
 
 NOINLINE
-bool INIT(const char *pa, const char *ns) {
-  LOG("[NVS] Setting up NVS in partition %s", pa);
-  esp_err_t err = nvs_open_from_partition(pa, ns, NVS_READWRITE, &nvs_c);
+bool INIT_H(nvs_handle_t * nvs_c, const char *pa, const char *ns) {
+  LOG("[NVS] Setting up NVS in partition '%s', namespace '%s'", pa, ns);
+  esp_err_t err = nvs_open_from_partition(pa, ns, NVS_READWRITE, nvs_c);
   if (err != ESP_OK) {
     LOG("[NVS] Failed to open NVS partition %s: %s", pa, esp_err_to_name(err));
     LOG("[NVS] Attempting to initialize NVS partition %s", pa);
@@ -292,7 +292,7 @@ bool INIT(const char *pa, const char *ns) {
       return false;
     } else {
       LOG("[NVS] initialized successfully");
-      err = nvs_open_from_partition(pa, ns, NVS_READWRITE, &nvs_c);
+      err = nvs_open_from_partition(pa, ns, NVS_READWRITE, nvs_c);
       if (err) {
         LOG("[NVS] Failed to open NVS partition %s after init: %s", pa, esp_err_to_name(err));
         return false;
@@ -301,56 +301,56 @@ bool INIT(const char *pa, const char *ns) {
       }
     }
   } else {
-    LOG("[NVS] NVS partition %s opened successfully", pa);
+    LOG("[NVS] NVS partition '%s' opened successfully", pa);
   }
   return true;
 }
 
 NOINLINE
-void SAVE(const char *pa, const char *ns, const char *st, void *cfg, size_t rs) {
-  LOG("[NVS] Saving config to NVS.., size: %d bytes", rs);
+void SAVE_H(nvs_handle_t * nvs_c, const char *pa, const char *ns, const char *st, void *cfg, size_t rs) {
+  LOG("[NVS] Saving config to NVS, partition: '%s', namespace: '%s', key: '%s', size: %d bytes", pa, ns,  st, rs);
   esp_err_t err;
-  err = nvs_open_from_partition(pa, ns, NVS_READWRITE, &nvs_c);
+  err = nvs_open_from_partition(pa, ns, NVS_READWRITE, nvs_c);
   if (err != ESP_OK) {
     LOG("[NVS] Error (%d) opening NVS handle! %s", err, esp_err_to_name(err));
     return;
   }
-  err = nvs_set_blob(nvs_c, st, cfg, rs);
+  err = nvs_set_blob(*nvs_c, st, cfg, rs);
   if (err != ESP_OK) {
     LOG("[NVS] Error (%d) setting blob in NVS! %s", err, esp_err_to_name(err));
   }
-  err = nvs_commit(nvs_c);
+  err = nvs_commit(*nvs_c);
   if (err != ESP_OK) {
     LOG("[NVS] Error (%d) committing blob to NVS! %s", err, esp_err_to_name(err));
   }
-  LOG("[NVS] Config saved to NVS");
+  LOG("[NVS] Config saved to NVS, partition: '%s', namespace: '%s', key: '%s'", pa, ns, st);
 }
 
 NOINLINE
-void CLEAR(const char *pa, const char *ns, const char *st) {
+void CLEAR_H(nvs_handle_t *nvs_c, const char *pa, const char *ns, const char *st) {
   LOG("[NVS] Clearing config from NVS for partition %s, %s, %s", pa, ns, st);
 
   esp_err_t err;
 
   // Close NVS handle if open
-  if(nvs_c != 0) {
-    nvs_close(nvs_c);
-    nvs_c = 0;
+  if(*nvs_c != 0) {
+    nvs_close(*nvs_c);
+    *nvs_c = NULL;
   }
 
   // Erase specific key if provided
   if(ns != NULL && st != NULL) {
     LOG("[NVS] Erasing key '%s' from NVS", st);
-    err = nvs_open_from_partition(pa, ns, NVS_READWRITE, &nvs_c);
+    err = nvs_open_from_partition(pa, ns, NVS_READWRITE, nvs_c);
     if (err == ESP_OK) {
-      err = nvs_erase_key(nvs_c, st);
+      err = nvs_erase_key(*nvs_c, st);
       if (err != ESP_OK) {
         LOG("[NVS] Error (%d) erasing key %s in NVS! %s", err, st, esp_err_to_name(err));
       } else {
         LOG("[NVS] Key '%s' erased from NVS", st);
       }
-      nvs_close(nvs_c);
-      nvs_c = 0;
+      nvs_close(*nvs_c);
+      *nvs_c = NULL;
     }
   }
 
@@ -372,15 +372,15 @@ void CLEAR(const char *pa, const char *ns, const char *st) {
 }
 
 NOINLINE
-void LOAD(const char *pa, const char *ns, const char *st, void *cfg, size_t rs) {
-  LOG("[NVS] Loading config from NVS...");
+void LOAD_H(nvs_handle_t * nvs_c, const char *pa, const char *ns, const char *st, void *cfg, size_t rs) {
+  LOG("[NVS] Loading config from NVS partition '%s', namespace '%s', key '%s'", pa, ns, st);
   esp_err_t err;
-  err = nvs_open_from_partition(pa, ns, NVS_READONLY, &nvs_c);
+  err = nvs_open_from_partition(pa, ns, NVS_READONLY, nvs_c);
   if (err != ESP_OK) {
     LOG("[NVS] Error (%d) opening NVS handle! %s", err, esp_err_to_name(err));
     return;
   }
-  err = nvs_get_blob(nvs_c, st, cfg, &rs);
+  err = nvs_get_blob(*nvs_c, st, cfg, &rs);
   if (err == ESP_ERR_NVS_NOT_FOUND) {
     LOG("[NVS] No config found in NVS, using defaults");
     return;
@@ -389,6 +389,29 @@ void LOAD(const char *pa, const char *ns, const char *st, void *cfg, size_t rs) 
     return;
   }
   LOG("[NVS] Config loaded from NVS, size: %d bytes", rs);
+}
+
+NOINLINE
+bool INIT(const char *pa, const char *ns) {
+  return INIT_H(&nvs_handle, pa, ns);
+}
+
+NOINLINE
+void SAVE(const char *pa, const char *ns, const char *st, void *cfg, size_t rs) {
+  SAVE_H(&nvs_handle, pa, ns, st, cfg, rs);
+  return;
+}
+
+NOINLINE
+void LOAD(const char *pa, const char *ns, const char *st, void *cfg, size_t rs) {
+  LOAD_H(&nvs_handle, pa, ns, st, cfg, rs);
+  return;
+}
+
+NOINLINE
+void CLEAR(const char *pa, const char *ns, const char *st) {
+  CLEAR_H(&nvs_handle, pa, ns, st);
+  return;
 }
 
 } // namespace CFG
