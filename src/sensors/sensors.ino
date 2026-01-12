@@ -400,6 +400,19 @@ void CFG_INIT() {
   CFG::LOAD("esp-at", "sensors", "sensors", (void *)&SENSORS::cfg, sizeof(SENSORS::cfg));
 }
 
+NOINLINE
+char* at_cmd_check(const char *cmd, const char *at_cmd, unsigned short at_len) {
+  unsigned short l = strlen(cmd); /* AT+<cmd>=, or AT, or AT+<cmd>? */
+  if(at_len >= l && strncmp(cmd, at_cmd, l) == 0) {
+    if(*(cmd+l-1) == '=') {
+      return (char *)at_cmd+l;
+    } else {
+      return (char *)at_cmd;
+    }
+  }
+  return NULL;
+}
+
 
 // DHT11 Sensor
 #define SENSOR_DHT11_HUMIDITY    {.name = "DHT11 Humidity", .key = "humidity",}
@@ -782,6 +795,71 @@ void init_ntc_adc(sensor_r_t *s){
     return;
   }
   LOG("[NTC] initialized on pin %d", NTCADCPIN);
+}
+
+NOINLINE
+const char *atcmd_sensors_ntc(const char *atcmdline, size_t cmd_len){
+  char *p = NULL;
+  if(p = at_cmd_check("AT+NTC_VCC?", atcmdline, cmd_len)){
+    return AT_R_DOUBLE(SENSORS::cfg.ntc_vcc);
+  } else if(p = at_cmd_check("AT+NTC_VCC=", atcmdline, cmd_len)){
+    float new_vcc = strtof(p, NULL);
+    if(new_vcc < 0.0f || new_vcc > 5.0f)
+      return AT_R("+ERROR: invalid VCC value 0-5 V");
+    LOG("[NTC] Setting VCC to %f V", new_vcc);
+    SENSORS::cfg.ntc_vcc = new_vcc;
+    CFG_SAVE();
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+NTC_DIVIDER_R?", atcmdline, cmd_len)){
+    return AT_R_DOUBLE(SENSORS::cfg.ntc_divider_r);
+  } else if(p = at_cmd_check("AT+NTC_DIVIDER_R=", atcmdline, cmd_len)){
+    float new_r = strtof(p, NULL);
+    if(new_r < 0.0f)
+      return AT_R("+ERROR: invalid divider resistance value");
+    LOG("[NTC] Setting divider resistance to %f Ohm", new_r);
+    SENSORS::cfg.ntc_divider_r = new_r;
+    CFG_SAVE();
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+NTC_BETA?", atcmdline, cmd_len)){
+    return AT_R_DOUBLE(SENSORS::cfg.ntc_beta);
+  } else if(p = at_cmd_check("AT+NTC_BETA=", atcmdline, cmd_len)){
+    float new_beta = strtof(p, NULL);
+    if(new_beta < 0.0f)
+      return AT_R("+ERROR: invalid beta value");
+    LOG("[NTC] Setting beta to %f", new_beta);
+    SENSORS::cfg.ntc_beta = new_beta;
+    CFG_SAVE();
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+NTC_R_NOMINAL?", atcmdline, cmd_len)){
+    return AT_R_DOUBLE(SENSORS::cfg.ntc_r_nominal);
+  } else if(p = at_cmd_check("AT+NTC_R_NOMINAL=", atcmdline, cmd_len)){
+    float new_r_nominal = strtof(p, NULL);
+    if(new_r_nominal < 0.0f)
+      return AT_R("+ERROR: invalid nominal resistance value");
+    LOG("[NTC] Setting nominal resistance to %f Ohm", new_r_nominal);
+    SENSORS::cfg.ntc_r_nominal = new_r_nominal;
+    CFG_SAVE();
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+NTC_T_NOMINAL?", atcmdline, cmd_len)){
+    return AT_R_DOUBLE(SENSORS::cfg.ntc_t_nominal);
+  } else if(p = at_cmd_check("AT+NTC_T_NOMINAL=", atcmdline, cmd_len)){
+    float new_t_nominal = strtof(p, NULL);
+    LOG("[NTC] Setting nominal temperature to %f C", new_t_nominal);
+    SENSORS::cfg.ntc_t_nominal = new_t_nominal;
+    CFG_SAVE();
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+NTC_EMA_ALPHA?", atcmdline, cmd_len)){
+    return AT_R_DOUBLE(SENSORS::cfg.ntc_ema_alpha);
+  } else if(p = at_cmd_check("AT+NTC_EMA_ALPHA=", atcmdline, cmd_len)){
+    float new_ema_alpha = strtof(p, NULL);
+    if(new_ema_alpha < 0.0f || new_ema_alpha > 1.0f)
+      return AT_R("+ERROR: invalid EMA alpha value 0-1");
+    LOG("[NTC] Setting EMA alpha to %f", new_ema_alpha);
+    SENSORS::cfg.ntc_ema_alpha = new_ema_alpha;
+    CFG_SAVE();
+    return AT_R_OK;
+  }
+  return AT_R("+ERROR: unknown command");
 }
 #endif // SUPPORT_NTC
 
@@ -1534,19 +1612,6 @@ void sensors_loop(){
 }
 
 NOINLINE
-char* at_cmd_check(const char *cmd, const char *at_cmd, unsigned short at_len) {
-  unsigned short l = strlen(cmd); /* AT+<cmd>=, or AT, or AT+<cmd>? */
-  if(at_len >= l && strncmp(cmd, at_cmd, l) == 0) {
-    if(*(cmd+l-1) == '=') {
-      return (char *)at_cmd+l;
-    } else {
-      return (char *)at_cmd;
-    }
-  }
-  return NULL;
-}
-
-NOINLINE
 const char* at_cmd_handler_sensor(const char *at_cmd, unsigned short at_len){
     const char *p = NULL;
     for (int i = 0; i < NR_OF_SENSORS; i++) {
@@ -1759,64 +1824,8 @@ const char* at_cmd_handler_sensors(const char* atcmdline){
     return AT_R_OK;
   #endif // SUPPORT_LDR
   #ifdef SUPPORT_NTC
-  } else if(p = at_cmd_check("AT+NTC_VCC?", atcmdline, cmd_len)){
-    return AT_R_DOUBLE(SENSORS::cfg.ntc_vcc);
-  } else if(p = at_cmd_check("AT+NTC_VCC=", atcmdline, cmd_len)){
-    float new_vcc = strtof(p, NULL);
-    if(new_vcc < 0.0f || new_vcc > 5.0f)
-      return AT_R("+ERROR: invalid VCC value 0-5 V");
-    LOG("[NTC] Setting VCC to %f V", new_vcc);
-    SENSORS::cfg.ntc_vcc = new_vcc;
-    CFG_SAVE();
-    return AT_R_OK;
-  } else if(p = at_cmd_check("AT+NTC_DIVIDER_R?", atcmdline, cmd_len)){
-    return AT_R_DOUBLE(SENSORS::cfg.ntc_divider_r);
-  } else if(p = at_cmd_check("AT+NTC_DIVIDER_R=", atcmdline, cmd_len)){
-    float new_r = strtof(p, NULL);
-    if(new_r < 0.0f)
-      return AT_R("+ERROR: invalid divider resistance value");
-    LOG("[NTC] Setting divider resistance to %f Ohm", new_r);
-    SENSORS::cfg.ntc_divider_r = new_r;
-    CFG_SAVE();
-    return AT_R_OK;
-  } else if(p = at_cmd_check("AT+NTC_BETA?", atcmdline, cmd_len)){
-    return AT_R_DOUBLE(SENSORS::cfg.ntc_beta);
-  } else if(p = at_cmd_check("AT+NTC_BETA=", atcmdline, cmd_len)){
-    float new_beta = strtof(p, NULL);
-    if(new_beta < 0.0f)
-      return AT_R("+ERROR: invalid beta value");
-    LOG("[NTC] Setting beta to %f", new_beta);
-    SENSORS::cfg.ntc_beta = new_beta;
-    CFG_SAVE();
-    return AT_R_OK;
-  } else if(p = at_cmd_check("AT+NTC_R_NOMINAL?", atcmdline, cmd_len)){
-    return AT_R_DOUBLE(SENSORS::cfg.ntc_r_nominal);
-  } else if(p = at_cmd_check("AT+NTC_R_NOMINAL=", atcmdline, cmd_len)){
-    float new_r_nominal = strtof(p, NULL);
-    if(new_r_nominal < 0.0f)
-      return AT_R("+ERROR: invalid nominal resistance value");
-    LOG("[NTC] Setting nominal resistance to %f Ohm", new_r_nominal);
-    SENSORS::cfg.ntc_r_nominal = new_r_nominal;
-    CFG_SAVE();
-    return AT_R_OK;
-  } else if(p = at_cmd_check("AT+NTC_T_NOMINAL?", atcmdline, cmd_len)){
-    return AT_R_DOUBLE(SENSORS::cfg.ntc_t_nominal);
-  } else if(p = at_cmd_check("AT+NTC_T_NOMINAL=", atcmdline, cmd_len)){
-    float new_t_nominal = strtof(p, NULL);
-    LOG("[NTC] Setting nominal temperature to %f C", new_t_nominal);
-    SENSORS::cfg.ntc_t_nominal = new_t_nominal;
-    CFG_SAVE();
-    return AT_R_OK;
-  } else if(p = at_cmd_check("AT+NTC_EMA_ALPHA?", atcmdline, cmd_len)){
-    return AT_R_DOUBLE(SENSORS::cfg.ntc_ema_alpha);
-  } else if(p = at_cmd_check("AT+NTC_EMA_ALPHA=", atcmdline, cmd_len)){
-    float new_ema_alpha = strtof(p, NULL);
-    if(new_ema_alpha < 0.0f || new_ema_alpha > 1.0f)
-      return AT_R("+ERROR: invalid EMA alpha value 0-1");
-    LOG("[NTC] Setting EMA alpha to %f", new_ema_alpha);
-    SENSORS::cfg.ntc_ema_alpha = new_ema_alpha;
-    CFG_SAVE();
-    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+NTC_",atcmdline, cmd_len)){
+    return atcmd_sensors_ntc(atcmdline, cmd_len);
   #endif // SUPPORT_NTC
   } else if(p = at_cmd_check("AT+SENSORS_TIMESTAMP_ADD=", atcmdline, cmd_len)){
     char *r = NULL;
