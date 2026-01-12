@@ -5036,10 +5036,12 @@ void setup_cfg() {
   }
 
   // default BLE security to usable values
+  #ifdef SUPPORT_BLE_UART
   cfg.ble_pin = BLUETOOTH_UART_DEFAULT_PIN; // Default PIN
   cfg.ble_security_mode = 0; // No security
   cfg.ble_io_cap = 3;        // NoInputNoOutput
   cfg.ble_auth_req = 0;      // No authentication
+  #endif
 
   #ifdef VERBOSE
   COMMON::_do_verbose = cfg.do_verbose;
@@ -5783,8 +5785,6 @@ int determine_led_state() {
   #ifdef SUPPORT_WIFI
   bool is_wifi_connected = (WiFi.status() == WL_CONNECTED);
   #endif // SUPPORT_WIFI
-  uint8_t is_ble_advertising = (ble_advertising_start != 0);
-  uint8_t is_ble_connected = (deviceConnected == 1);
 
   // Determine LED behavior based on priority (highest to lowest):
   if (comm_active) {
@@ -5798,16 +5798,18 @@ int determine_led_state() {
       led_brightness_off = LED_BRIGHTNESS_MEDIUM; // Return to steady connected state
     }
     #endif // SUPPORT_WIFI
-  } else if (is_ble_advertising && !is_ble_connected) {
+  #ifdef SUPPORT_BLE_UART
+  } else if ((ble_advertising_start != 0) && !(deviceConnected == 1)) {
     // BLE advertising (button pressed, waiting for connection): fast blink
     led_interval = LED_BLINK_INTERVAL_FAST;
     led_brightness_on = LED_BRIGHTNESS_HIGH;
     led_brightness_off = LED_BRIGHTNESS_LOW;
-  } else if (is_ble_connected) {
+  } else if (deviceConnected == 1) {
     // BLE device connected: slow blink until disconnected
     led_interval = LED_BLINK_INTERVAL_SLOW;
     led_brightness_on = LED_BRIGHTNESS_MEDIUM;
     led_brightness_off = LED_BRIGHTNESS_LOW;
+  #endif // SUPPORT_BLE_UART
   #ifdef WIFI_WPS
   } else if (wps_running) {
     // WPS active: slow blink
@@ -7047,8 +7049,10 @@ void do_loop_delay() {
   #endif
 
   // BLE connected or advertising, or data in inbuf?
+  #if defined(SUPPORT_BLE_UART1)
   if(deviceConnected == 1 || ble_advertising_start != 0)
     return;
+  #endif // SUPPORT_BLE_UART1
   if(inlen != 0)
     return;
 
