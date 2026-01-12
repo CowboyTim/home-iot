@@ -754,12 +754,12 @@ void init_ntc_adc(sensor_r_t *s){
 #endif // SUPPORT_NTC
 
 // MQ-135 Air Quality Sensor
-#define SENSOR_MQ135 {.name = "MQ-135 Air Quality", .key = "air_quality",}
+#define SENSOR_MQ135 {.name = "MQ-135 Air Quality", .key = "mq135_air_quality",}
 #ifdef SUPPORT_MQ135
 #define SENSOR_MQ135 \
     {\
       .name = "MQ-135 Air Quality",\
-      .key  = "air_quality",\
+      .key  = "mq135_air_quality",\
       .unit_fmt = "ppm,%.0f",\
       .init_function = init_mq135_adc,\
       .value_function = fetch_mq135_adc,\
