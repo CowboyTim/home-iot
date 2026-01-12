@@ -715,6 +715,74 @@ void init_ldr_adc(sensor_r_t *s){
   }
   LOG("[LDR] initialized on pin %d", LDRADCPIN);
 }
+
+NOINLINE
+const char *atcmd_sensors_ldr(const char *atcmdline, unsigned short cmd_len) {
+  char *p = NULL;
+  if(p = at_cmd_check("AT+LDR_VCC?", atcmdline, cmd_len)){
+    return AT_R_DOUBLE(SENSORS::cfg.ldr_vcc);
+  } else if(p = at_cmd_check("AT+LDR_VCC=", atcmdline, cmd_len)){
+    float new_vcc = strtof(p, NULL);
+    if(new_vcc < 0.0f || new_vcc > 5.0f)
+      return AT_R("+ERROR: invalid VCC value 0-5 V");
+    LOG("[LDR] Setting VCC to %f V", new_vcc);
+    SENSORS::cfg.ldr_vcc = new_vcc;
+    CFG_SAVE();
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+LDR_DIVIDER_R?", atcmdline, cmd_len)){
+    return AT_R_DOUBLE(SENSORS::cfg.ldr_divider_r);
+  } else if(p = at_cmd_check("AT+LDR_DIVIDER_R=", atcmdline, cmd_len)){
+    float new_r = strtof(p, NULL);
+    if(new_r < 0.0f)
+      return AT_R("+ERROR: invalid divider resistance value");
+    LOG("[LDR] Setting divider resistance to %f Ohm", new_r);
+    SENSORS::cfg.ldr_divider_r = new_r;
+    CFG_SAVE();
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+LDR_EMA_ALPHA?", atcmdline, cmd_len)){
+    return AT_R_DOUBLE(SENSORS::cfg.ldr_ema_alpha);
+  } else if(p = at_cmd_check("AT+LDR_EMA_ALPHA=", atcmdline, cmd_len)){
+    float new_ema_alpha = strtof(p, NULL);
+    if(new_ema_alpha < 0.0f || new_ema_alpha > 1.0f)
+      return AT_R("+ERROR: invalid EMA alpha value 0-1");
+    LOG("[LDR] Setting EMA alpha to %f", new_ema_alpha);
+    SENSORS::cfg.ldr_ema_alpha = new_ema_alpha;
+    CFG_SAVE();
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+LDR_CALIBRATE_LUX=", atcmdline, cmd_len)){
+    float known_lux = strtof(p, NULL);
+    if(known_lux <= 0.0f)
+      return AT_R("+ERROR: invalid known lux value");
+    LOG("[LDR] Calibrating LDR with known lux value %f lx", known_lux);
+    float r_ldr_r10 = calibrate_ldr_r10_gamma(known_lux);
+    if(r_ldr_r10 < 0.0f)
+      return AT_R("+ERROR: failed to calibrate LDR");
+    SENSORS::cfg.ldr_r10 = r_ldr_r10;
+    CFG_SAVE();
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+LDR_R10?", atcmdline, cmd_len)){
+    return AT_R_DOUBLE(SENSORS::cfg.ldr_r10);
+  } else if(p = at_cmd_check("AT+LDR_R10=", atcmdline, cmd_len)){
+    float new_r10 = strtof(p, NULL);
+    if(new_r10 <= 0.0f)
+      return AT_R("+ERROR: invalid R10 value");
+    LOG("[LDR] Setting R10 to %f Ohm", new_r10);
+    SENSORS::cfg.ldr_r10 = new_r10;
+    CFG_SAVE();
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+LDR_GAMMA?", atcmdline, cmd_len)){
+    return AT_R_DOUBLE(SENSORS::cfg.ldr_gamma);
+  } else if(p = at_cmd_check("AT+LDR_GAMMA=", atcmdline, cmd_len)){
+    float new_gamma = strtof(p, NULL);
+    if(new_gamma <= 0.0f)
+      return AT_R("+ERROR: invalid gamma value");
+    LOG("[LDR] Setting gamma to %f", new_gamma);
+    SENSORS::cfg.ldr_gamma = new_gamma;
+    CFG_SAVE();
+    return AT_R_OK;
+  }
+  return AT_R("+ERROR: unknown command");
+}
 #endif // SUPPORT_LDR
 
 // NTC Sensor
@@ -1761,67 +1829,8 @@ const char* at_cmd_handler_sensors(const char* atcmdline){
     return AT_R_OK;
   #endif // SUPPORT_MQ135
   #ifdef SUPPORT_LDR
-  } else if(p = at_cmd_check("AT+LDR_VCC?", atcmdline, cmd_len)){
-    return AT_R_DOUBLE(SENSORS::cfg.ldr_vcc);
-  } else if(p = at_cmd_check("AT+LDR_VCC=", atcmdline, cmd_len)){
-    float new_vcc = strtof(p, NULL);
-    if(new_vcc < 0.0f || new_vcc > 5.0f)
-      return AT_R("+ERROR: invalid VCC value 0-5 V");
-    LOG("[LDR] Setting VCC to %f V", new_vcc);
-    SENSORS::cfg.ldr_vcc = new_vcc;
-    CFG_SAVE();
-    return AT_R_OK;
-  } else if(p = at_cmd_check("AT+LDR_DIVIDER_R?", atcmdline, cmd_len)){
-    return AT_R_DOUBLE(SENSORS::cfg.ldr_divider_r);
-  } else if(p = at_cmd_check("AT+LDR_DIVIDER_R=", atcmdline, cmd_len)){
-    float new_r = strtof(p, NULL);
-    if(new_r < 0.0f)
-      return AT_R("+ERROR: invalid divider resistance value");
-    LOG("[LDR] Setting divider resistance to %f Ohm", new_r);
-    SENSORS::cfg.ldr_divider_r = new_r;
-    CFG_SAVE();
-    return AT_R_OK;
-  } else if(p = at_cmd_check("AT+LDR_EMA_ALPHA?", atcmdline, cmd_len)){
-    return AT_R_DOUBLE(SENSORS::cfg.ldr_ema_alpha);
-  } else if(p = at_cmd_check("AT+LDR_EMA_ALPHA=", atcmdline, cmd_len)){
-    float new_ema_alpha = strtof(p, NULL);
-    if(new_ema_alpha < 0.0f || new_ema_alpha > 1.0f)
-      return AT_R("+ERROR: invalid EMA alpha value 0-1");
-    LOG("[LDR] Setting EMA alpha to %f", new_ema_alpha);
-    SENSORS::cfg.ldr_ema_alpha = new_ema_alpha;
-    CFG_SAVE();
-    return AT_R_OK;
-  } else if(p = at_cmd_check("AT+LDR_CALIBRATE_LUX=", atcmdline, cmd_len)){
-    float known_lux = strtof(p, NULL);
-    if(known_lux <= 0.0f)
-      return AT_R("+ERROR: invalid known lux value");
-    LOG("[LDR] Calibrating LDR with known lux value %f lx", known_lux);
-    float r_ldr_r10 = calibrate_ldr_r10_gamma(known_lux);
-    if(r_ldr_r10 < 0.0f)
-      return AT_R("+ERROR: failed to calibrate LDR");
-    SENSORS::cfg.ldr_r10 = r_ldr_r10;
-    CFG_SAVE();
-    return AT_R_OK;
-  } else if(p = at_cmd_check("AT+LDR_R10?", atcmdline, cmd_len)){
-    return AT_R_DOUBLE(SENSORS::cfg.ldr_r10);
-  } else if(p = at_cmd_check("AT+LDR_R10=", atcmdline, cmd_len)){
-    float new_r10 = strtof(p, NULL);
-    if(new_r10 <= 0.0f)
-      return AT_R("+ERROR: invalid R10 value");
-    LOG("[LDR] Setting R10 to %f Ohm", new_r10);
-    SENSORS::cfg.ldr_r10 = new_r10;
-    CFG_SAVE();
-    return AT_R_OK;
-  } else if(p = at_cmd_check("AT+LDR_GAMMA?", atcmdline, cmd_len)){
-    return AT_R_DOUBLE(SENSORS::cfg.ldr_gamma);
-  } else if(p = at_cmd_check("AT+LDR_GAMMA=", atcmdline, cmd_len)){
-    float new_gamma = strtof(p, NULL);
-    if(new_gamma <= 0.0f)
-      return AT_R("+ERROR: invalid gamma value");
-    LOG("[LDR] Setting gamma to %f", new_gamma);
-    SENSORS::cfg.ldr_gamma = new_gamma;
-    CFG_SAVE();
-    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+LDR_",atcmdline, cmd_len)){
+    return atcmd_sensors_ldr(atcmdline, cmd_len);
   #endif // SUPPORT_LDR
   #ifdef SUPPORT_NTC
   } else if(p = at_cmd_check("AT+NTC_",atcmdline, cmd_len)){
