@@ -1474,8 +1474,8 @@ void init_apds9930(sensor_r_t *s){
       .value_function = fetch_s8_co2,\
     }
 
-#define S8_UART_RX_PIN    1  // GPIO_NUM_1/UART1 RX pin
-#define S8_UART_TX_PIN    0  // GPIO_NUM_0/UART1 TX pin
+#define S8_UART_RX_PIN    GPIO_NUM_20  // GPIO_NUM_20/UART1 RX pin
+#define S8_UART_TX_PIN    GPIO_NUM_21  // GPIO_NUM_21/UART1 TX pin
 
 uint8_t is_calibrating = 0;
 S8_UART *sensor_S8 = NULL;
