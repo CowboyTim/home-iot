@@ -473,6 +473,7 @@ char* at_cmd_check(const char *cmd, const char *at_cmd, unsigned short at_len) {
       .unit_fmt = "%%,%.0f",\
       .init_function = init_dht11,\
       .value_function = dht11_fetch_humidity,\
+      .destroy_function = destroy_dht11,\
     }
 #define SENSOR_DHT11_TEMPERATURE \
     {\
@@ -481,6 +482,7 @@ char* at_cmd_check(const char *cmd, const char *at_cmd, unsigned short at_len) {
       .unit_fmt = "°C,%.2f",\
       .init_function = init_dht11,\
       .value_function = dht11_fetch_temperature,\
+      .destroy_function = destroy_dht11,\
     }
 
 #define DODHT(s) ((DHT*)(s->userdata))
@@ -528,6 +530,14 @@ void init_dht11(sensor_r_t *s){
   s->userdata = new DHT(DHTPIN, DHT11);
   DODHT(s)->begin();
   LOG("[DHT11] initialized on pin %d", DHTPIN);
+}
+
+void destroy_dht11(sensor_r_t *s){
+  if(s->userdata != NULL){
+    delete DODHT(s);
+    s->userdata = NULL;
+    LOG("[DHT11] destroyed");
+  }
 }
 
 #endif // SUPPORT_DHT11
@@ -1868,7 +1878,17 @@ void setup(){
     if(s->cfg->v_intv < 100)
       s->cfg->v_intv = 100;
 
-    // call init function
+    // call init function?
+    if(s->cfg->enabled == 0){
+      LOG("[SENSORS] Sensor index:%d, name:%s is disabled, skipping setup", i, s->name);
+      continue;
+    }
+    if(s->cfg->init_done == 1)
+      continue;
+
+    s->cfg->init_done = 1;
+
+    // do init
     LOG("[SENSORS] Setting up sensor index:%d, name:%s", i, s->name);
     if(s->init_function != NULL){
       // call function
@@ -1988,101 +2008,119 @@ void sensors_loop(){
 
 NOINLINE
 const char* at_cmd_handler_sensor(const char *at_cmd, unsigned short at_len){
-    const char *p = NULL;
-    for (int i = 0; i < NR_OF_SENSORS; i++) {
-        sensor_r_t *s = &SENSORS::all_sensors[i];
-        if (p = at_cmd_check("AT+ENABLE_", at_cmd, at_len)) {
-            // move pointer past "AT+ENABLE_"
-            p += strlen("AT+ENABLE_");
-            // AT+ENABLE_<sensor>=<0|1> or AT+ENABLE_<sensor>?
-            // match sensor?
-            LOG("[SENSORS] at_cmd_handler_sensor: checking sensor '%s' for key '%s' to '%s'", s->name, s->key, p);
-            if(strncasecmp(s->key, p, strlen(s->key)) != 0)
-                continue; // not matching sensor key
-            if(s->value_function == NULL)
-                return AT_R("+ERROR: Sensor not supported in this build");
-            // move pointer to the = or ? part
-            p += strlen(s->key);
-            if(*p == '?') {
-                // query enable status
-                return AT_R_INT(s->cfg->enabled);
-            }
-            if(*p != '=') {
-                // error handle
-                return AT_R("+ERROR: Enable command must end with =<0|1> or ?");
-            }
-            p++; // move past '='
+  const char *p = NULL;
+  for (int i = 0; i < NR_OF_SENSORS; i++) {
+    sensor_r_t *s = &SENSORS::all_sensors[i];
+    if (p = at_cmd_check("AT+ENABLE_", at_cmd, at_len)) {
+      // move pointer past "AT+ENABLE_"
+      p += strlen("AT+ENABLE_");
+      // AT+ENABLE_<sensor>=<0|1> or AT+ENABLE_<sensor>?
+      // match sensor?
+      LOG("[SENSORS] at_cmd_handler_sensor: checking sensor '%s' for key '%s' to '%s'", s->name, s->key, p);
+      if(strncasecmp(s->key, p, strlen(s->key)) != 0)
+        continue; // not matching sensor key
+      if(s->value_function == NULL)
+        return AT_R("+ERROR: Sensor not supported in this build");
+      // move pointer to the = or ? part
+      p += strlen(s->key);
+      if(*p == '?')
+        return AT_R_INT(s->cfg->enabled);
+      if(*p != '=')
+        return AT_R("+ERROR: Enable command must end with =<0|1> or ?");
+      p++; // move past '='
 
-            int val = atoi(p);
-            if (val != 0 && val != 1) {
-                return AT_R("+ERROR: Enable must be 0 or 1");
-            }
-            s->cfg->enabled = val;
-            CFG_SAVE();
-            return AT_R_OK;
-        } else if (p = at_cmd_check("AT+LOG_INTERVAL_", at_cmd, at_len)){
-            // move pointer past "AT+LOG_INTERVAL_"
-            p += strlen("AT+LOG_INTERVAL_");
-            // AT+LOG_INTERVAL_<sensor>=<interval>
-            // match sensor?
-            if(strncasecmp(s->key, p, strlen(s->key)) != 0)
-                continue; // not matching sensor key
-            if(s->value_function == NULL)
-                return AT_R("+ERROR: Sensor not supported in this build");
-            // move pointer to the = part
-            p += strlen(s->key);
-            if(*p == '?') {
-                // query enable status
-                return AT_R_INT(s->cfg->v_intv);
-            }
-            if(*p != '=') {
-                // error handle
-                return AT_R("+ERROR: Log interval command must end with =<interval>");
-            }
-            p++; // move past '='
+      int val = atoi(p);
+      if (val != 0 && val != 1)
+        return AT_R("+ERROR: Enable must be 0 or 1");
 
-            unsigned long new_interval = strtoul(p, NULL, 10);
-            if(new_interval < 100){
-              return AT_R("+ERROR: Log interval must be at least 100ms");
-            }
-            s->cfg->v_intv = new_interval;
-            CFG_SAVE();
-            return AT_R_OK;
-        } else if (p = at_cmd_check("AT+VALUE_", at_cmd, at_len)){
-            // move pointer past "AT+VALUE_"
-            p += strlen("AT+VALUE_");
-            // AT+VALUE_<sensor>?
-            // match sensor?
-            if(strncasecmp(s->key, p, strlen(s->key)) != 0)
-                continue; // not matching sensor key
-            if(s->value_function == NULL)
-                return AT_R("+ERROR: Sensor not supported in this build");
-            // move pointer to the ? part
-            p += strlen(s->key);
-            if(*p != '?') {
-                // error handle
-                return AT_R("+ERROR: Value command must end with ?");
-            }
-            // Call pre function if available
-            if(s->pre_function != NULL)
-                s->pre_function(s);
-            // fetch current sensor value
-            float current_v = 0.0f;
-            int8_t ok = s->value_function(s, &current_v);
-            if(ok < 0)
-              return AT_R("+ERROR: failed to fetch sensor value");
-            // Validate the value - reject NaN and infinity
-            if(isnan(current_v) || isinf(current_v))
-              return AT_R("+ERROR: invalid sensor value (NaN or infinity)");
-            // Call post function if available
-            if(s->post_function != NULL)
-                s->post_function(s);
-            return AT_R_DOUBLE(current_v);
-        } else {
-            continue; // continue to next sensor
+      // set enable/disable
+      s->cfg->enabled = val;
+
+      // init/destroy
+      if(s->cfg->enabled == 1){
+        if(s->cfg->init_done == 0){
+          s->cfg->init_done = 1;
+          // do init
+          LOG("[SENSORS] Setting up sensor index:%d, name:%s", i, s->name);
+          if(s->init_function != NULL){
+            // call function
+            s->init_function(s);
+          } else {
+            LOG("[SENSORS] Sensor index:%d, name:%s has no init function", i, s->name);
+          }
         }
+      } else {
+        s->cfg->init_done = 0;
+        if(s->destroy_function != NULL){
+          // call destroy function
+          s->destroy_function(s);
+        } else {
+          LOG("[SENSORS] Sensor index:%d, name:%s has no destroy function", i, s->name);
+        }
+        LOG("[SENSORS] Sensor index:%d, name:%s disabled", i, s->name);
+      }
+      CFG_SAVE();
+      return AT_R_OK;
+    } else if (p = at_cmd_check("AT+LOG_INTERVAL_", at_cmd, at_len)){
+      // move pointer past "AT+LOG_INTERVAL_"
+      p += strlen("AT+LOG_INTERVAL_");
+      // AT+LOG_INTERVAL_<sensor>=<interval>
+      // match sensor?
+      if(strncasecmp(s->key, p, strlen(s->key)) != 0)
+        continue; // not matching sensor key
+      if(s->value_function == NULL)
+        return AT_R("+ERROR: Sensor not supported in this build");
+      // move pointer to the = part
+      p += strlen(s->key);
+      if(*p == '?')
+        return AT_R_INT(s->cfg->v_intv);
+      
+      if(*p != '=') {
+          // error handle
+          return AT_R("+ERROR: Log interval command must end with =<interval>");
+      }
+      p++; // move past '='
+
+      unsigned long new_interval = strtoul(p, NULL, 10);
+      if(new_interval < 100){
+        return AT_R("+ERROR: Log interval must be at least 100ms");
+      }
+      s->cfg->v_intv = new_interval;
+      CFG_SAVE();
+      return AT_R_OK;
+    } else if (p = at_cmd_check("AT+VALUE_", at_cmd, at_len)){
+      // move pointer past "AT+VALUE_"
+      p += strlen("AT+VALUE_");
+      // AT+VALUE_<sensor>?
+      // match sensor?
+      if(strncasecmp(s->key, p, strlen(s->key)) != 0)
+        continue; // not matching sensor key
+      if(s->value_function == NULL)
+        return AT_R("+ERROR: Sensor not supported in this build");
+      // move pointer to the ? part
+      p += strlen(s->key);
+      if(*p != '?')
+        return AT_R("+ERROR: Value command must end with ?");
+      // Call pre function if available
+      if(s->pre_function != NULL)
+        s->pre_function(s);
+      // fetch current sensor value
+      float current_v = 0.0f;
+      int8_t ok = s->value_function(s, &current_v);
+      if(ok < 0)
+        return AT_R("+ERROR: failed to fetch sensor value");
+      // Validate the value - reject NaN and infinity
+      if(isnan(current_v) || isinf(current_v))
+        return AT_R("+ERROR: invalid sensor value (NaN or infinity)");
+      // Call post function if available
+      if(s->post_function != NULL)
+        s->post_function(s);
+      return AT_R_DOUBLE(current_v);
+    } else {
+      continue; // continue to next sensor
     }
-    return AT_R("+ERROR: unknown sensor command");
+  }
+  return AT_R("+ERROR: unknown sensor command");
 }
 
 NOINLINE
