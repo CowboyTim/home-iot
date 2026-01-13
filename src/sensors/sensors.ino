@@ -1474,6 +1474,9 @@ void init_apds9930(sensor_r_t *s){
       .value_function = fetch_s8_co2,\
     }
 
+#define S8_UART_RX_PIN    1  // GPIO_NUM_1/UART1 RX pin
+#define S8_UART_TX_PIN    0  // GPIO_NUM_0/UART1 TX pin
+
 uint8_t is_calibrating = 0;
 S8_UART *sensor_S8 = NULL;
 S8_sensor sensor;
@@ -1481,7 +1484,7 @@ S8_sensor sensor;
 NOINLINE
 void init_s8(sensor_r_t *s) {
   LOG("[S8] Initializing SenseAir S8 NDIR CO2 sensor");
-  UART1.begin(S8_BAUDRATE, SERIAL_8N1, 1, 0);
+  UART1.begin(S8_BAUDRATE, SERIAL_8N1, S8_UART_RX_PIN, S8_UART_TX_PIN);
   sensor_S8 = new S8_UART(UART1);
 
   // Check if S8 is available
@@ -1575,7 +1578,7 @@ int8_t fetch_s8_co2(sensor_r_t *s, float *co2){
 }
 
 NOINLINE
-char * calibrate_s8(){
+const char * calibrate_s8(){
   if(sensor_S8 == NULL) {
     LOG("[S8] sensor not initialized");
     return AT_R("+ERROR: sensor not initialized");
