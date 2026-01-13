@@ -42,3 +42,7 @@ For e.g. the DUCO S8 SE95, you can use the following command to set up the devic
 bash setup_s8_se95_duco.sh /dev/ttyACM0 <SSID> <PASS> <dest IP> <dest PORT> <some KEY name, e.g.: homeoffice>
 ```
 
+## Config over with AT Commands
+```
+picocom /dev/ttyACM0 --imap lfcrlf  --echo --omap crcrlf
+
