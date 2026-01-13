@@ -1059,6 +1059,7 @@ typedef struct mq135_cfg_t {
   float a             = 110.47f;
   float b             = -2.862f;
   float vcc           = 5.0f;
+  float ema_alpha     = 0.2f;     // Smoothing factor (0.1 to 0.3 is typical)
 } mq135_cfg_t;
 ALIGN(4) mq135_cfg_t mq135_cfg = {
   .r0                 = 0.0f,    // default R0 for MQ-135
@@ -1067,6 +1068,7 @@ ALIGN(4) mq135_cfg_t mq135_cfg = {
   .a                  = 110.47f, // default curve coefficient a (default for CO2)
   .b                  = -2.862f, // default curve coefficient b (default for CO2)
   .vcc                = 5.0f,    // default VCC voltage
+  .ema_alpha          = 0.2f,
 };
 
 RTC_DATA_ATTR unsigned long mq135_startup_time = 0;
@@ -1150,7 +1152,18 @@ int8_t fetch_mq135_adc(sensor_r_t *s, float *ppm){
   // convert to PPM using MQ-135 formula R0/RL and curve
   float R0 = MQ135_CFG(r0);
   float RL = MQ135_CFG(rl);
-  *ppm = mq135_adc_to_ppm(R0, RL, avg_adc);
+  float raw_ppm = mq135_adc_to_ppm(R0, RL, avg_adc);
+
+  // simple low-pass filter to smooth the ppm readings using exponential moving average (EMA)
+  static float filtered_ppm = -1.0f; 
+  if (filtered_ppm < 0.0f) {
+    filtered_ppm = raw_ppm; // Initial reading
+  } else {
+    filtered_ppm = (MQ135_CFG(ema_alpha) * raw_ppm) + (1.0f - MQ135_CFG(ema_alpha)) * filtered_ppm;
+  }
+
+  // Return the filtered temperature
+  *ppm = filtered_ppm;
   return 1;
 }
 
@@ -1248,6 +1261,16 @@ const char *atcmd_sensors_mq135(const char *atcmdline, size_t cmd_len){
       return AT_R("+ERROR: invalid VCC voltage value 3.0-5.5V");
     LOG("[MQ-135] Setting VCC to %f V", new_vcc);
     MQ135_CFG(vcc) = new_vcc;
+    MQ135_SAVE();
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+MQ135_EMA_ALPHA?", atcmdline, cmd_len)){
+    return AT_R_DOUBLE(MQ135_CFG(ema_alpha));
+  } else if(p = at_cmd_check("AT+MQ135_EMA_ALPHA=", atcmdline, cmd_len)){
+    float new_ema_alpha = strtof(p, NULL);
+    if(new_ema_alpha < 0.0f || new_ema_alpha > 1.0f)
+      return AT_R("+ERROR: invalid EMA alpha value 0-1");
+    LOG("[MQ-135] Setting EMA alpha to %f", new_ema_alpha);
+    MQ135_CFG(ema_alpha) = new_ema_alpha;
     MQ135_SAVE();
     return AT_R_OK;
   }
