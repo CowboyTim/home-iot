@@ -100,7 +100,7 @@ extern size_t inlen;
 namespace SENSORS {
 
 typedef struct sensor_c_t {
-  unsigned long v_intv = 1000;
+  unsigned long v_intv = 0;
   uint8_t enabled = 0;
   uint8_t init_done = 0;
 } sensor_c_t;

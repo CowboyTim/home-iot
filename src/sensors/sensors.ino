@@ -1872,12 +1872,6 @@ void setup(){
     // at runtime, link cfg to sensor
     s->cfg = &SENSORS::cfg.sensor_cfg[i];
 
-    // set default interval if 0 or too low
-    if(s->cfg->v_intv == 0)
-      s->cfg->v_intv = 1000;
-    if(s->cfg->v_intv < 100)
-      s->cfg->v_intv = 100;
-
     // call init function?
     if(s->cfg->enabled == 0){
       LOG("[SENSORS] Sensor index:%d, name:%s is disabled, skipping setup", i, s->name);
@@ -1922,7 +1916,7 @@ void sensors_loop(){
     doYIELD;
     if(s->value_function == NULL)
       continue;
-    if(millis() - l_intv_counters[i] <= s->cfg->v_intv)
+    if(s->cfg->v_intv != 0 && (millis() - l_intv_counters[i]) <= s->cfg->v_intv)
       continue;
 
     // update last interval counter
@@ -2082,9 +2076,6 @@ const char* at_cmd_handler_sensor(const char *at_cmd, unsigned short at_len){
       p++; // move past '='
 
       unsigned long new_interval = strtoul(p, NULL, 10);
-      if(new_interval < 100){
-        return AT_R("+ERROR: Log interval must be at least 100ms");
-      }
       s->cfg->v_intv = new_interval;
       CFG_SAVE();
       return AT_R_OK;
@@ -2208,10 +2199,10 @@ long max_sleep_time(){
     D("[SENSORS] Sensor %s enabled: %d, interval: %lu ms, last run: %lu ms", s->key, s->cfg->enabled, s->cfg->v_intv, l_intv_counters[i]);
     if(s->cfg->enabled == 0)
       continue;
-    if(s->cfg->v_intv == 0)
-      continue;
     if(s->value_function == NULL)
       continue;
+    if(s->cfg->v_intv == 0)
+      return 0;
     if(l_intv_counters[i] == 0){
       if(s->cfg->v_intv < min_time)
         min_time = s->cfg->v_intv;
