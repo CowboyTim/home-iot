@@ -103,7 +103,6 @@ namespace SENSORS {
 typedef struct sensor_c_t {
   unsigned long v_intv = 0;
   uint8_t enabled = 0;
-  uint8_t init_done = 0;
 } sensor_c_t;
 
 /* sensors/plugin config */
@@ -127,10 +126,11 @@ typedef struct sensor_r_t {
   int8_t (*value_function)(sensor_r_t*, float*);
   void   (*post_function)(sensor_r_t*);
   void   (*destroy_function)(sensor_r_t*);
+  uint8_t init_done = 0;
 } sensor_r_t;
 
 /* all sensors runtime */
-extern sensor_r_t all_sensors[NR_OF_SENSORS];
+extern sensor_r_t all_sensors[];
 
 } // namespace SENSORS
 #endif // _SENSORS_H

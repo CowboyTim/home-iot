@@ -1867,7 +1867,7 @@ int8_t fetch_max30105_value(sensor_r_t *s, float *value){
 }
 #endif // SUPPORT_MAX30105
 
-sensor_r_t all_sensors[NR_OF_SENSORS] = {
+sensor_r_t all_sensors[] = {
     SENSOR_DHT11_HUMIDITY,
     SENSOR_DHT11_TEMPERATURE,
     SENSOR_BME280_HUMIDITY,
@@ -1915,10 +1915,10 @@ void setup(){
       LOG("[SENSORS] Sensor index:%d, name:%s is disabled, skipping setup", i, s->name);
       continue;
     }
-    if(s->cfg->init_done == 1)
+    if(s->init_done == 1)
       continue;
 
-    s->cfg->init_done = 1;
+    s->init_done = 1;
 
     // do init
     LOG("[SENSORS] Setting up sensor index:%d, name:%s", i, s->name);
@@ -2070,8 +2070,8 @@ const char* at_cmd_handler_sensor(const char *at_cmd, unsigned short at_len){
 
       // init/destroy
       if(s->cfg->enabled == 1){
-        if(s->cfg->init_done == 0){
-          s->cfg->init_done = 1;
+        if(s->init_done == 0){
+          s->init_done = 1;
           // do init
           LOG("[SENSORS] Setting up sensor index:%d, name:%s", i, s->name);
           if(s->init_function != NULL){
@@ -2082,7 +2082,7 @@ const char* at_cmd_handler_sensor(const char *at_cmd, unsigned short at_len){
           }
         }
       } else {
-        s->cfg->init_done = 0;
+        s->init_done = 0;
         if(s->destroy_function != NULL){
           // call destroy function
           s->destroy_function(s);
