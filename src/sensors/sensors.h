@@ -79,7 +79,7 @@
 #define SUPPORT_MDNS
 #endif
 
-#define NR_OF_SENSORS 16
+#define NR_OF_SENSORS 15
 
 // implement PLUGINS namespace functions
 namespace PLUGINS {
