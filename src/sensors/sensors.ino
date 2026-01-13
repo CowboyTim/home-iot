@@ -1830,6 +1830,43 @@ int8_t fetch_ds18b20_temperature(sensor_r_t *s, float *temperature){
 }
 #endif // SUPPORT_DS18B20
 
+// MAX30105 High-Sensitivity Particle Sensor for Smoke
+#define SENSOR_MAX30105_PARTICLE_SENSOR {.name = "MAX30105 Particle Sensor", .key = "max30105_particle_sensor",}
+#ifdef SUPPORT_MAX30105
+#define SENSOR_MAX30105_PARTICLE_SENSOR \
+    {\
+      .name = "MAX30105 Particle Sensor",\
+      .key  = "max30105_particle_sensor",\
+      .unit_fmt = "ppm,%.5f",\
+      .init_function = init_max30105,\
+      .value_function = fetch_max30105_value,\
+    }
+
+#define MAX30105_I2C_ADDRESS      0x57  // default I2C address for MAX30105
+
+void init_max30105(sensor_r_t *s) {
+  if(i2c_ping(MAX30105_I2C_ADDRESS) == -1){
+    s->cfg->enabled = 0 ; // Disable in config
+    LOG("[MAX30105] sensor not found");
+    return;
+  }
+  LOG("[MAX30105] initialized on I2C address 0x%02X", MAX30105_I2C_ADDRESS);
+  return;
+}
+
+int8_t fetch_max30105_value(sensor_r_t *s, float *value){
+  if(value == NULL)
+    return -1;
+
+  // TODO: Replace with actual sensor reading
+  float sensor_value = 0.0f;
+
+  D("[MAX30105] value: %.5f", sensor_value);
+  *value = sensor_value;
+  return 1;
+}
+#endif // SUPPORT_MAX30105
+
 sensor_r_t all_sensors[NR_OF_SENSORS] = {
     SENSOR_DHT11_HUMIDITY,
     SENSOR_DHT11_TEMPERATURE,
@@ -1845,6 +1882,7 @@ sensor_r_t all_sensors[NR_OF_SENSORS] = {
     SENSOR_SE95_TEMPERATURE,
     SENSOR_BH1750_ILLUMINANCE,
     SENSOR_DS18B20_TEMPERATURE,
+    SENSOR_MAX30105_PARTICLE_SENSOR,
 };
 
 NOINLINE

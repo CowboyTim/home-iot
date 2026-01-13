@@ -47,6 +47,7 @@
 #define SUPPORT_BME280
 #define SUPPORT_BH1750
 #define SUPPORT_DS18B20
+#define SUPPORT_MAX30105
 #define SUPPORT_NTC
 #define SUPPORT_WIFI
 #define SUPPORT_ESP_LOG_INFO
@@ -78,7 +79,7 @@
 #define SUPPORT_MDNS
 #endif
 
-#define NR_OF_SENSORS 15
+#define NR_OF_SENSORS 16
 
 // implement PLUGINS namespace functions
 namespace PLUGINS {
