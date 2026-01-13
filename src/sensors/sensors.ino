@@ -1040,33 +1040,39 @@ const char *atcmd_sensors_ntc(const char *atcmdline, size_t cmd_len){
     }
 
 #define MQ135PIN           A2  // GPIO_NUM_2/A2 pin for MQ-135
-#define MQ135_VCC         5.0f // Sensor powered by 5V (from USB)
 #define MQ135_AVG_NR        50 // number of samples to average from ADC, higher = more stable, don't go too high or uint32_t overflow
 
-// For CO2: a = 110.47, b = -2.862 (from datasheet)
-#define MQ135_CO2_A    110.47f // MQ-135 CO2 curve a
-#define MQ135_CO2_B    -2.862f // MQ-135 CO2 curve b
-
 #define MQ135_WARMUP_TIME    30000  // MQ-135 warm-up time in ms
-#define ATMOSPHERIC_CO2_PPM  428.54f // atmospheric CO2 ppm for calibration
 
 #define MQ135_KEY      "mq135"
 #define MQ135_CFG(k)   SENSORS::mq135_cfg.k
 #define MQ135_SAVE()   CFG_SAVE_NS(MQ135_KEY, (void *)&SENSORS::mq135_cfg, sizeof(SENSORS::mq135_cfg));
 
+#ifdef SUPPORT_S8
+extern int8_t fetch_s8_co2(sensor_r_t *s, float *co2_ppm);
+#endif
+
 typedef struct mq135_cfg_t {
-  float r0      = 0.0f;
-  float rl      = 0.0f;
+  float r0            = 0.0f;
+  float rl            = 0.0f;
+  float reference_ppm = 428.54f;
+  float a             = 110.47f;
+  float b             = -2.862f;
+  float vcc           = 5.0f;
 } mq135_cfg_t;
 ALIGN(4) mq135_cfg_t mq135_cfg = {
-  .r0   = 0.0f, // default R0 for MQ-135
-  .rl   = 0.0f, // default RL for MQ-135
+  .r0                 = 0.0f,    // default R0 for MQ-135
+  .rl                 = 0.0f,    // default RL for MQ-135
+  .reference_ppm      = 428.54f, // default ppm for calibration
+  .a                  = 110.47f, // default curve coefficient a (default for CO2)
+  .b                  = -2.862f, // default curve coefficient b (default for CO2)
+  .vcc                = 5.0f,    // default VCC voltage
 };
 
 RTC_DATA_ATTR unsigned long mq135_startup_time = 0;
 
 float mq135_adc_to_ppm(float mq135_r0, float mq135_rl, float adc_value) {
-  float RS = ((MQ135_VCC - adc_value) / adc_value ) * mq135_rl; // in kOhm
+  float RS = ((MQ135_CFG(vcc) - adc_value) / adc_value ) * mq135_rl; // in kOhm
 
   #if defined(SUPPORT_DHT11) && defined(SUPPORT_DS18B20)
   // apply a correction based on temperature and humidity if available
@@ -1081,13 +1087,20 @@ float mq135_adc_to_ppm(float mq135_r0, float mq135_rl, float adc_value) {
   #endif // SUPPORT_DHT11
 
   float RATIO = RS / mq135_r0;
-  float ppm = MQ135_CO2_A * pow(RATIO, MQ135_CO2_B);
-  D("[MQ-135] CO2 PPM: %f, Value: %f V, R0: %f kOhm, RL: %f kOhm, RS: %f kOhm, R: %f", ppm, adc_value, mq135_r0, mq135_rl, RS, RATIO);
+  float ppm = MQ135_CFG(a) * pow(RATIO, MQ135_CFG(b));
+  D("[MQ-135] PPM: %f, Value: %f V, R0: %f kOhm, RL: %f kOhm, RS: %f kOhm, R: %f", ppm, adc_value, mq135_r0, mq135_rl, RS, RATIO);
   return ppm;
 }
 
-float calibrate_mq135_r0(float mq135_rl, float adc_value) {
-  float RS = ((MQ135_VCC - adc_value) / adc_value ) * mq135_rl; // in kOhm
+NOINLINE
+void calibrate_mq135_r0() {
+  // fetch average value
+  float adc_value = get_adc_average(MQ135_AVG_NR, MQ135PIN);
+  LOG("[MQ-135] Calibration value: %f V", adc_value);
+
+  // Voltage divider, in kOhm
+  float RS = ((MQ135_CFG(vcc) - adc_value) / adc_value ) * MQ135_CFG(rl);
+
   #if defined(SUPPORT_DHT11) && defined(SUPPORT_DS18B20)
   // apply a correction based on temperature and humidity if available
   if(last_read_time != 0 && millis() - last_read_time < 60000){ // valid DHT11 reading within last 60s
@@ -1099,9 +1112,27 @@ float calibrate_mq135_r0(float mq135_rl, float adc_value) {
     RS /= cf;
   }
   #endif // SUPPORT_DHT11
-  float R0 = RS / pow((ATMOSPHERIC_CO2_PPM / MQ135_CO2_A), (1.0f / MQ135_CO2_B));
-  LOG("[MQ-135] Calibration value: Voltage: %f V, RL: %f kOhm, RS: %f kOhm, R0: %f kOhm", adc_value, mq135_rl, RS, R0);
-  return R0;
+
+  float reference_ppm = MQ135_CFG(reference_ppm);
+  if(reference_ppm <= 0.0f){
+    LOG("[MQ-135] invalid ppm value: %f", reference_ppm);
+    return;
+  }
+
+  // If we have an S8 SensAir, use that value as reference
+  #ifdef SUPPORT_S8
+  float s8_co2_ppm = 0.0f;
+  int8_t ok = fetch_s8_co2(NULL, &s8_co2_ppm);
+  if(ok == 1){
+    LOG("[MQ-135] Using S8 SensAir CO2 ppm value %f as reference for calibration", s8_co2_ppm);
+    reference_ppm = s8_co2_ppm;
+  }
+  #endif
+
+  float R0 = RS / pow((reference_ppm / MQ135_CFG(a)), (1.0f / MQ135_CFG(b)));
+  LOG("[MQ-135] Calibration value: Voltage: %f V, RL: %f kOhm, RS: %f kOhm, R0: %f kOhm", adc_value, MQ135_CFG(rl), RS, R0);
+  MQ135_CFG(r0) = R0;
+  return;
 }
 
 int8_t fetch_mq135_adc(sensor_r_t *s, float *ppm){
@@ -1149,7 +1180,7 @@ const char *atcmd_sensors_mq135(const char *atcmdline, size_t cmd_len){
   char *p = NULL;
   if(p = at_cmd_check("AT+MQ135_R0?", atcmdline, cmd_len)){
     return AT_R_DOUBLE(MQ135_CFG(r0));
-  } else if(p = at_cmd_check("AT+MQ135_CALIBRATE_CO2", atcmdline, cmd_len)){
+  } else if(p = at_cmd_check("AT+MQ135_CALIBRATE", atcmdline, cmd_len)){
     if(MQ135_CFG(rl) <= 0.0f)
       return AT_R("+ERROR: invalid MQ135 RL value, set RL first");
     if(millis() - mq135_startup_time < MQ135_WARMUP_TIME){
@@ -1158,10 +1189,7 @@ const char *atcmd_sensors_mq135(const char *atcmdline, size_t cmd_len){
       snprintf(ttl_msg, sizeof(ttl_msg), "+ERROR: MQ135 sensor warming up, not ready yet, ttl: %lu ms", ttl_ms);
       return AT_R_S(String(ttl_msg));
     }
-    // fetch average value
-    float avg_adc = get_adc_average(MQ135_AVG_NR, MQ135PIN);
-    LOG("[MQ-135] Calibration value: %f V", avg_adc);
-    MQ135_CFG(r0) = calibrate_mq135_r0(MQ135_CFG(rl), avg_adc);
+    calibrate_mq135_r0();
     MQ135_SAVE();
     return AT_R_DOUBLE(MQ135_CFG(r0));
   } else if(p = at_cmd_check("AT+MQ135_R0=", atcmdline, cmd_len)){
@@ -1180,6 +1208,46 @@ const char *atcmd_sensors_mq135(const char *atcmdline, size_t cmd_len){
       return AT_R("+ERROR: invalid RL value 0.001-10000 kOhm");
     LOG("[MQ-135] Setting RL to %f kOhm", new_rl);
     MQ135_CFG(rl) = new_rl;
+    MQ135_SAVE();
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+MQ135_REFERENCE_PPM?", atcmdline, cmd_len)){
+    return AT_R_DOUBLE(MQ135_CFG(reference_ppm));
+  } else if(p = at_cmd_check("AT+MQ135_REFERENCE_PPM=", atcmdline, cmd_len)){
+    float new_ppm = strtof(p, NULL);
+    if(new_ppm < 0.0f || new_ppm > 100000.0f)
+      return AT_R("+ERROR: invalid PPM value 0-100000 ppm");
+    LOG("[MQ-135] Setting PPM to %f ppm", new_ppm);
+    MQ135_CFG(reference_ppm) = new_ppm;
+    MQ135_SAVE();
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+MQ135_A?", atcmdline, cmd_len)){
+    return AT_R_DOUBLE(MQ135_CFG(a));
+  } else if(p = at_cmd_check("AT+MQ135_A=", atcmdline, cmd_len)){
+    float new_a = strtof(p, NULL);
+    if(new_a < 0.001f || new_a > 10000.0f)
+      return AT_R("+ERROR: invalid A coefficient value 0.001-10000");
+    LOG("[MQ-135] Setting A coefficient to %f", new_a);
+    MQ135_CFG(a) = new_a;
+    MQ135_SAVE();
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+MQ135_B?", atcmdline, cmd_len)){
+    return AT_R_DOUBLE(MQ135_CFG(b));
+  } else if(p = at_cmd_check("AT+MQ135_B=", atcmdline, cmd_len)){
+    float new_b = strtof(p, NULL);
+    if(new_b < -10.0f || new_b > 10.0f)
+      return AT_R("+ERROR: invalid B coefficient value -10 to 10");
+    LOG("[MQ-135] Setting B coefficient to %f", new_b);
+    MQ135_CFG(b) = new_b;
+    MQ135_SAVE();
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+MQ135_VCC?", atcmdline, cmd_len)){
+    return AT_R_DOUBLE(MQ135_CFG(vcc));
+  } else if(p = at_cmd_check("AT+MQ135_VCC=", atcmdline, cmd_len)){
+    float new_vcc = strtof(p, NULL);
+    if(new_vcc < 3.0f || new_vcc > 5.5f)
+      return AT_R("+ERROR: invalid VCC voltage value 3.0-5.5V");
+    LOG("[MQ-135] Setting VCC to %f V", new_vcc);
+    MQ135_CFG(vcc) = new_vcc;
     MQ135_SAVE();
     return AT_R_OK;
   }
@@ -2149,7 +2217,15 @@ Sensor Commands:
   AT+MQ135_R0?                  - Get MQ-135 R0 resistance value
   AT+MQ135_RL=<value>           - Set MQ-135 RL load resistance value (1-1000 kOhms)
   AT+MQ135_RL?                  - Get MQ-135 RL load resistance value
-  AT+MQ135_CALIBRATE_CO2        - Calibrate MQ-135 R0 for current atmospheric CO2
+  AT+MQ135_CALIBRATE            - Calibrate MQ-135 R0 for current PPM
+  AT+MQ135_REFERENCE_PPM=<value> - Set PPM for calibration (0-100000 ppm, default 428.54 for CO2)
+  AT+MQ135_REFERENCE_PPM?       - Get PPM value
+  AT+MQ135_A=<value>            - Set gas curve coefficient A (0.001-10000, default 110.47 for CO2)
+  AT+MQ135_A?                   - Get gas curve coefficient A
+  AT+MQ135_B=<value>            - Set gas curve coefficient B (-10 to 10, default -2.862 for CO2)
+  AT+MQ135_B?                   - Get gas curve coefficient B
+  AT+MQ135_VCC=<value>          - Set MQ-135 VCC voltage (3.0-5.5V, default 5.0)
+  AT+MQ135_VCC?                 - Get MQ-135 VCC voltage
 )EOF"
 #endif // SUPPORT_MQ135
 
@@ -2223,7 +2299,7 @@ Available sensors:
 
 #ifdef SUPPORT_MQ135
         R"EOF(
-  - AIR_QUALITY                 - MQ-135 air quality/CO2 sensor
+  - AIR_QUALITY                 - MQ-135 air quality sensor
 )EOF"
 #endif // SUPPORT_MQ135
 
