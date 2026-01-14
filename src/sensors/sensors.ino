@@ -1499,6 +1499,17 @@ void init_apds9930(sensor_r_t *s){
 #define S8_UART_RX_PIN    GPIO_NUM_20  // GPIO_NUM_20/UART1 RX pin
 #define S8_UART_TX_PIN    GPIO_NUM_21  // GPIO_NUM_21/UART1 TX pin
 
+#define S8_KEY       "s8"
+#define S8_CFG(k)    SENSORS::s8_cfg.k
+#define S8_SAVE()    CFG_SAVE_NS(S8_KEY, (void *)&SENSORS::s8_cfg, sizeof(SENSORS::s8_cfg));
+
+typedef struct s8_cfg_t {
+  uint16_t abc_period = 180;  // ABC period in hours (0 = disabled, default 180 hours/7.5 days)
+} s8_cfg_t;
+ALIGN(4) s8_cfg_t s8_cfg = {
+  .abc_period = 180,
+};
+
 uint8_t is_calibrating = 0;
 S8_UART *sensor_S8 = NULL;
 S8_sensor sensor;
@@ -1506,6 +1517,9 @@ S8_sensor sensor;
 NOINLINE
 void init_s8(sensor_r_t *s) {
   LOG("[S8] Initializing SenseAir S8 NDIR CO2 sensor");
+  // Load S8 config
+  CFG_LOAD(S8_KEY, (void *)&s8_cfg, sizeof(s8_cfg));
+
   UART1.begin(S8_BAUDRATE, SERIAL_8N1, S8_UART_RX_PIN, S8_UART_TX_PIN);
   sensor_S8 = new S8_UART(UART1);
 
@@ -1535,24 +1549,15 @@ void init_s8(sensor_r_t *s) {
   } else {
     LOG("[S8] ABC (automatic calibration) is disabled");
   }
-  LOG("[S8] Setting ABC to 0 and wait 100ms");
-  sensor.abc_period = sensor_S8->set_ABC_period(0);
+  // Set ABC period from config
+  LOG("[S8] Setting ABC to configured value: %d hours", S8_CFG(abc_period));
+  sensor.abc_period = sensor_S8->set_ABC_period(S8_CFG(abc_period));
   delay(100);
   sensor.abc_period = sensor_S8->get_ABC_period();
   if(sensor.abc_period > 0){
     LOG("[S8] ABC (automatic background calibration) period: %d hours", sensor.abc_period);
   } else {
-    LOG("[S8] ABC (automatic calibration) is disabled (0s)");
-  }
-
-  LOG("[S8] Setting ABC to 180 hours and wait 100ms");
-  sensor.abc_period = sensor_S8->set_ABC_period(180);
-  delay(100);
-  sensor.abc_period = sensor_S8->get_ABC_period();
-  if(sensor.abc_period > 0){
-    LOG("[S8] ABC (automatic background calibration) period: %d hours", sensor.abc_period);
-  } else {
-    LOG("[S8] ABC (automatic calibration) is disabled (0s)");
+    LOG("[S8] ABC (automatic calibration) is disabled");
   }
 
   // Check the health of the sensor
@@ -1637,6 +1642,23 @@ const char *atcmd_sensors_s8(const char *atcmdline, size_t cmd_len){
   char *p = NULL;
   if(p = at_cmd_check("AT+S8_CALIBRATE_ZERO", atcmdline, cmd_len)){
     return calibrate_s8();
+  } else if(p = at_cmd_check("AT+S8_ABC_PERIOD?", atcmdline, cmd_len)){
+    return AT_R_INT(S8_CFG(abc_period));
+  } else if(p = at_cmd_check("AT+S8_ABC_PERIOD=", atcmdline, cmd_len)){
+    int new_period = atoi(p);
+    if(new_period < 0 || new_period > 65535)
+      return AT_R("+ERROR: invalid ABC period (0-65535 hours, 0=disabled)");
+    LOG("[S8] Setting ABC period to %d hours", new_period);
+    S8_CFG(abc_period) = new_period;
+    S8_SAVE();
+    // Apply the new ABC period to the sensor if initialized
+    if(sensor_S8 != NULL){
+      sensor.abc_period = sensor_S8->set_ABC_period(new_period);
+      delay(100);
+      sensor.abc_period = sensor_S8->get_ABC_period();
+      LOG("[S8] ABC period confirmed: %d hours", sensor.abc_period);
+    }
+    return AT_R_OK;
   }
   return AT_R("+ERROR: unknown command");
 }
@@ -2663,6 +2685,8 @@ R"EOF(
 #ifdef SUPPORT_S8
 R"EOF(
   AT+S8_CALIBRATE_ZERO          - Calibrate SenseAir S8 zero point
+  AT+S8_ABC_PERIOD=<hours>      - Set S8 ABC period (0=disabled, default 180)
+  AT+S8_ABC_PERIOD?             - Get S8 ABC period in hours
 )EOF"
 #endif // SUPPORT_S8
 
