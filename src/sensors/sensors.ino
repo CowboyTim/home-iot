@@ -1914,6 +1914,8 @@ int8_t fetch_ds18b20_temperature(sensor_r_t *s, float *temperature){
 
 // Store LED current and signal EMA in RTC memory to persist across deep sleep
 RTC_DATA_ATTR uint8_t max30105_led_current = 0x3F;    // Start at mid-range
+RTC_DATA_ATTR float max30105_spo2_ema = 95.0f;        // EMA for SPO2 smoothing
+RTC_DATA_ATTR uint8_t max30105_reading_count = 0;     // Count of valid readings for initialization
 
 void init_max30105(sensor_r_t *s) {
   if(i2c_ping(MAX30105_I2C_ADDRESS) == -1){
@@ -2102,24 +2104,38 @@ int8_t fetch_max30105_value(sensor_r_t *s, float *value){
   // Empirical SPO2 formula for MAX30105
   // In pulse oximetry: Lower ratio = Higher SPO2 (more oxygenated blood)
   // Use quadratic for better calibration
-  float spo2 = 120.0f - 50.0f * ratio + 10.0f * ratio * ratio;
+  float spo2_raw = 120.0f - 50.0f * ratio + 10.0f * ratio * ratio;
 
-  // Implement Exponential Moving Average (EMA) smoothing
-  ALIGN(4) static float ema_spo2 = -1.0f;
-  if(ema_spo2 < 0.0f){
-    ema_spo2 = spo2; // initialize EMA with first value
+  // Clamp raw SPO2 to reasonable physiological range before smoothing
+  if(spo2_raw > 100.0f) spo2_raw = 100.0f;
+  if(spo2_raw < 70.0f){
+    D("[MAX30105] raw SPO2 too low (%.1f%%), likely poor reading", spo2_raw);
+    // Still continue - might be transient dip during heartbeat
+  }
+
+  // Implement Exponential Moving Average (EMA) smoothing using RTC memory
+  // First few readings: use larger alpha for faster convergence
+  // Later readings: use smaller alpha for stability
+  float alpha = (max30105_reading_count < 10) ? 0.5f : 0.15f;
+  
+  if(max30105_reading_count == 0){
+    max30105_spo2_ema = spo2_raw; // Initialize EMA with first value
   } else {
-    ema_spo2 = (0.3f * spo2) + ((1.0f - 0.3f) * ema_spo2);
+    max30105_spo2_ema = alpha * spo2_raw + (1.0f - alpha) * max30105_spo2_ema;
   }
+  
+  // Increment reading count (cap at 255)
+  if(max30105_reading_count < 255)
+    max30105_reading_count++;
 
-  // Clamp SPO2 to reasonable physiological range
+  // Clamp smoothed SPO2
+  float spo2 = max30105_spo2_ema;
   if(spo2 > 100.0f) spo2 = 100.0f;
-  if(spo2 < 70.0f){
-    LOG("[MAX30105] SPO2 too low (%.1f%%), likely poor contact or need medical attention", spo2);
-    return 0;
-  }
+  if(spo2 < 70.0f) spo2 = 70.0f;
 
-  D("[MAX30105] SPO2: %.1f%% (ratio: %.3f)", spo2, ratio);
+  D("[MAX30105] SPO2 raw: %.1f%%, smoothed: %.1f%% (ratio: %.3f, readings: %d)", 
+    spo2_raw, spo2, ratio, max30105_reading_count);
+  
   *value = spo2;
   return 1;
 }
