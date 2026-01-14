@@ -1493,6 +1493,7 @@ void init_apds9930(sensor_r_t *s){
       .unit_fmt = "ppm,%.0f",\
       .init_function = init_s8,\
       .value_function = fetch_s8_co2,\
+      .destroy_function = destroy_s8,\
     }
 
 #define S8_UART_RX_PIN    GPIO_NUM_20  // GPIO_NUM_20/UART1 RX pin
@@ -1534,9 +1535,19 @@ void init_s8(sensor_r_t *s) {
   } else {
     LOG("[S8] ABC (automatic calibration) is disabled");
   }
-  LOG("[S8] Setting ABC to 0 and wait 1s");
+  LOG("[S8] Setting ABC to 0 and wait 100ms");
   sensor.abc_period = sensor_S8->set_ABC_period(0);
-  delay(1000);
+  delay(100);
+  sensor.abc_period = sensor_S8->get_ABC_period();
+  if(sensor.abc_period > 0){
+    LOG("[S8] ABC (automatic background calibration) period: %d hours", sensor.abc_period);
+  } else {
+    LOG("[S8] ABC (automatic calibration) is disabled (0s)");
+  }
+
+  LOG("[S8] Setting ABC to 180 hours and wait 100ms");
+  sensor.abc_period = sensor_S8->set_ABC_period(180);
+  delay(100);
   sensor.abc_period = sensor_S8->get_ABC_period();
   if(sensor.abc_period > 0){
     LOG("[S8] ABC (automatic background calibration) period: %d hours", sensor.abc_period);
@@ -1628,6 +1639,16 @@ const char *atcmd_sensors_s8(const char *atcmdline, size_t cmd_len){
     return calibrate_s8();
   }
   return AT_R("+ERROR: unknown command");
+}
+
+NOINLINE
+void destroy_s8(sensor_r_t *s){
+  // free S8 sensor
+  if(sensor_S8 != NULL){
+    delete sensor_S8;
+    sensor_S8 = NULL;
+  }
+  sensor.~S8_sensor();
 }
 #endif // SUPPORT_S8
 
