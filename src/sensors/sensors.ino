@@ -1161,7 +1161,8 @@ int8_t fetch_mq135_adc(sensor_r_t *s, float *ppm){
     return -1;
   if(millis() - mq135_startup_time < MQ135_WARMUP_TIME){
     LOG("[MQ-135] sensor warming up, not ready yet, ttl: %d ms", MQ135_WARMUP_TIME - (millis() - mq135_startup_time));
-    return -1; // sensor warming up
+    // no error, just return 0 to indicate no valid reading yet
+    return 0;
   }
 
   // fetch average value
@@ -1586,7 +1587,7 @@ int8_t fetch_s8_co2(sensor_r_t *s, float *co2){
       is_calibrating = 0;
     } else {
       LOG("[S8] Calibration in progress");
-      return -1;
+      return 0; // still calibrating
     }
   }
 
@@ -1813,11 +1814,11 @@ int8_t fetch_ds18b20_temperature(sensor_r_t *s, float *temperature){
     ds18b20.requestTemperatures(); 
     sensorState = DS_REQUESTING;
     LOG("[DS18B20] Requested temperature measurement");
-    return -1; // not ready yet
+    return 0; // not ready yet
   }
   if(!ds18b20.isConversionComplete()){
     LOG("[DS18B20] Temperature conversion not ready yet");
-    return -1; // not ready yet
+    return 0; // not ready yet
   }
 
   // Fetch temperature in Celsius
@@ -1869,6 +1870,8 @@ int8_t fetch_max30105_value(sensor_r_t *s, float *value){
     return -1;
 
   // TODO: Replace with actual sensor reading
+  return 0;
+
   float sensor_value = 0.0f;
 
   D("[MAX30105] value: %.5f", sensor_value);
@@ -1975,6 +1978,10 @@ void sensors_loop(){
     int8_t ok = s->value_function(s, &current_v);
     if(ok < 0){
       LOG("[SENSORS] ERROR: failed to fetch value for sensor %s, skipping", s->key);
+      continue;
+    }
+    if(ok == 0){
+      LOG("[SENSORS] WARNING: sensor %s returned not ready, skipping", s->key);
       continue;
     }
 
