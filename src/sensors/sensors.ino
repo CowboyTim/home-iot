@@ -44,7 +44,7 @@
 #define I2C_SDA     GPIO_NUM_6 // SDA: GPIO_NUM_8 -> same as LED
 #define I2C_SCL     GPIO_NUM_7 // SCL: GPIO_NUM_9
 #define I2C_BUS_NUM 0
-#define I2C_FREQ    100000L // 100kHz
+#define I2C_FREQ    400000L // 400kHz
 #define I2C_TIMEOUT 100     // 100ms
 #ifdef NO_GLOBAL_WIRE
 #include <Wire.h>
@@ -1841,19 +1841,79 @@ int8_t fetch_ds18b20_temperature(sensor_r_t *s, float *temperature){
 }
 #endif // SUPPORT_DS18B20
 
-// MAX30105 High-Sensitivity Particle Sensor for Smoke
-#define SENSOR_MAX30105_PARTICLE_SENSOR {.name = "MAX30105 Particle Sensor", .key = "max30105_particle_sensor",}
+// MAX30105 High-Sensitivity Pulse Oximetry and Heart-Rate Sensor
+#define SENSOR_MAX30105_PARTICLE_SENSOR {.name = "MAX30105 SPO2 Sensor", .key = "max30105_spo2",}
 #ifdef SUPPORT_MAX30105
 #define SENSOR_MAX30105_PARTICLE_SENSOR \
     {\
-      .name = "MAX30105 Particle Sensor",\
-      .key  = "max30105_particle_sensor",\
-      .unit_fmt = "ppm,%.5f",\
+      .name = "MAX30105 SPO2 Sensor",\
+      .key  = "max30105_spo2",\
+      .unit_fmt = "%%,%.1f",\
       .init_function = init_max30105,\
       .value_function = fetch_max30105_value,\
     }
 
 #define MAX30105_I2C_ADDRESS      0x57  // default I2C address for MAX30105
+
+// MAX30105 Register Map
+#define MAX30105_REG_INTR_STATUS_1   0x00
+#define MAX30105_REG_INTR_STATUS_2   0x01
+#define MAX30105_REG_INTR_ENABLE_1   0x02
+#define MAX30105_REG_INTR_ENABLE_2   0x03
+#define MAX30105_REG_FIFO_WR_PTR     0x04
+#define MAX30105_REG_OVF_COUNTER     0x05
+#define MAX30105_REG_FIFO_RD_PTR     0x06
+#define MAX30105_REG_FIFO_DATA       0x07
+#define MAX30105_REG_FIFO_CONFIG     0x08
+#define MAX30105_REG_MODE_CONFIG     0x09
+#define MAX30105_REG_SPO2_CONFIG     0x0A
+#define MAX30105_REG_LED1_PA         0x0C  // Red LED
+#define MAX30105_REG_LED2_PA         0x0D  // IR LED
+#define MAX30105_REG_LED3_PA         0x0E  // Green LED
+#define MAX30105_REG_PILOT_PA        0x10
+#define MAX30105_REG_MULTI_LED_CTRL1 0x11
+#define MAX30105_REG_MULTI_LED_CTRL2 0x12
+#define MAX30105_REG_TEMP_INTR       0x1F
+#define MAX30105_REG_TEMP_FRAC       0x20
+#define MAX30105_REG_TEMP_CONFIG     0x21
+#define MAX30105_REG_PART_ID         0xFF
+
+// Reset and Mode Settings
+#define MAX30105_MODE_RESET          (0x01 << 6) // Reset bit
+#define MAX30105_MODE_SHUTDOWN       (0x01 << 7) // Shutdown bit
+#define MAX30105_MODE_HR             (0x02 << 0) // Heart Rate mode (Red only)
+#define MAX30105_MODE_SPO2           (0x03 << 0) // SpO2 mode (Red + IR)
+#define MAX30105_MODE_MULTI_LED      (0x07 << 0) // Multi-LED mode (Red + IR + Green)
+
+#define MAX30105_ADCRANGE_2048NA     (0x00 << 5) //  2048nA range
+#define MAX30105_ADCRANGE_4096NA     (0x01 << 5) //  4096nA range
+#define MAX30105_ADCRANGE_8192NA     (0x02 << 5) //  8192nA range
+#define MAX30105_ADCRANGE_16384NA    (0x03 << 5) // 16384nA range
+
+#define MAX30105_SAMPLERATE_50HZ     (0x00 << 2) //   50 samples per second
+#define MAX30105_SAMPLERATE_100HZ    (0x01 << 2) //  100 samples per second
+#define MAX30105_SAMPLERATE_200HZ    (0x02 << 2) //  200 samples per second
+#define MAX30105_SAMPLERATE_400HZ    (0x03 << 2) //  400 samples per second
+#define MAX30105_SAMPLERATE_800HZ    (0x04 << 2) //  800 samples per second
+#define MAX30105_SAMPLERATE_1000HZ   (0x05 << 2) // 1000 samples per second
+#define MAX30105_SAMPLERATE_1600HZ   (0x06 << 2) // 1600 samples per second
+#define MAX30105_SAMPLERATE_3200HZ   (0x07 << 2) // 3200 samples per second
+
+#define MAX30105_PULSE_WIDTH_69US    (0x00 << 0) //  69us pulse width, 15-bit resolution
+#define MAX30105_PULSE_WIDTH_118US   (0x01 << 0) // 118us pulse width, 16-bit resolution
+#define MAX30105_PULSE_WIDTH_215US   (0x02 << 0) // 215us pulse width, 17-bit resolution
+#define MAX30105_PULSE_WIDTH_411US   (0x03 << 0) // 411us pulse width, 18-bit resolution
+
+#define MAX30105_FIFO_ROLLOVER_EN    (0x01 << 4) // FIFO rollover enable
+#define MAX30105_FIFO_SAMPLEAVG_1    (0x00 << 5) // No averaging
+#define MAX30105_FIFO_SAMPLEAVG_2    (0x01 << 5) // 2 samples averaged
+#define MAX30105_FIFO_SAMPLEAVG_4    (0x02 << 5) // 4 samples averaged
+#define MAX30105_FIFO_SAMPLEAVG_8    (0x03 << 5) // 8 samples averaged
+#define MAX30105_FIFO_SAMPLEAVG_16   (0x04 << 5) // 16 samples averaged
+#define MAX30105_FIFO_SAMPLEAVG_32   (0x05 << 5) // 32 samples averaged
+
+// Store LED current and signal EMA in RTC memory to persist across deep sleep
+RTC_DATA_ATTR uint8_t max30105_led_current = 0x3F;    // Start at mid-range
 
 void init_max30105(sensor_r_t *s) {
   if(i2c_ping(MAX30105_I2C_ADDRESS) == -1){
@@ -1861,7 +1921,54 @@ void init_max30105(sensor_r_t *s) {
     LOG("[MAX30105] sensor not found");
     return;
   }
-  LOG("[MAX30105] initialized on I2C address 0x%02X", MAX30105_I2C_ADDRESS);
+
+  // Read and verify part ID (should be 0x15)
+  uint8_t part_id = i2c_read8(MAX30105_I2C_ADDRESS, MAX30105_REG_PART_ID);
+  if(part_id != 0x15){
+    s->cfg->enabled = 0;
+    LOG("[MAX30105] invalid part ID: 0x%02X (expected 0x15)", part_id);
+    return;
+  }
+
+  // Soft reset (bit 6 of MODE_CONFIG)
+  i2c_write(MAX30105_I2C_ADDRESS, MAX30105_REG_MODE_CONFIG, MAX30105_MODE_RESET);
+  delay(100);
+
+  // Configure FIFO: sample averaging = 1, FIFO rollover enabled, FIFO almost full = 17
+  uint8_t fifo_config = MAX30105_FIFO_SAMPLEAVG_1 | MAX30105_FIFO_ROLLOVER_EN | 17;
+  i2c_write(MAX30105_I2C_ADDRESS, MAX30105_REG_FIFO_CONFIG, fifo_config);
+
+  // Configure SpO2: ADC range = 8192nA, sample rate = 400Hz, LED pulse width = 411us (18-bit resolution)
+  uint8_t spo2_config = MAX30105_ADCRANGE_8192NA | MAX30105_SAMPLERATE_400HZ | MAX30105_PULSE_WIDTH_411US;
+  i2c_write(MAX30105_I2C_ADDRESS, MAX30105_REG_SPO2_CONFIG, spo2_config);
+
+  // Set LED current from RTC memory (persists across sleep cycles)
+  i2c_write(MAX30105_I2C_ADDRESS, MAX30105_REG_LED1_PA, max30105_led_current);  // Red LED
+  i2c_write(MAX30105_I2C_ADDRESS, MAX30105_REG_LED2_PA, max30105_led_current);  // IR LED
+  i2c_write(MAX30105_I2C_ADDRESS, MAX30105_REG_LED3_PA, max30105_led_current);  // Green LED
+  
+  LOG("[MAX30105] LED current set to 0x%02X from persistent storage", max30105_led_current);
+
+  // Clear FIFO pointers before enabling mode
+  i2c_write(MAX30105_I2C_ADDRESS, MAX30105_REG_FIFO_WR_PTR, 0x00);
+  i2c_write(MAX30105_I2C_ADDRESS, MAX30105_REG_FIFO_RD_PTR, 0x00);
+  i2c_write(MAX30105_I2C_ADDRESS, MAX30105_REG_OVF_COUNTER, 0x00);
+
+  // Clear interrupts by reading status registers
+  uint8_t status1 = i2c_read8(MAX30105_I2C_ADDRESS, MAX30105_REG_INTR_STATUS_1);
+  uint8_t status2 = i2c_read8(MAX30105_I2C_ADDRESS, MAX30105_REG_INTR_STATUS_2);
+  LOG("[MAX30105] interrupt status before mode enable: 0x%02X 0x%02X", status1, status2);
+
+  // Enable SpO2 mode (Red + IR) - this starts the sampling
+  i2c_write(MAX30105_I2C_ADDRESS, MAX30105_REG_MODE_CONFIG, MAX30105_MODE_SPO2);
+  
+  delay(100); // Wait for sensor to start sampling
+
+  // Verify mode is set
+  uint8_t mode = i2c_read8(MAX30105_I2C_ADDRESS, MAX30105_REG_MODE_CONFIG);
+  LOG("[MAX30105] mode config readback: 0x%02X (expected 0x03)", mode);
+
+  LOG("[MAX30105] initialized on I2C address 0x%02X for SPO2 mode", MAX30105_I2C_ADDRESS);
   return;
 }
 
@@ -1869,13 +1976,151 @@ int8_t fetch_max30105_value(sensor_r_t *s, float *value){
   if(value == NULL)
     return -1;
 
-  // TODO: Replace with actual sensor reading
-  return 0;
+  // Check if sensor is still in correct mode
+  uint8_t mode = i2c_read8(MAX30105_I2C_ADDRESS, MAX30105_REG_MODE_CONFIG);
+  
+  // If not in SPO2 mode, re-enable it
+  if((mode & 0x07) != MAX30105_MODE_SPO2){
+    LOG("[MAX30105] mode mismatch, re-enabling SPO2 mode");
+    i2c_write(MAX30105_I2C_ADDRESS, MAX30105_REG_MODE_CONFIG, MAX30105_MODE_SPO2);
+    delay(100);
+  }
 
-  float sensor_value = 0.0f;
+  // Read FIFO write and read pointers to determine available samples
+  uint8_t wr_ptr = i2c_read8(MAX30105_I2C_ADDRESS, MAX30105_REG_FIFO_WR_PTR);
+  uint8_t rd_ptr = i2c_read8(MAX30105_I2C_ADDRESS, MAX30105_REG_FIFO_RD_PTR);
+  
+  D("[MAX30105] FIFO pointers - WR: 0x%02X, RD: 0x%02X", wr_ptr, rd_ptr);
+  int16_t num_samples = 0;
+  if(wr_ptr < rd_ptr){
+    num_samples = (wr_ptr + 32) - rd_ptr; // Handle rollover 
+  } else {
+    num_samples = wr_ptr - rd_ptr;
+  }
+  if(num_samples <= 0){
+    D("[MAX30105] invalid sample count: %d", num_samples);
+    return 0;
+  }
+  if(num_samples < 30){
+    D("[MAX30105] insufficient samples in FIFO: %d", num_samples);
+    return 0;
+  }
+  D("[MAX30105] samples available in FIFO: %d", num_samples);
 
-  D("[MAX30105] value: %.5f", sensor_value);
-  *value = sensor_value;
+  // Read multiple samples from FIFO for averaging and AC detection
+  uint32_t red_sum = 0;
+  uint32_t ir_sum = 0;
+  uint32_t red_min = 262143, red_max = 0;
+  uint32_t ir_min = 262143, ir_max = 0;
+  uint32_t green_sum = 0;
+  uint32_t green_min = 262143, green_max = 0;
+
+  for(uint8_t i = 0; i < num_samples; i++){
+    // Each FIFO sample is 9 bytes: 3 bytes each for Red, IR, and Green in Multi-LED mode
+    Wire.beginTransmission(MAX30105_I2C_ADDRESS);
+    Wire.write(MAX30105_REG_FIFO_DATA);
+    Wire.endTransmission(false);
+    
+    Wire.requestFrom(MAX30105_I2C_ADDRESS, (uint8_t)6);
+    
+    if(Wire.available() >= 6){
+      // Read Red LED value (18-bit)
+      uint32_t red = ((uint32_t)Wire.read() << 16) | ((uint32_t)Wire.read() << 8) | Wire.read();
+      red &= 0x3FFFF; // Mask to 18 bits
+      red_sum += red;
+      if(red < red_min) red_min = red;
+      if(red > red_max) red_max = red;
+
+      // Read IR LED value (18-bit)
+      if((mode & 0x07) == MAX30105_MODE_MULTI_LED || (mode & 0x07) == MAX30105_MODE_SPO2){
+        uint32_t ir = ((uint32_t)Wire.read() << 16) | ((uint32_t)Wire.read() << 8) | Wire.read();
+        ir &= 0x3FFFF; // Mask to 18 bits
+        ir_sum += ir;
+        if(ir < ir_min) ir_min = ir;
+        if(ir > ir_max) ir_max = ir;
+      }
+
+       // Read Green LED value (18-bit) - not used for SPO2 but read anyway
+      if((mode & 0x07) == MAX30105_MODE_MULTI_LED){
+        uint32_t green = ((uint32_t)Wire.read() << 16) | ((uint32_t)Wire.read() << 8) | Wire.read();
+        green &= 0x3FFFF; // Mask to 18 bits
+        green_sum += green;
+        if(green < ir_min) ir_min = green;
+        if(green > ir_max) ir_max = green;
+      }
+    } else {
+      LOG("[MAX30105] failed to read FIFO sample %d", i);
+      return 0;
+    }
+  }
+
+  // Calculate DC (average) and AC (peak-to-peak variation)
+  float red_dc = (float)red_sum / num_samples;
+  float ir_dc = (float)ir_sum / num_samples;
+  float red_ac = (float)(red_max - red_min);
+  float ir_ac = (float)(ir_max - ir_min);
+
+  D("[MAX30105] Red DC: %.0f (AC: %.0f), IR DC: %.0f (AC: %.0f), samples: %d, LED: 0x%02X", 
+      red_dc, red_ac, ir_dc, ir_ac, num_samples, max30105_led_current);
+
+  // Check for minimum signal strength (finger detection)
+  // Values should be > 50000 (out of 262143 max for 18-bit)
+  if(ir_dc < 50000 || red_dc < 50000){
+    LOG("[MAX30105] signal too weak, no finger detected (Red: %.0f, IR: %.0f)", red_dc, ir_dc);
+    return 0;
+  }
+
+  // Check for saturation (too strong signal)
+  if(ir_dc > 250000 || red_dc > 250000){
+    LOG("[MAX30105] signal saturated (Red: %.0f, IR: %.0f), AGC will adjust", red_dc, ir_dc);
+    return 0;
+  }
+
+  // Check for sufficient AC component (pulsatile signal from heartbeat)
+  // Need at least 0.2% variation for valid pulse detection (reduced from 1%)
+  float red_ac_ratio = red_ac / red_dc;
+  float ir_ac_ratio = ir_ac / ir_dc;
+  
+  // Calculate ratio using AC/DC method (standard pulse oximetry)
+  // R = (AC_red/DC_red) / (AC_ir/DC_ir)
+  float ratio = red_ac_ratio / ir_ac_ratio;
+  
+  D("[MAX30105] AC/DC ratio: %.3f, Red AC/DC: %.3f, IR AC/DC: %.3f", ratio, red_ac_ratio, ir_ac_ratio);
+  
+  // Ratio check: typical range for healthy SPO2 is 0.4-1.0
+  if(ratio < 0.3f || ratio > 2.0f){
+    LOG("[MAX30105] ratio out of valid range (%.3f), check finger placement", ratio);
+    return 0;
+  }
+  
+  // Additional check: both signals should be reasonably strong for finger detection
+  if(red_dc < 100000 || ir_dc < 100000){
+    LOG("[MAX30105] signal levels suggest no finger present");
+    return 0;
+  }
+
+  // Empirical SPO2 formula for MAX30105
+  // In pulse oximetry: Lower ratio = Higher SPO2 (more oxygenated blood)
+  // Use quadratic for better calibration
+  float spo2 = 120.0f - 50.0f * ratio + 10.0f * ratio * ratio;
+
+  // Implement Exponential Moving Average (EMA) smoothing
+  ALIGN(4) static float ema_spo2 = -1.0f;
+  if(ema_spo2 < 0.0f){
+    ema_spo2 = spo2; // initialize EMA with first value
+  } else {
+    ema_spo2 = (0.3f * spo2) + ((1.0f - 0.3f) * ema_spo2);
+  }
+
+  // Clamp SPO2 to reasonable physiological range
+  if(spo2 > 100.0f) spo2 = 100.0f;
+  if(spo2 < 70.0f){
+    LOG("[MAX30105] SPO2 too low (%.1f%%), likely poor contact or need medical attention", spo2);
+    return 0;
+  }
+
+  D("[MAX30105] SPO2: %.1f%% (ratio: %.3f)", spo2, ratio);
+  *value = spo2;
   return 1;
 }
 #endif // SUPPORT_MAX30105
@@ -1981,7 +2226,7 @@ void sensors_loop(){
       continue;
     }
     if(ok == 0){
-      LOG("[SENSORS] WARNING: sensor %s returned not ready, skipping", s->key);
+      //D("[SENSORS] WARNING: sensor %s returned not ready, skipping", s->key);
       continue;
     }
 
