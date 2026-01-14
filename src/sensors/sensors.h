@@ -100,18 +100,21 @@ extern size_t inlen;
 
 namespace SENSORS {
 
+typedef enum {
+  S_NONE     = 0x00,
+  S_LOG_UART = 0x01,
+  S_LOG_TIME = 0x02,
+} log_flags_t;
+
 typedef struct sensor_c_t {
   unsigned long v_intv = 0;
   uint8_t enabled = 0;
 } sensor_c_t;
 
-/* sensors/plugin config */
 typedef struct s_cfg_t {
-  // 15 chars + null terminator, default "unknown"
   char kvmkey[16]   = {0};
-  uint8_t log_uart  = 0;
-  uint8_t log_time  = 0;
   char time_fmt[32] = "%Y-%m-%d %H:%M:%S";
+  log_flags_t flags = S_NONE;
   sensor_c_t sensor_cfg[NR_OF_SENSORS] = {0};
 } sensors_cfg_t;
 
@@ -126,7 +129,6 @@ typedef struct sensor_r_t {
   int8_t (*value_function)(sensor_r_t*, float*);
   void   (*post_function)(sensor_r_t*);
   void   (*destroy_function)(sensor_r_t*);
-  uint8_t init_done = 0;
 } sensor_r_t;
 
 /* all sensors runtime */

@@ -83,10 +83,9 @@ namespace SENSORS {
 // sensors/plugin config
 ALIGN(4) sensors_cfg_t cfg = {
   .kvmkey     = {0},
-  .log_uart   = 0,
-  .log_time   = 0,
   .time_fmt   = "%Y-%m-%d %H:%M:%S",
-  .sensor_cfg = {0}
+  .flags      = S_NONE,
+  .sensor_cfg = {0},
 };
 
 // used alot in this file
@@ -94,6 +93,7 @@ ALIGN(4) esp_err_t esp_ok;
 
 // last interval counters
 RTC_DATA_ATTR long l_intv_counters[NR_OF_SENSORS] = {0};
+RTC_DATA_ATTR uint8_t init_done[NR_OF_SENSORS] = {0};
 
 // DS18B20 temperature sensor for use with MQ135 temp compensation
 #ifdef SUPPORT_DS18B20
@@ -752,7 +752,15 @@ int8_t fetch_ldr_adc(sensor_r_t *s, float *ldr_value){
   // Alternative formula with Gamma correction
   float lux = 10.0 * pow((LDR_CFG(r10) / r_ldr), (1.0 / LDR_CFG(gamma)));
 
-  *ldr_value = lux;
+  // Implement Exponential Moving Average (EMA) smoothing
+  ALIGN(4) static float ema_lux = -1.0f;
+  if(ema_lux < 0.0f){
+    ema_lux = lux; // initialize EMA with first value
+  } else {
+    ema_lux = (LDR_CFG(ema_alpha) * lux) + ((1.0f - LDR_CFG(ema_alpha)) * ema_lux);
+  }
+
+  *ldr_value = ema_lux;
   return 1;
 }
 
@@ -936,8 +944,9 @@ int8_t fetch_ntc_temperature(sensor_r_t *s, float *temperature){
 
   D("[NTC] temperature: %.2f °C", steinhart);
 
-  // simple low-pass filter to smooth the temperature readings using exponential moving average (EMA)
-  static float filtered_temp = -100.0f; 
+  // simple low-pass filter to smooth the temperature readings using
+  // exponential moving average (EMA)
+  ALIGN(4) static float filtered_temp = -100.0f; 
   if (filtered_temp < -90.0f) {
     filtered_temp = steinhart; // Initial reading
   } else {
@@ -1164,8 +1173,9 @@ int8_t fetch_mq135_adc(sensor_r_t *s, float *ppm){
   float RL = MQ135_CFG(rl);
   float raw_ppm = mq135_adc_to_ppm(R0, RL, avg_adc);
 
-  // simple low-pass filter to smooth the ppm readings using exponential moving average (EMA)
-  static float filtered_ppm = -1.0f; 
+  // simple low-pass filter to smooth the ppm readings using exponential
+  // moving average (EMA)
+  ALIGN(4) static float filtered_ppm = -1.0f; 
   if (filtered_ppm < 0.0f) {
     filtered_ppm = raw_ppm; // Initial reading
   } else {
@@ -1915,10 +1925,10 @@ void setup(){
       LOG("[SENSORS] Sensor index:%d, name:%s is disabled, skipping setup", i, s->name);
       continue;
     }
-    if(s->init_done == 1)
+    if(init_done[i] == 1)
       continue;
 
-    s->init_done = 1;
+    init_done[i] = 1;
 
     // do init
     LOG("[SENSORS] Setting up sensor index:%d, name:%s", i, s->name);
@@ -1988,7 +1998,7 @@ void sensors_loop(){
     ALIGN(4) static char ou_buf[128] = {0};
     memset(ou_buf, 0, sizeof(ou_buf));
     int s_strl = -1;
-    if(SENSORS::cfg.log_time && SENSORS::cfg.time_fmt != NULL && strlen(SENSORS::cfg.time_fmt) > 0){
+    if((SENSORS::cfg.flags & S_LOG_TIME) && SENSORS::cfg.time_fmt != NULL && strlen(SENSORS::cfg.time_fmt) > 0){
       if(SENSORS::cfg.kvmkey == NULL || strlen(SENSORS::cfg.kvmkey) == 0){
         s_strl = snprintf(ou_buf, sizeof(ou_buf), "%s,%s*%s\r\n", COMMON::PT(SENSORS::cfg.time_fmt), s->key, sv_str);
       } else {
@@ -2007,7 +2017,7 @@ void sensors_loop(){
     }
 
     // output over UART?
-    if(SENSORS::cfg.log_uart){
+    if(SENSORS::cfg.flags & S_LOG_UART){
       for(size_t i = 0; i < s_strl; i++)
         Serial.write(ou_buf[i]);
       Serial.flush();
@@ -2070,8 +2080,8 @@ const char* at_cmd_handler_sensor(const char *at_cmd, unsigned short at_len){
 
       // init/destroy
       if(s->cfg->enabled == 1){
-        if(s->init_done == 0){
-          s->init_done = 1;
+        if(init_done[i] == 0){
+          init_done[i] = 1;
           // do init
           LOG("[SENSORS] Setting up sensor index:%d, name:%s", i, s->name);
           if(s->init_function != NULL){
@@ -2082,7 +2092,7 @@ const char* at_cmd_handler_sensor(const char *at_cmd, unsigned short at_len){
           }
         }
       } else {
-        s->init_done = 0;
+        init_done[i] = 0;
         if(s->destroy_function != NULL){
           // call destroy function
           s->destroy_function(s);
@@ -2173,17 +2183,23 @@ const char* at_cmd_handler_sensors(const char* atcmdline){
     unsigned long val = strtoul(p, &r, 10);
     if(errno != 0 || (val != 0 && val != 1) || (r == p))
       return AT_R("+ERROR: LOG_TIME must be 0 or 1");
-    SENSORS::cfg.log_time = val;
+    if(val == 1)
+      SENSORS::cfg.flags = (SENSORS::log_flags_t)(SENSORS::cfg.flags | S_LOG_TIME);
+    else
+      SENSORS::cfg.flags = (SENSORS::log_flags_t)(SENSORS::cfg.flags & ~S_LOG_TIME);
     CFG_SAVE();
     return AT_R_OK;
   } else if(p = at_cmd_check("AT+SENSORS_TIMESTAMP_ADD?", atcmdline, cmd_len)){
-    return AT_R_INT(SENSORS::cfg.log_time);
+    return AT_R_INT(SENSORS::cfg.flags & S_LOG_TIME ? 1 : 0);
   } else if(p = at_cmd_check("AT+SENSORS_LOG_UART=", atcmdline, cmd_len)){
     char *r = NULL;
     unsigned long val = strtoul(p, &r, 10);
     if(errno != 0 || (val != 0 && val != 1) || (r == p))
       return AT_R("+ERROR: LOG_UART must be 0 or 1");
-    SENSORS::cfg.log_uart = val;
+    if(val == 1)
+      SENSORS::cfg.flags = (SENSORS::log_flags_t)(SENSORS::cfg.flags | S_LOG_UART);
+    else
+      SENSORS::cfg.flags = (SENSORS::log_flags_t)(SENSORS::cfg.flags & ~S_LOG_UART);
     CFG_SAVE();
     return AT_R_OK;
   } else if(p = at_cmd_check("AT+SENSORS_TIMESTAMP_FMT=", atcmdline, cmd_len)){
@@ -2199,7 +2215,7 @@ const char* at_cmd_handler_sensors(const char* atcmdline){
   } else if(p = at_cmd_check("AT+SENSORS_TIMESTAMP_FMT?", atcmdline, cmd_len)){
     return AT_R(SENSORS::cfg.time_fmt);
   } else if(p = at_cmd_check("AT+SENSORS_LOG_UART?", atcmdline, cmd_len)){
-    return AT_R_INT(SENSORS::cfg.log_uart);
+    return AT_R_INT(SENSORS::cfg.flags & S_LOG_UART ? 1 : 0);
   #ifdef SUPPORT_MQ135
   } else if(p = at_cmd_check("AT+MQ135_",atcmdline, cmd_len)){
     return atcmd_sensors_mq135(atcmdline, cmd_len);
