@@ -1072,7 +1072,7 @@ extern int8_t fetch_s8_co2(sensor_r_t *s, float *co2_ppm);
 #endif
 
 typedef struct mq135_cfg_t {
-  uint8_t mode        = 0;        // 0=CO2, 1=Alcohol
+  uint8_t mode        = 0;        // 0=CO2, 1=Alcohol(MQ-135), 2=MQ-3
   float r0            = 0.0f;
   float rl            = 0.0f;
   float reference_ppm = 428.54f;
@@ -1095,17 +1095,20 @@ ALIGN(4) mq135_cfg_t mq135_cfg = {
 // MQ135 sensor mode presets
 #define MQ135_MODE_CO2      0
 #define MQ135_MODE_ALCOHOL  1
-// Curve coefficients for different gases
+#define MQ135_MODE_MQ3      2  // MQ-3 sensor optimized for alcohol
+// Curve coefficients for different gases/sensors
 // CO2: a=110.47, b=-2.862 (calibrate in normal air ~428 ppm)
-// Alcohol: a=77.255, b=-3.18 (calibrate in clean air ~0 ppm or with known alcohol source)
+// Alcohol (MQ-135): a=77.255, b=-3.18 (calibrate in clean air ~0 ppm or with known alcohol source)
+// Alcohol (MQ-3): a=0.3934, b=-1.504 (MQ-3 sensor optimized for ethanol, better sensitivity)
 const struct {
   const char *name;
   float a;
   float b;
   float default_ref_ppm;
 } mq135_mode_presets[] = {
-  {"CO2",     110.47f,  -2.862f, 428.54f},  // CO2 mode - normal atmospheric level
-  {"Alcohol",  77.255f, -3.18f,    1.0f},   // Alcohol mode - clean air background (use known source for better calibration)
+  {"CO2",         110.47f,  -2.862f, 428.54f},  // CO2 mode - normal atmospheric level
+  {"Alcohol",      77.255f, -3.18f,    1.0f},   // Alcohol mode (MQ-135) - clean air background
+  {"MQ-3",          0.3934f, -1.504f,   1.0f},   // MQ-3 sensor mode - optimized alcohol detection
 };
 
 RTC_DATA_ATTR unsigned long mq135_startup_time = 0;
@@ -1248,15 +1251,17 @@ const char *atcmd_sensors_mq135(const char *atcmdline, size_t cmd_len){
     }
     return AT_R_INT(mode);
   } else if(p = at_cmd_check("AT+MQ135_MODE=", atcmdline, cmd_len)){
-    // Support both numeric (0/1) and text (CO2/ALCOHOL) mode setting
+    // Support both numeric (0/1/2) and text (CO2/ALCOHOL/MQ3/MQ-3) mode setting
     if(strncasecmp(p, "CO2", 3) == 0){
       MQ135_CFG(mode) = MQ135_MODE_CO2;
     } else if(strncasecmp(p, "ALCOHOL", 7) == 0){
       MQ135_CFG(mode) = MQ135_MODE_ALCOHOL;
+    } else if(strncasecmp(p, "MQ3", 3) == 0 || strncasecmp(p, "MQ-3", 4) == 0){
+      MQ135_CFG(mode) = MQ135_MODE_MQ3;
     } else {
       uint8_t new_mode = (uint8_t)strtol(p, NULL, 10);
       if(new_mode >= sizeof(mq135_mode_presets)/sizeof(mq135_mode_presets[0]))
-        return AT_R("+ERROR: invalid mode, use 0 (CO2) or 1 (ALCOHOL)");
+        return AT_R("+ERROR: invalid mode, use 0 (CO2), 1 (ALCOHOL), or 2 (MQ-3)");
       MQ135_CFG(mode) = new_mode;
     }
     // Apply preset values for the selected mode
