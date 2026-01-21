@@ -1096,16 +1096,16 @@ ALIGN(4) mq135_cfg_t mq135_cfg = {
 #define MQ135_MODE_CO2      0
 #define MQ135_MODE_ALCOHOL  1
 // Curve coefficients for different gases
-// CO2: a=110.47, b=-2.862
-// Alcohol: a=77.255, b=-3.18
+// CO2: a=110.47, b=-2.862 (calibrate in normal air ~428 ppm)
+// Alcohol: a=77.255, b=-3.18 (calibrate in clean air ~0 ppm or with known alcohol source)
 const struct {
   const char *name;
   float a;
   float b;
   float default_ref_ppm;
 } mq135_mode_presets[] = {
-  {"CO2",     110.47f,  -2.862f, 428.54f},  // CO2 mode
-  {"Alcohol",  77.255f, -3.18f,   10.0f},   // Alcohol mode
+  {"CO2",     110.47f,  -2.862f, 428.54f},  // CO2 mode - normal atmospheric level
+  {"Alcohol",  77.255f, -3.18f,    1.0f},   // Alcohol mode - clean air background (use known source for better calibration)
 };
 
 RTC_DATA_ATTR unsigned long mq135_startup_time = 0;
