@@ -1072,6 +1072,7 @@ extern int8_t fetch_s8_co2(sensor_r_t *s, float *co2_ppm);
 #endif
 
 typedef struct mq135_cfg_t {
+  uint8_t mode        = 0;        // 0=CO2, 1=Alcohol
   float r0            = 0.0f;
   float rl            = 0.0f;
   float reference_ppm = 428.54f;
@@ -1081,6 +1082,7 @@ typedef struct mq135_cfg_t {
   float ema_alpha     = 0.2f;     // Smoothing factor (0.1 to 0.3 is typical)
 } mq135_cfg_t;
 ALIGN(4) mq135_cfg_t mq135_cfg = {
+  .mode               = 0,       // default mode: CO2
   .r0                 = 0.0f,    // default R0 for MQ-135
   .rl                 = 0.0f,    // default RL for MQ-135
   .reference_ppm      = 428.54f, // default ppm for calibration
@@ -1088,6 +1090,22 @@ ALIGN(4) mq135_cfg_t mq135_cfg = {
   .b                  = -2.862f, // default curve coefficient b (default for CO2)
   .vcc                = 5.0f,    // default VCC voltage
   .ema_alpha          = 0.2f,
+};
+
+// MQ135 sensor mode presets
+#define MQ135_MODE_CO2      0
+#define MQ135_MODE_ALCOHOL  1
+// Curve coefficients for different gases
+// CO2: a=110.47, b=-2.862
+// Alcohol: a=77.255, b=-3.18
+const struct {
+  const char *name;
+  float a;
+  float b;
+  float default_ref_ppm;
+} mq135_mode_presets[] = {
+  {"CO2",     110.47f,  -2.862f, 428.54f},  // CO2 mode
+  {"Alcohol",  77.255f, -3.18f,   10.0f},   // Alcohol mode
 };
 
 RTC_DATA_ATTR unsigned long mq135_startup_time = 0;
@@ -1114,13 +1132,17 @@ float mq135_adc_to_ppm(float mq135_r0, float mq135_rl, float adc_value) {
 }
 
 NOINLINE
-void calibrate_mq135_r0() {
+int8_t calibrate_mq135_r0() {
   // fetch average value
   float adc_value = get_adc_average(MQ135_AVG_NR, MQ135PIN);
   LOG("[MQ-135] Calibration value: %f V", adc_value);
 
   // Voltage divider, in kOhm
   float RS = ((MQ135_CFG(vcc) - adc_value) / adc_value ) * MQ135_CFG(rl);
+  if(RS <= 0.0f){
+    LOG("[MQ-135] Invalid RS value calculated: %f kOhm, Rl: %f, Vcc: %f", RS, MQ135_CFG(rl), MQ135_CFG(vcc));
+    return -1;
+  }
 
   #if defined(SUPPORT_DHT11) && defined(SUPPORT_DS18B20)
   // apply a correction based on temperature and humidity if available
@@ -1137,7 +1159,7 @@ void calibrate_mq135_r0() {
   float reference_ppm = MQ135_CFG(reference_ppm);
   if(reference_ppm <= 0.0f){
     LOG("[MQ-135] invalid ppm value: %f", reference_ppm);
-    return;
+    return -1;
   }
 
   // If we have an S8 SensAir, use that value as reference
@@ -1150,10 +1172,15 @@ void calibrate_mq135_r0() {
   }
   #endif
 
+  LOG("[MQ-135] Calibrating R0 using reference ppm: %f, RS: %f, Vcc: %f, Rl: %f", reference_ppm, RS, MQ135_CFG(vcc), MQ135_CFG(rl));
   float R0 = RS / pow((reference_ppm / MQ135_CFG(a)), (1.0f / MQ135_CFG(b)));
+  if(R0 <= 0.0f){
+    LOG("[MQ-135] Invalid R0 value calculated: %f kOhm", R0);
+    return -1;
+  }
   LOG("[MQ-135] Calibration value: Voltage: %f V, RL: %f kOhm, RS: %f kOhm, R0: %f kOhm", adc_value, MQ135_CFG(rl), RS, R0);
   MQ135_CFG(r0) = R0;
-  return;
+  return 1;
 }
 
 int8_t fetch_mq135_adc(sensor_r_t *s, float *ppm){
@@ -1202,7 +1229,9 @@ void init_mq135_adc(sensor_r_t *s){
   // read initial R0 and RL from config
   float R0 = MQ135_CFG(r0);
   float RL = MQ135_CFG(rl);
-  D("[MQ-135] initialized on pin %d, R0: %0.f Ohm, RL: %0.f", R0, RL);
+  uint8_t mode = MQ135_CFG(mode);
+  const char *mode_name = (mode < sizeof(mq135_mode_presets)/sizeof(mq135_mode_presets[0])) ? mq135_mode_presets[mode].name : "Unknown";
+  LOG("[MQ-135] initialized on pin %d, Mode: %s, R0: %.2f kOhm, RL: %.2f kOhm, A: %f, B: %f, Ref PPM: %f", MQ135PIN, mode_name, R0, RL, MQ135_CFG(a), MQ135_CFG(b), MQ135_CFG(reference_ppm));
 
   // wait for MQ-135 to stabilize
   if(mq135_startup_time == 0)
@@ -1212,7 +1241,32 @@ void init_mq135_adc(sensor_r_t *s){
 NOINLINE
 const char *atcmd_sensors_mq135(const char *atcmdline, size_t cmd_len){
   char *p = NULL;
-  if(p = at_cmd_check("AT+MQ135_R0?", atcmdline, cmd_len)){
+  if(p = at_cmd_check("AT+MQ135_MODE?", atcmdline, cmd_len)){
+    uint8_t mode = MQ135_CFG(mode);
+    if(mode < sizeof(mq135_mode_presets)/sizeof(mq135_mode_presets[0])){
+      return AT_R(mq135_mode_presets[mode].name);
+    }
+    return AT_R_INT(mode);
+  } else if(p = at_cmd_check("AT+MQ135_MODE=", atcmdline, cmd_len)){
+    // Support both numeric (0/1) and text (CO2/ALCOHOL) mode setting
+    if(strncasecmp(p, "CO2", 3) == 0){
+      MQ135_CFG(mode) = MQ135_MODE_CO2;
+    } else if(strncasecmp(p, "ALCOHOL", 7) == 0){
+      MQ135_CFG(mode) = MQ135_MODE_ALCOHOL;
+    } else {
+      uint8_t new_mode = (uint8_t)strtol(p, NULL, 10);
+      if(new_mode >= sizeof(mq135_mode_presets)/sizeof(mq135_mode_presets[0]))
+        return AT_R("+ERROR: invalid mode, use 0 (CO2) or 1 (ALCOHOL)");
+      MQ135_CFG(mode) = new_mode;
+    }
+    // Apply preset values for the selected mode
+    MQ135_CFG(a) = mq135_mode_presets[MQ135_CFG(mode)].a;
+    MQ135_CFG(b) = mq135_mode_presets[MQ135_CFG(mode)].b;
+    MQ135_CFG(reference_ppm) = mq135_mode_presets[MQ135_CFG(mode)].default_ref_ppm;
+    MQ135_SAVE();
+    LOG("[MQ-135] Mode set to %s (a=%.2f, b=%.3f, ref_ppm=%.2f)", mq135_mode_presets[MQ135_CFG(mode)].name, MQ135_CFG(a), MQ135_CFG(b), MQ135_CFG(reference_ppm));
+    return AT_R(mq135_mode_presets[MQ135_CFG(mode)].name);
+  } else if(p = at_cmd_check("AT+MQ135_R0?", atcmdline, cmd_len)){
     return AT_R_DOUBLE(MQ135_CFG(r0));
   } else if(p = at_cmd_check("AT+MQ135_CALIBRATE", atcmdline, cmd_len)){
     if(MQ135_CFG(rl) <= 0.0f)
@@ -1223,9 +1277,13 @@ const char *atcmd_sensors_mq135(const char *atcmdline, size_t cmd_len){
       snprintf(ttl_msg, sizeof(ttl_msg), "+ERROR: MQ135 sensor warming up, not ready yet, ttl: %lu ms", ttl_ms);
       return AT_R_S(String(ttl_msg));
     }
-    calibrate_mq135_r0();
-    MQ135_SAVE();
-    return AT_R_DOUBLE(MQ135_CFG(r0));
+    int8_t r = calibrate_mq135_r0();
+    if(r == 1){
+      MQ135_SAVE();
+      return AT_R_DOUBLE(MQ135_CFG(r0));
+    } else {
+      return AT_R("+ERROR: failed to calibrate MQ135 R0");
+    }
   } else if(p = at_cmd_check("AT+MQ135_R0=", atcmdline, cmd_len)){
     float new_r0 = strtof(p, NULL);
     if(new_r0 < 1.0f || new_r0 > 1000.0f)
