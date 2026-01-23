@@ -194,10 +194,8 @@ float get_adc_average(uint8_t samples, uint8_t pin){
       continue;
     }
     avg_adc += adc;
-    if(i < (samples - 1)){
-      delayMicroseconds(10);
-      doYIELD;
-    }
+    // Yield every iteration to prevent watchdog timeout
+    doYIELD;
   }
   float avg_adc_f = (float)avg_adc;
   avg_adc_f /= (float)samples;
@@ -1059,7 +1057,7 @@ const char *atcmd_sensors_ntc(const char *atcmdline, size_t cmd_len){
     }
 
 #define MQ135PIN           A2  // GPIO_NUM_2/A2 pin for MQ135
-#define MQ135_AVG_NR        50 // number of samples to average from ADC, higher = more stable, don't go too high or uint32_t overflow
+#define MQ135_AVG_NR        20 // number of samples to average from ADC (reduced from 50 to prevent watchdog timeout)
 
 #define MQ135_WARMUP_TIME    30000  // MQ135 warm-up time in ms
 
@@ -2128,9 +2126,8 @@ int8_t fetch_max30105_value(sensor_r_t *s, float *value){
     Wire.beginTransmission(MAX30105_I2C_ADDRESS);
     Wire.write(MAX30105_REG_FIFO_DATA);
     Wire.endTransmission(false);
-    
     Wire.requestFrom(MAX30105_I2C_ADDRESS, (uint8_t)6);
-    
+
     if(Wire.available() >= 6){
       // Read Red LED value (18-bit)
       uint32_t red = ((uint32_t)Wire.read() << 16) | ((uint32_t)Wire.read() << 8) | Wire.read();
@@ -2148,7 +2145,7 @@ int8_t fetch_max30105_value(sensor_r_t *s, float *value){
         if(ir > ir_max) ir_max = ir;
       }
 
-       // Read Green LED value (18-bit) - not used for SPO2 but read anyway
+      // Read Green LED value (18-bit) - not used for SPO2 but read anyway
       if((mode & 0x07) == MAX30105_MODE_MULTI_LED){
         uint32_t green = ((uint32_t)Wire.read() << 16) | ((uint32_t)Wire.read() << 8) | Wire.read();
         green &= 0x3FFFF; // Mask to 18 bits
@@ -2160,6 +2157,8 @@ int8_t fetch_max30105_value(sensor_r_t *s, float *value){
       LOG("[MAX30105] failed to read FIFO sample %d", i);
       return 0;
     }
+    // Yield every iteration to prevent watchdog timeout
+    doYIELD;
   }
 
   // Calculate DC (average) and AC (peak-to-peak variation)

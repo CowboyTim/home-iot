@@ -40,6 +40,7 @@
 #define LOG_LOCAL_LEVEL 5
 #endif // DEBUG
 #include <esp_log.h>
+#include <esp_task_wdt.h>
 #include <nvs_flash.h>
 #include <nvs.h>
 #include <esp_partition.h>
@@ -7211,9 +7212,32 @@ void log_supported_features(){
 #endif
 }
 
+// Watchdog timeout callback - called just before system reset
+bool watchdog_timeout_callback(void *user_ctx) {
+  // Get current task name and stack high water mark
+  const char* task_name = pcTaskGetName(NULL);
+  UBaseType_t stack_left = uxTaskGetStackHighWaterMark(NULL);
+  
+  // Print critical diagnostic info
+  LOG("\n\n*** WATCHDOG TIMEOUT DETECTED ***");
+  LOG("[WDT] Task: %s", task_name);
+  LOG("[WDT] Stack remaining: %u bytes", stack_left);
+  LOG("[WDT] Millis: %lu", millis());
+  LOG("[WDT] Free heap: %u bytes", esp_get_free_heap_size());
+  LOG("[WDT] System will reset...");
+  LOGFLUSH();
+  
+  // Return false to allow system reset to proceed
+  return false;
+}
+
 void setup() {
   // Serial setup, init at 115200 8N1
   LOGSETUP();
+
+  // Register watchdog timeout callback
+  esp_task_wdt_add_user((char*)"main", NULL);
+  LOG("[SETUP] Watchdog timeout handler registered");
 
   // check wakeup reason
   esp_sleep_wakeup_cause_t w_reason = esp_sleep_get_wakeup_cause();
