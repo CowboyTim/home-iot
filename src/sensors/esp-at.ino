@@ -6098,10 +6098,52 @@ void setup_button() {
   LOG("[BUTTON] Pin %d configured as INPUT_PULLUP", current_button);
 }
 
+#define WATCHDOG_TIMEOUT_MS 5000 // 1 second timeout
+esp_task_wdt_user_handle_t wdt_user_handle;
+
+void WDT(void) {
+  // CRITICAL: Must use abort() not esp_restart() in ISR context!
+  // esp_restart() is NOT ISR-safe and will trigger Interrupt WDT
+  Serial.println("[WDT] 1 Task watchdog timeout occurred!");
+}
+
+NOINLINE
+void setup_wtd(){
+  esp_err_t ok;
+
+  // First, deinitialize the Arduino core's WDT if it exists
+  esp_task_wdt_deinit();
+
+  // Now initialize with our custom config
+  esp_task_wdt_config_t wdt_config = {
+    .timeout_ms = WATCHDOG_TIMEOUT_MS,
+    .idle_core_mask = 0,
+    .trigger_panic = false,  // Set to false to allow custom handler to be called
+  };
+  ok = esp_task_wdt_init(&wdt_config);
+  if(ok != ESP_OK) {
+    LOG("[WDT] Failed to initialize task watchdog: %s", esp_err_to_name(ok));
+    return;
+  }
+  LOG("[WDT] Task watchdog initialized with timeout %d ms, trigger_panic=false", WATCHDOG_TIMEOUT_MS);
+
+  // Register watchdog timeout callback
+  ok = esp_task_wdt_add_user((char*)"main", &wdt_user_handle);
+  if(ok != ESP_OK) {
+    LOG("[WDT] Failed to register task: %s", esp_err_to_name(ok));
+    return;
+  } else {
+    LOG("[WDT] Watchdog timeout callback registered successfully");
+  }
+}
+
 RTC_DATA_ATTR int boot_count = 0;
 
 INLINE
 void do_setup() {
+  // setup WTD
+  setup_wtd();
+
   // setup nvs
   setup_nvs();
 
@@ -7212,32 +7254,9 @@ void log_supported_features(){
 #endif
 }
 
-// Watchdog timeout callback - called just before system reset
-bool watchdog_timeout_callback(void *user_ctx) {
-  // Get current task name and stack high water mark
-  const char* task_name = pcTaskGetName(NULL);
-  UBaseType_t stack_left = uxTaskGetStackHighWaterMark(NULL);
-  
-  // Print critical diagnostic info
-  LOG("\n\n*** WATCHDOG TIMEOUT DETECTED ***");
-  LOG("[WDT] Task: %s", task_name);
-  LOG("[WDT] Stack remaining: %u bytes", stack_left);
-  LOG("[WDT] Millis: %lu", millis());
-  LOG("[WDT] Free heap: %u bytes", esp_get_free_heap_size());
-  LOG("[WDT] System will reset...");
-  LOGFLUSH();
-  
-  // Return false to allow system reset to proceed
-  return false;
-}
-
 void setup() {
   // Serial setup, init at 115200 8N1
   LOGSETUP();
-
-  // Register watchdog timeout callback
-  esp_task_wdt_add_user((char*)"main", NULL);
-  LOG("[SETUP] Watchdog timeout handler registered");
 
   // check wakeup reason
   esp_sleep_wakeup_cause_t w_reason = esp_sleep_get_wakeup_cause();
@@ -7301,6 +7320,12 @@ void setup() {
 void loop() {
   LOOP_D("[LOOP] Start main loop");
   sent_ok = 0;
+
+  // Reset the watchdog timer
+  esp_err_t ok = esp_task_wdt_reset_user(wdt_user_handle);
+  if(ok != ESP_OK) {
+    LOG("[WDT] Failed to reset WDT: %s", esp_err_to_name(ok));
+  }
 
   #ifdef LOOP_DELAY
   loop_start_millis = millis();

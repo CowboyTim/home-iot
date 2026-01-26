@@ -34,7 +34,6 @@
 
 namespace COMMON {
 
-
 NOINLINE
 const char * PT(const char *tformat) {
   ALIGN(4) static char T_buffer[512] = {""};
@@ -274,6 +273,17 @@ void _debug_e(const char *fmt, ...) {
 #endif // DEBUG
 
 } // namespace COMMON
+
+// define a WEAK function for WDT handler to override default behavior
+void __attribute__((weak)) WDT(void) {
+    // Default empty implementation
+}
+extern "C" {
+  void esp_task_wdt_isr_user_handler(void) {
+      WDT();
+  }
+}
+
 
 namespace CFG {
 
