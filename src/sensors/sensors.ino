@@ -1897,15 +1897,14 @@ void init_ds18b20(sensor_r_t *s) {
 
   // Look for the first sensor on the bus and save its address
   if (!ds18b20.getAddress(ds18b20_address, 0)) {
-    // Set to non-blocking mode
-    ds18b20.setWaitForConversion(false);
-    // Set resolution to 12 bits (can be 9, 10, 11, or 12)
-    ds18b20.setResolution(ds18b20_address, 12);
-  
     s->cfg->enabled = 0 ; // Disable in config
     LOG("[DS18B20] ERROR: Could not find OneWire address for DS18B20 at Index 0");
   } else {
     LOG("[DS18B20] Found DS18B20 sensor with address: %16X", *((uint64_t*)ds18b20_address));
+    // Set to non-blocking mode (CRITICAL: prevents interrupt WDT on ESP32-C3)
+    ds18b20.setWaitForConversion(false);
+    // Set resolution to 12 bits (can be 9, 10, 11, or 12)
+    ds18b20.setResolution(ds18b20_address, 12);
   }
 }
 
