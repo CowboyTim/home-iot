@@ -1040,6 +1040,46 @@ const char *atcmd_sensors_ntc(const char *atcmdline, size_t cmd_len){
     NTC_CFG(ema_alpha) = new_ema_alpha;
     NTC_SAVE();
     return AT_R_OK;
+  } else if(p = at_cmd_check("AT+NTC_CALIBRATE=", atcmdline, cmd_len)){
+    float actual_temp = strtof(p, NULL);
+    if(actual_temp < -50.0f || actual_temp > 150.0f)
+      return AT_R("+ERROR: invalid temperature value -50 to 150 C");
+    
+    // Set NTC Vcc pin HIGH to power the NTC
+    if(set_pin_high(NTCVCCPIN) == -1)
+      return AT_R("+ERROR: failed to power NTC");
+    
+    // Get average voltage in Volts (as float)
+    float v_out = get_adc_average(10, NTCADCPIN);
+    if(v_out >= NTC_CFG(vcc))
+      v_out = NTC_CFG(vcc) - 0.0001f; // avoid division by zero
+    
+    // Set NTC Vcc pin LOW to save power
+    if(set_pin_low(NTCVCCPIN) == -1)
+      return AT_R("+ERROR: failed to power down NTC");
+    
+    // Calculate current resistance
+    float r_ntc = NTC_CFG(divider_r) * (v_out / (NTC_CFG(vcc) - v_out));
+    
+    // Calculate beta from: beta = ln(R/R0) / (1/T - 1/T0)
+    // where T and T0 are in Kelvin
+    float t_kelvin = actual_temp + 273.15f;
+    float t_nominal_kelvin = NTC_CFG(t_nominal) + 273.15f;
+    float ln_r_ratio = log(r_ntc / NTC_CFG(r_nominal));
+    float temp_diff = (1.0f / t_kelvin) - (1.0f / t_nominal_kelvin);
+    
+    if(fabs(temp_diff) < 0.00001f)
+      return AT_R("+ERROR: calibration temp too close to nominal temp");
+    
+    float new_beta = ln_r_ratio / temp_diff;
+    
+    if(new_beta < 1000.0f || new_beta > 10000.0f)
+      return AT_R("+ERROR: calculated beta out of range (1000-10000)");
+    
+    LOG("[NTC] Calibration: T=%.2f C, R=%.2f Ohm, new beta=%.2f", actual_temp, r_ntc, new_beta);
+    NTC_CFG(beta) = new_beta;
+    NTC_SAVE();
+    return AT_R_OK;
   }
   return AT_R("+ERROR: unknown command");
 }
@@ -2742,6 +2782,7 @@ R"EOF(
   AT+NTC_T_NOMINAL?             - Get NTC nominal temperature
   AT+NTC_EMA_ALPHA=<value>      - Set NTC EMA alpha for smoothing (0-1)
   AT+NTC_EMA_ALPHA?             - Get NTC EMA alpha
+  AT+NTC_CALIBRATE=<temp>       - Calibrate NTC beta using known temperature (-50 to 150C)
 )EOF"
 #endif // SUPPORT_NTC
 
