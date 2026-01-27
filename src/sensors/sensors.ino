@@ -495,6 +495,7 @@ int8_t dht11_fetch_humidity(sensor_r_t *s, float *humidity){
     return -1;
   // fetch humidity from DHT11
   float h = (float)DODHT(s)->readHumidity(false);
+  yield(); // Yield to prevent Interrupt WDT - DHT bit-banging disables interrupts
   D("[DHT11] humidity: %f %%", h);
   if(isnan(h) || h < 0.0f || h > 100.0f){
     LOG("[DHT11] humidity invalid or out of range, returning 0: %.2f", h);
@@ -513,6 +514,7 @@ int8_t dht11_fetch_temperature(sensor_r_t *s, float *temperature){
     return -1;
   // fetch temperature from DHT11
   float t = (float)DODHT(s)->readTemperature(false);
+  yield(); // Yield to prevent Interrupt WDT - DHT bit-banging disables interrupts
   D("[DHT11] temperature: %f °C", t);
   if(isnan(t) || t < 0.0f || t > 50.0f){
     LOG("[DHT11] temperature invalid or out of range, returning 0: %.2f", t);
