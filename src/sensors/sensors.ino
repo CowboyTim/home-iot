@@ -40,7 +40,7 @@
 #include <DHT.h>
 #endif // SUPPORT_DHT11
 
-#if defined(SUPPORT_SE95) || defined(SUPPORT_BME280) || defined(SUPPORT_BMP280) || defined(SUPPORT_APDS9930) || defined(SUPPORT_BH1750)
+#if defined(SUPPORT_SE95) || defined(SUPPORT_BME280) || defined(SUPPORT_BMP280) || defined(SUPPORT_APDS9930) || defined(SUPPORT_BH1750) || defined(SUPPORT_SCD41)
 #define I2C_SDA     GPIO_NUM_6 // SDA: GPIO_NUM_8 -> same as LED
 #define I2C_SCL     GPIO_NUM_7 // SCL: GPIO_NUM_9
 #define I2C_BUS_NUM 0
@@ -389,6 +389,39 @@ NOINLINE
 uint16_t i2c_read16le(uint8_t addr, uint8_t reg){
   return i2c_read16(addr, reg, false);
 }
+
+NOINLINE
+int8_t i2c_write_16bit_cmd(uint8_t addr, uint16_t cmd){
+  if(i2c_initialize() == -1)
+    return -1;
+  Wire.beginTransmission(addr);
+  Wire.write(highByte(cmd));
+  Wire.write(lowByte(cmd));
+  if(Wire.endTransmission() != ESP_OK)
+    return -1;
+  return 1;
+}
+
+NOINLINE
+int8_t i2c_read_16bit_cmd(uint8_t addr, uint16_t cmd, uint8_t* data, uint8_t len){
+    if(i2c_initialize() == -1)
+        return -1;
+    Wire.beginTransmission(addr);
+    Wire.write(highByte(cmd));
+    Wire.write(lowByte(cmd));
+    if (Wire.endTransmission() != 0) {
+        return -1;
+    }
+    delay(1); // Mandatory 1ms delay
+    if (Wire.requestFrom(addr, len) != len) {
+        return -1;
+    }
+    for (int i = 0; i < len; i++) {
+        data[i] = Wire.read();
+    }
+    return 1;
+}
+
 
 
 #endif
@@ -2084,6 +2117,155 @@ int8_t fetch_bh1750_illuminance(sensor_r_t *s, float *illuminance){
 }
 #endif // SUPPORT_BH1750
 
+#define SENSOR_SCD41_CO2          {.name = "SCD41 CO2", .key = "scd41_co2",}
+#define SENSOR_SCD41_TEMPERATURE  {.name = "SCD41 Temperature", .key = "scd41_temperature",}
+#define SENSOR_SCD41_HUMIDITY     {.name = "SCD41 Humidity", .key = "scd41_humidity",}
+#ifdef SUPPORT_SCD41
+#define SENSOR_SCD41_CO2 \
+    {\
+      .name = "SCD41 CO2",\
+      .key  = "scd41_co2",\
+      .unit_fmt = "ppm,%.0f",\
+      .init_function = init_scd41,\
+      .pre_function = pre_scd41,\
+      .value_function = fetch_scd41_co2,\
+      .destroy_function = destroy_scd41,\
+    }
+#define SENSOR_SCD41_TEMPERATURE \
+    {\
+      .name = "SCD41 Temperature",\
+      .key  = "scd41_temperature",\
+      .unit_fmt = "°C,%.2f",\
+      .init_function = init_scd41,\
+      .pre_function = pre_scd41,\
+      .value_function = fetch_scd41_temperature,\
+      .destroy_function = destroy_scd41,\
+    }
+#define SENSOR_SCD41_HUMIDITY \
+    {\
+      .name = "SCD41 Humidity",\
+      .key  = "scd41_humidity",\
+      .unit_fmt = "%%,%.0f",\
+      .init_function = init_scd41,\
+      .pre_function = pre_scd41,\
+      .value_function = fetch_scd41_humidity,\
+      .destroy_function = destroy_scd41,\
+    }
+
+#define SCD41_I2C_ADDRESS 0x62
+#define SCD41_CMD_START_PERIODIC_MEASUREMENT 0x21B1
+#define SCD41_CMD_READ_MEASUREMENT 0xEC05
+#define SCD41_CMD_STOP_PERIODIC_MEASUREMENT 0x3F86
+#define SCD41_CMD_GET_DATA_READY_STATUS 0xE4B8
+
+RTC_DATA_ATTR bool scd4x_found = false;
+RTC_DATA_ATTR float last_scd41_co2 = 0.0f;
+RTC_DATA_ATTR float last_scd41_temp = 0.0f;
+RTC_DATA_ATTR float last_scd41_hum = 0.0f;
+RTC_DATA_ATTR unsigned long last_scd41_read_time = 0;
+
+
+// Function to calculate CRC8 for Sensirion sensors
+uint8_t sensirion_crc(const uint8_t *data, uint8_t len) {
+  uint8_t crc = 0xFF;
+  for (uint8_t i = 0; i < len; i++) {
+    crc ^= data[i];
+    for (uint8_t j = 0; j < 8; j++) {
+      if ((crc & 0x80) != 0)
+        crc = (uint8_t)((crc << 1) ^ 0x31);
+      else
+        crc <<= 1;
+    }
+  }
+  return crc;
+}
+
+void init_scd41(sensor_r_t *s) {
+  if (scd4x_found) return;
+
+  if (i2c_ping(SCD41_I2C_ADDRESS) == -1) {
+    s->cfg->enabled = 0;
+    LOG("[SCD41] sensor not found");
+    return;
+  }
+  scd4x_found = true;
+
+  // Stop periodic measurement in case it's already running
+  i2c_write_16bit_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_STOP_PERIODIC_MEASUREMENT);
+  delay(500);
+
+  // Start periodic measurement
+  i2c_write_16bit_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_START_PERIODIC_MEASUREMENT);
+  LOG("[SCD41] initialized");
+}
+
+void pre_scd41(sensor_r_t *s) {
+    if (!scd4x_found) return;
+
+    if (millis() - last_scd41_read_time < 5000) { // Read every 5 seconds
+        return;
+    }
+
+    uint8_t data[9];
+    if (i2c_read_16bit_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_READ_MEASUREMENT, data, 9) != 1) {
+        LOG("[SCD41] Failed to read data");
+        return;
+    }
+
+    if (sensirion_crc(&data[0], 2) != data[2]) {
+        LOG("[SCD41] CO2 CRC error");
+        return;
+    }
+    if (sensirion_crc(&data[3], 2) != data[5]) {
+        LOG("[SCD41] Temperature CRC error");
+        return;
+    }
+    if (sensirion_crc(&data[6], 2) != data[8]) {
+        LOG("[SCD41] Humidity CRC error");
+        return;
+    }
+
+    uint16_t raw_co2 = (data[0] << 8) | data[1];
+    uint16_t raw_temp = (data[3] << 8) | data[4];
+    uint16_t raw_hum = (data[6] << 8) | data[7];
+
+    last_scd41_co2 = (float)raw_co2;
+    last_scd41_temp = -45.0f + 175.0f * (float)raw_temp / 65535.0f;
+    last_scd41_hum = 100.0f * (float)raw_hum / 65535.0f;
+    last_scd41_read_time = millis();
+}
+
+int8_t fetch_scd41_co2(sensor_r_t *s, float *co2_ppm) {
+    if (!scd4x_found || co2_ppm == NULL) return -1;
+    *co2_ppm = last_scd41_co2;
+    D("[SCD41] CO2: %.0f ppm", *co2_ppm);
+    return 1;
+}
+
+int8_t fetch_scd41_temperature(sensor_r_t *s, float *temperature) {
+    if (!scd4x_found || temperature == NULL) return -1;
+    *temperature = last_scd41_temp;
+    D("[SCD41] Temperature: %.2f °C", *temperature);
+    return 1;
+}
+
+int8_t fetch_scd41_humidity(sensor_r_t *s, float *humidity) {
+    if (!scd4x_found || humidity == NULL) return -1;
+    *humidity = last_scd41_hum;
+    D("[SCD41] Humidity: %.0f %%", *humidity);
+    return 1;
+}
+
+void destroy_scd41(sensor_r_t *s) {
+  if (scd4x_found) {
+    i2c_write_16bit_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_STOP_PERIODIC_MEASUREMENT);
+    scd4x_found = false;
+    LOG("[SCD41] destroyed");
+  }
+}
+
+#endif // SUPPORT_SCD41
+
 #define SENSOR_DS18B20_TEMPERATURE {.name = "DS18B20 Temperature", .key = "ds18b20_temperature",}
 #ifdef SUPPORT_DS18B20
 #define SENSOR_DS18B20_TEMPERATURE \
@@ -2486,6 +2668,9 @@ sensor_r_t all_sensors[] = {
     SENSOR_BH1750_ILLUMINANCE,
     SENSOR_DS18B20_TEMPERATURE,
     SENSOR_MAX30105_PARTICLE_SENSOR,
+    SENSOR_SCD41_CO2,
+    SENSOR_SCD41_TEMPERATURE,
+    SENSOR_SCD41_HUMIDITY,
 };
 
 NOINLINE
@@ -3036,6 +3221,14 @@ Available sensors:
   - S8_CO2                      - SenseAir S8 CO2 sensor
 )EOF"
 #endif // SUPPORT_S8
+
+#ifdef SUPPORT_SCD41
+        R"EOF(
+  - SCD41_CO2                   - SCD41 CO2 sensor
+  - SCD41_TEMPERATURE           - SCD41 temperature sensor
+  - SCD41_HUMIDITY              - SCD41 humidity sensor
+)EOF"
+#endif // SUPPORT_SCD41
 
 #ifdef SUPPORT_DS18B20
         R"EOF(

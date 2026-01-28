@@ -50,6 +50,7 @@
 #define SUPPORT_DS18B20
 #define SUPPORT_MAX30105
 #define SUPPORT_NTC
+#define SUPPORT_SCD41
 #define SUPPORT_WIFI
 #define SUPPORT_ESP_LOG_INFO
 #define UART_AT
@@ -80,7 +81,7 @@
 #define SUPPORT_MDNS
 #endif
 
-#define NR_OF_SENSORS 17
+#define NR_OF_SENSORS 20
 
 // implement PLUGINS namespace functions
 namespace PLUGINS {
