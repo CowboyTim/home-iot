@@ -1836,10 +1836,10 @@ int8_t fetch_se95_temperature(sensor_r_t *s, float *temperature){
       .value_function = fetch_bh1750_illuminance,\
     }
 
-#define BH1750_I2C_ADDRESS       0x23 // default I2C address for BH1750 (ADDR pin LOW)
-#define BH1750_POWER_DOWN        0x00 // No active state
-#define BH1750_POWER_ON          0x01 // Waiting for measurement command
-#define BH1750_RESET             0x07 // Reset data register value
+#define BH1750_I2C_ADDRESS                0x23 // default I2C address for BH1750 (ADDR pin LOW)
+#define BH1750_POWER_DOWN                 0x00 // No active state
+#define BH1750_POWER_ON                   0x01 // Waiting for measurement command
+#define BH1750_RESET                      0x07 // Reset data register value
 #define BH1750_CONTINUOUS_HIGH_RES_MODE   0x10 // Continuous H-Resolution mode (1 lx resolution, 120ms measurement time)
 #define BH1750_CONTINUOUS_HIGH_RES_MODE_2 0x11 // Continuous H-Resolution mode 2 (0.5 lx resolution, 120ms measurement time)
 #define BH1750_CONTINUOUS_LOW_RES_MODE    0x13 // Continuous L-Resolution mode (4 lx resolution, 16ms measurement time)
