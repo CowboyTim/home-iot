@@ -598,6 +598,8 @@ int8_t bme280_fetch_humidity(sensor_r_t *s, float *humidity){
     return -1;
   float humidity_raw = 0.0f;
 
+  // STUB: apply calibration here using cal.dig_H1 .. dig_H6
+
   LOG("[BME280] humidity: %f %%", humidity_raw);
   if(isnan(humidity_raw) || humidity_raw < 0.0f || humidity_raw > 100.0f){
     LOG("[BME280] humidity invalid or out of range: %.2f", humidity_raw);
@@ -614,6 +616,8 @@ int8_t bme280_fetch_temperature(sensor_r_t *s, float *temperature){
     return -1;
   float temperature_raw = 0.0f;
 
+  // STUB: apply calibration here using cal.dig_T1, dig_T2, dig_T3
+
   LOG("[BME280] temperature: %f °C", temperature_raw);
   if(isnan(temperature_raw)){
     LOG("[BME280] temperature invalid or out of range: %.2f", temperature_raw);
@@ -629,6 +633,8 @@ int8_t bme280_fetch_pressure(sensor_r_t *s, float *pressure){
   if(pressure == NULL)
     return -1;
   float pressure_raw = 0.0f;
+
+  // STUB: apply calibration here using cal.dig_P1 .. dig_P9
 
   LOG("[BME280] pressure: %f hPa", pressure_raw);
   if(isnan(pressure_raw)){
