@@ -580,13 +580,25 @@ void destroy_dht11(sensor_r_t *s){
 
 #define BME280_I2C_ADDRESS 0x76
 #define BME280_ID_REG      0xD0
+#define BME280_CTRL_MEAS   0xF4
+#define BME280_CTRL_HUM    0xF2
+#define BME280_CONFIG      0xF5
+#define BME280_STATUS      0xF3
+#define BME280_PRESS_MSB   0xF7
+#define BME280_TEMP_MSB    0xFA
+#define BME280_HUM_MSB     0xFD
 
-// Trimming parameters
+// Trimming/calibration parameters
 struct {
   uint16_t dig_T1;
   int16_t  dig_T2, dig_T3;
   uint16_t dig_P1;
   int16_t  dig_P2, dig_P3, dig_P4, dig_P5, dig_P6, dig_P7, dig_P8, dig_P9;
+  uint8_t  dig_H1;
+  int16_t  dig_H2;
+  uint8_t  dig_H3;
+  int16_t  dig_H4, dig_H5;
+  int8_t   dig_H6;
 } cal;
 
 RTC_DATA_ATTR float last_bme280_humidity = 0.0f;
@@ -596,11 +608,30 @@ RTC_DATA_ATTR float last_bme280_pressure = 0.0f;
 int8_t bme280_fetch_humidity(sensor_r_t *s, float *humidity){
   if(humidity == NULL)
     return -1;
-  float humidity_raw = 0.0f;
+  
+  // Read raw 16-bit humidity data (MSB at 0xFD, LSB at 0xFE)
+  uint16_t hum_raw = i2c_read16be(BME280_I2C_ADDRESS, BME280_HUM_MSB);
+  if(hum_raw == 0xFFFF){
+    LOG("[BME280] failed to read humidity data");
+    return -1;
+  }
+  
+  // Use the t_fine value from last temperature reading for compensation
+  extern int32_t bme280_t_fine;
+  int32_t v_x1_u32r;
+  
+  v_x1_u32r = (bme280_t_fine - ((int32_t)76800));
+  v_x1_u32r = (((((hum_raw << 14) - (((int32_t)cal.dig_H4) << 20) - (((int32_t)cal.dig_H5) * v_x1_u32r)) +
+                ((int32_t)16384)) >> 15) * (((((((v_x1_u32r * ((int32_t)cal.dig_H6)) >> 10) *
+                (((v_x1_u32r * ((int32_t)cal.dig_H3)) >> 11) + ((int32_t)32768))) >> 10) +
+                ((int32_t)2097152)) * ((int32_t)cal.dig_H2) + 8192) >> 14));
+  v_x1_u32r = (v_x1_u32r - (((((v_x1_u32r >> 15) * (v_x1_u32r >> 15)) >> 7) *
+                ((int32_t)cal.dig_H1)) >> 4));
+  v_x1_u32r = (v_x1_u32r < 0 ? 0 : v_x1_u32r);
+  v_x1_u32r = (v_x1_u32r > 419430400 ? 419430400 : v_x1_u32r);
+  float humidity_raw = (float)(v_x1_u32r >> 12) / 1024.0f;
 
-  // STUB: apply calibration here using cal.dig_H1 .. dig_H6
-
-  LOG("[BME280] humidity: %f %%", humidity_raw);
+  D("[BME280] humidity: %f %%, raw: 0x%04X", humidity_raw, hum_raw);
   if(isnan(humidity_raw) || humidity_raw < 0.0f || humidity_raw > 100.0f){
     LOG("[BME280] humidity invalid or out of range: %.2f", humidity_raw);
     *humidity = 0.0f;
@@ -611,14 +642,39 @@ int8_t bme280_fetch_humidity(sensor_r_t *s, float *humidity){
   return 1;
 }
 
+// Global variable to store t_fine for humidity and pressure compensation
+int32_t bme280_t_fine = 0;
+
 int8_t bme280_fetch_temperature(sensor_r_t *s, float *temperature){
   if(temperature == NULL)
     return -1;
-  float temperature_raw = 0.0f;
+  
+  // Read raw 20-bit temperature data (MSB at 0xFA, LSB at 0xFB, XLSB at 0xFC)
+  Wire.beginTransmission(BME280_I2C_ADDRESS);
+  Wire.write(BME280_TEMP_MSB);
+  if(Wire.endTransmission() != ESP_OK){
+    LOG("[BME280] failed to write register for temperature");
+    return -1;
+  }
+  
+  Wire.requestFrom(BME280_I2C_ADDRESS, 3);
+  if(Wire.available() < 3){
+    LOG("[BME280] failed to read temperature data");
+    return -1;
+  }
+  
+  uint32_t temp_raw = ((uint32_t)Wire.read() << 12) | ((uint32_t)Wire.read() << 4) | ((uint32_t)Wire.read() >> 4);
+  
+  // Apply compensation using calibration data (from BME280 datasheet)
+  int32_t var1, var2;
+  var1 = ((((temp_raw >> 3) - ((int32_t)cal.dig_T1 << 1))) * ((int32_t)cal.dig_T2)) >> 11;
+  var2 = (((((temp_raw >> 4) - ((int32_t)cal.dig_T1)) * ((temp_raw >> 4) - ((int32_t)cal.dig_T1))) >> 12) *
+         ((int32_t)cal.dig_T3)) >> 14;
+  bme280_t_fine = var1 + var2;
+  float temperature_raw = (bme280_t_fine * 5 + 128) >> 8;
+  temperature_raw /= 100.0f;
 
-  // STUB: apply calibration here using cal.dig_T1, dig_T2, dig_T3
-
-  LOG("[BME280] temperature: %f °C", temperature_raw);
+  D("[BME280] temperature: %f °C, raw: 0x%05X, t_fine: %d", temperature_raw, temp_raw, bme280_t_fine);
   if(isnan(temperature_raw)){
     LOG("[BME280] temperature invalid or out of range: %.2f", temperature_raw);
     *temperature = 0.0f;
@@ -632,12 +688,49 @@ int8_t bme280_fetch_temperature(sensor_r_t *s, float *temperature){
 int8_t bme280_fetch_pressure(sensor_r_t *s, float *pressure){
   if(pressure == NULL)
     return -1;
-  float pressure_raw = 0.0f;
+  
+  // Read raw 20-bit pressure data (MSB at 0xF7, LSB at 0xF8, XLSB at 0xF9)
+  Wire.beginTransmission(BME280_I2C_ADDRESS);
+  Wire.write(BME280_PRESS_MSB);
+  if(Wire.endTransmission() != ESP_OK){
+    LOG("[BME280] failed to write register for pressure");
+    return -1;
+  }
+  
+  Wire.requestFrom(BME280_I2C_ADDRESS, 3);
+  if(Wire.available() < 3){
+    LOG("[BME280] failed to read pressure data");
+    return -1;
+  }
+  
+  uint32_t press_raw = ((uint32_t)Wire.read() << 12) | ((uint32_t)Wire.read() << 4) | ((uint32_t)Wire.read() >> 4);
+  
+  // Use the t_fine value from temperature reading for compensation
+  extern int32_t bme280_t_fine;
+  int64_t var1, var2, p;
+  
+  var1 = ((int64_t)bme280_t_fine) - 128000;
+  var2 = var1 * var1 * (int64_t)cal.dig_P6;
+  var2 = var2 + ((var1 * (int64_t)cal.dig_P5) << 17);
+  var2 = var2 + (((int64_t)cal.dig_P4) << 35);
+  var1 = ((var1 * var1 * (int64_t)cal.dig_P3) >> 8) + ((var1 * (int64_t)cal.dig_P2) << 12);
+  var1 = (((((int64_t)1) << 47) + var1)) * ((int64_t)cal.dig_P1) >> 33;
+  
+  if(var1 == 0){
+    LOG("[BME280] pressure calculation error (division by zero)");
+    return -1;
+  }
+  
+  p = 1048576 - press_raw;
+  p = (((p << 31) - var2) * 3125) / var1;
+  var1 = (((int64_t)cal.dig_P9) * (p >> 13) * (p >> 13)) >> 25;
+  var2 = (((int64_t)cal.dig_P8) * p) >> 19;
+  p = ((p + var1 + var2) >> 8) + (((int64_t)cal.dig_P7) << 4);
+  
+  float pressure_raw = (float)p / 256.0f / 100.0f; // Convert to hPa
 
-  // STUB: apply calibration here using cal.dig_P1 .. dig_P9
-
-  LOG("[BME280] pressure: %f hPa", pressure_raw);
-  if(isnan(pressure_raw)){
+  D("[BME280] pressure: %f hPa, raw: 0x%05X", pressure_raw, press_raw);
+  if(isnan(pressure_raw) || pressure_raw < 300.0f || pressure_raw > 1100.0f){
     LOG("[BME280] pressure invalid or out of range: %.2f", pressure_raw);
     *pressure = 0.0f;
     return -1;
@@ -648,6 +741,16 @@ int8_t bme280_fetch_pressure(sensor_r_t *s, float *pressure){
 }
 
 void pre_bme280(sensor_r_t *s){
+  // Trigger a forced measurement
+  // Set humidity oversampling (ctrl_hum must be written before ctrl_meas)
+  i2c_write(BME280_I2C_ADDRESS, BME280_CTRL_HUM, 0x01); // Oversampling x1
+  
+  // Set temperature and pressure oversampling, and mode to forced
+  // Temp oversampling x2 (010), Pressure oversampling x16 (101), Mode forced (01)
+  i2c_write(BME280_I2C_ADDRESS, BME280_CTRL_MEAS, 0x55); // 01010101
+  
+  // Wait for measurement to complete (typical 10ms, max 112.8ms for these settings)
+  delay(20);
 }
 
 void post_bme280(sensor_r_t *s){
@@ -660,33 +763,63 @@ void init_bme280(sensor_r_t *s){
     return;
   }
 
+  // Soft reset the sensor
+  i2c_write(BME280_I2C_ADDRESS, 0xE0, 0xB6);
+  delay(10);
+
   // read ID
   uint8_t id = i2c_read8(BME280_I2C_ADDRESS, BME280_ID_REG) & 0xFF;
   if(id != 0x60){
     s->cfg->enabled = 0 ; // Disable in config
-    LOG("[BME280] sensor not found, read id: 0x%02X", id);
+    LOG("[BME280] sensor not found, read id: 0x%02X (expected 0x60)", id);
     return;
   }
   LOG("[BME280] initialized on I2C address 0x%02X, id: 0x%02X", BME280_I2C_ADDRESS, id);
 
-  // read Calibration Data
-  cal.dig_T1 = i2c_read16be(BME280_I2C_ADDRESS, 0x88);
-  cal.dig_T2 = i2c_read16be(BME280_I2C_ADDRESS, 0x8A);
-  cal.dig_T3 = i2c_read16be(BME280_I2C_ADDRESS, 0x8C);
-  cal.dig_P1 = i2c_read16be(BME280_I2C_ADDRESS, 0x8E);
-  cal.dig_P2 = i2c_read16be(BME280_I2C_ADDRESS, 0x90);
-  cal.dig_P3 = i2c_read16be(BME280_I2C_ADDRESS, 0x92);
-  cal.dig_P4 = i2c_read16be(BME280_I2C_ADDRESS, 0x94);
-  cal.dig_P5 = i2c_read16be(BME280_I2C_ADDRESS, 0x96);
-  cal.dig_P6 = i2c_read16be(BME280_I2C_ADDRESS, 0x98);
-  cal.dig_P7 = i2c_read16be(BME280_I2C_ADDRESS, 0x9A);
-  cal.dig_P8 = i2c_read16be(BME280_I2C_ADDRESS, 0x9C);
-  cal.dig_P9 = i2c_read16be(BME280_I2C_ADDRESS, 0x9E);
+  // Read Temperature Calibration Data (little-endian)
+  cal.dig_T1 = i2c_read16le(BME280_I2C_ADDRESS, 0x88);
+  cal.dig_T2 = (int16_t)i2c_read16le(BME280_I2C_ADDRESS, 0x8A);
+  cal.dig_T3 = (int16_t)i2c_read16le(BME280_I2C_ADDRESS, 0x8C);
+  
+  // Read Pressure Calibration Data (little-endian)
+  cal.dig_P1 = i2c_read16le(BME280_I2C_ADDRESS, 0x8E);
+  cal.dig_P2 = (int16_t)i2c_read16le(BME280_I2C_ADDRESS, 0x90);
+  cal.dig_P3 = (int16_t)i2c_read16le(BME280_I2C_ADDRESS, 0x92);
+  cal.dig_P4 = (int16_t)i2c_read16le(BME280_I2C_ADDRESS, 0x94);
+  cal.dig_P5 = (int16_t)i2c_read16le(BME280_I2C_ADDRESS, 0x96);
+  cal.dig_P6 = (int16_t)i2c_read16le(BME280_I2C_ADDRESS, 0x98);
+  cal.dig_P7 = (int16_t)i2c_read16le(BME280_I2C_ADDRESS, 0x9A);
+  cal.dig_P8 = (int16_t)i2c_read16le(BME280_I2C_ADDRESS, 0x9C);
+  cal.dig_P9 = (int16_t)i2c_read16le(BME280_I2C_ADDRESS, 0x9E);
+  
+  // Read Humidity Calibration Data
+  cal.dig_H1 = i2c_read8(BME280_I2C_ADDRESS, 0xA1);
+  cal.dig_H2 = (int16_t)i2c_read16le(BME280_I2C_ADDRESS, 0xE1);
+  cal.dig_H3 = i2c_read8(BME280_I2C_ADDRESS, 0xE3);
+  
+  // dig_H4 is 12-bit: bits 11:4 at 0xE4, bits 3:0 at 0xE5[3:0]
+  int8_t e4 = i2c_read8(BME280_I2C_ADDRESS, 0xE4);
+  int8_t e5 = i2c_read8(BME280_I2C_ADDRESS, 0xE5);
+  cal.dig_H4 = (e4 << 4) | (e5 & 0x0F);
+  
+  // dig_H5 is 12-bit: bits 3:0 at 0xE5[7:4], bits 11:4 at 0xE6
+  int8_t e6 = i2c_read8(BME280_I2C_ADDRESS, 0xE6);
+  cal.dig_H5 = (e6 << 4) | ((e5 >> 4) & 0x0F);
+  
+  cal.dig_H6 = (int8_t)i2c_read8(BME280_I2C_ADDRESS, 0xE7);
 
-  // configure sensor
-  // ctrl_meas, Temperature oversampling x2, Pressure x16, Normal mode
-  if(i2c_write(BME280_I2C_ADDRESS, 0xF4, 0x57) == -1)
-    LOG("[BME280] failed to write ctrl_meas");
+  D("[BME280] Calibration: T1=%u T2=%d T3=%d P1=%u P2=%d P3=%d H1=%u H2=%d H3=%u H4=%d H5=%d H6=%d",
+    cal.dig_T1, cal.dig_T2, cal.dig_T3, cal.dig_P1, cal.dig_P2, cal.dig_P3,
+    cal.dig_H1, cal.dig_H2, cal.dig_H3, cal.dig_H4, cal.dig_H5, cal.dig_H6);
+
+  // Configure sensor: standby 1000ms, filter off, no SPI
+  i2c_write(BME280_I2C_ADDRESS, BME280_CONFIG, 0x00);
+  
+  // Set humidity oversampling x1
+  i2c_write(BME280_I2C_ADDRESS, BME280_CTRL_HUM, 0x01);
+  
+  // Sleep mode initially (measurements triggered in pre_bme280)
+  i2c_write(BME280_I2C_ADDRESS, BME280_CTRL_MEAS, 0x00);
 }
 
 #endif // SUPPORT_BME280
