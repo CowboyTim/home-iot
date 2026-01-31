@@ -416,22 +416,20 @@ int8_t i2c_write_bytes(uint8_t addr, uint8_t *bytes, uint16_t len){
 
 NOINLINE
 int8_t i2c_read_16bit_cmd(uint8_t addr, uint16_t cmd, uint8_t* data, uint8_t len){
-    if(i2c_initialize() == -1)
-        return -1;
-    Wire.beginTransmission(addr);
-    Wire.write(highByte(cmd));
-    Wire.write(lowByte(cmd));
-    if (Wire.endTransmission() != 0) {
-        return -1;
-    }
-    delay(1); // Mandatory 1ms delay
-    if (Wire.requestFrom(addr, len) != len) {
-        return -1;
-    }
-    for (int i = 0; i < len; i++) {
-        data[i] = Wire.read();
-    }
-    return 1;
+  if(i2c_initialize() == -1)
+    return -1;
+  Wire.beginTransmission(addr);
+  Wire.write(highByte(cmd));
+  Wire.write(lowByte(cmd));
+  Wire.setTimeOut(100);
+  if(Wire.endTransmission() != ESP_OK)
+    return -1;
+  delay(1); // Mandatory 1ms delay
+  if (Wire.requestFrom(addr, len) != len)
+    return -1;
+  for (int i = 0; i < len; i++)
+    data[i] = Wire.read();
+  return 1;
 }
 
 
@@ -2205,7 +2203,7 @@ uint8_t sensirion_crc(const uint8_t *data, uint8_t len) {
 }
 
 NOINLINE
-uint8_t scd41_cmd(uint8_t addr, uint16_t cmd){
+int8_t scd41_cmd(uint8_t addr, uint16_t cmd){
   uint8_t buf[3] = {0};
   buf[0] = highByte(cmd);
   buf[1] = lowByte(cmd);
@@ -2233,6 +2231,11 @@ void init_scd41(sensor_r_t *s) {
     } else {
       LOG("[SCD41] Serial number: %6X", &scd41_buf);
     }
+  }
+  if(scd41_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_SET_AUTOMATIC_SELF_CALIBRATION_ENABLED) != 1){
+    LOG("[SCD41] Enabled ASC (Automatic Self Calibration)");
+  } else {
+    LOG("[SCD41] Failed enabling ASC (Automatic Self Calibration)");
   }
 
   // Stop periodic measurement in case it's already running
@@ -2299,7 +2302,7 @@ void pre_scd41(sensor_r_t *s) {
     last_scd41_temp = -45.0f + 175.0f * (float)raw_temp / 65535.0f;
     last_scd41_hum  = 100.0f * (float)raw_hum / 65535.0f;
     last_scd41_read_time = millis();
-    LOG("[SCD41] CO2: %f, Temp: %f, Humidity: %f", last_scd41_co2, last_scd41_temp, last_scd41_hum);
+    LOG("[SCD41] CO2: %f (%X), Temp: %f (%X), Humidity: %f (%X)", last_scd41_co2, raw_co2, last_scd41_temp, raw_temp, last_scd41_hum, raw_hum);
 }
 
 int8_t fetch_scd41_co2(sensor_r_t *s, float *co2_ppm) {
@@ -2792,6 +2795,8 @@ void setup(){
 
 NOINLINE
 void sensors_loop(){
+  uint8_t run_post[NR_OF_SENSORS] = {0};
+
   // loop through sensors and call pre function
   for(int i = 0; i < NR_OF_SENSORS; i++){
     sensor_r_t *s = &SENSORS::all_sensors[i];
@@ -2801,7 +2806,12 @@ void sensors_loop(){
     if(s->pre_function == NULL)
       continue;
     LOGFLUSH();
+    if(s->value_function == NULL)
+      continue;
+    if(s->cfg->v_intv != 0 && (millis() - l_intv_counters[i]) <= s->cfg->v_intv)
+      continue;
     s->pre_function(s);
+    run_post[i] = 1;
   }
 
   // loop through sensors and check if we need to fetch & log
@@ -2896,7 +2906,10 @@ void sensors_loop(){
     doYIELD;
     if(s->post_function == NULL)
       continue;
-    s->post_function(s);
+    if(s->value_function == NULL)
+      continue;
+    if(run_post[i])
+      s->post_function(s);
   }
 }
 
