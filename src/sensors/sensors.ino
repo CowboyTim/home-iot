@@ -403,6 +403,18 @@ int8_t i2c_write_16bit_cmd(uint8_t addr, uint16_t cmd){
 }
 
 NOINLINE
+int8_t i2c_write_bytes(uint8_t addr, uint8_t *bytes, uint16_t len){
+  if(i2c_initialize() == -1)
+    return -1;
+  Wire.beginTransmission(addr);
+  for(uint16_t i = 0; i < len; i++)
+    Wire.write(bytes[i]);
+  if(Wire.endTransmission() != ESP_OK)
+    return -1;
+  return 1;
+}
+
+NOINLINE
 int8_t i2c_read_16bit_cmd(uint8_t addr, uint16_t cmd, uint8_t* data, uint8_t len){
     if(i2c_initialize() == -1)
         return -1;
@@ -2192,6 +2204,15 @@ uint8_t sensirion_crc(const uint8_t *data, uint8_t len) {
   return crc;
 }
 
+NOINLINE
+uint8_t scd41_cmd(uint8_t addr, uint16_t cmd){
+  uint8_t buf[3] = {0};
+  buf[0] = highByte(cmd);
+  buf[1] = lowByte(cmd);
+  buf[3] = sensirion_crc((const uint8_t *)&cmd, 2);
+  return i2c_write_bytes(addr, buf, 3);
+}
+
 void init_scd41(sensor_r_t *s) {
   if (scd4x_found) return;
 
@@ -2215,14 +2236,15 @@ void init_scd41(sensor_r_t *s) {
   }
 
   // Stop periodic measurement in case it's already running
-  if (i2c_write_16bit_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_STOP_PERIODIC_MEASUREMENT) != 1){
+  if (scd41_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_STOP_PERIODIC_MEASUREMENT) != 1){
     s->cfg->enabled = 0;
     LOG("[SCD41] failed to send STOP");
     return;
   }
+  delay(500);
 
   // Start periodic measurement
-  if (i2c_write_16bit_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_START_PERIODIC_MEASUREMENT) != 1){
+  if (scd41_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_START_PERIODIC_MEASUREMENT) != 1){
     s->cfg->enabled = 0;
     LOG("[SCD41] failed to send START");
     return;
@@ -2269,9 +2291,9 @@ void pre_scd41(sensor_r_t *s) {
         return;
     }
 
-    uint16_t raw_co2  = (scd41_buf[0] << 8) | scd41_buf[1];
-    uint16_t raw_temp = (scd41_buf[3] << 8) | scd41_buf[4];
-    uint16_t raw_hum  = (scd41_buf[6] << 8) | scd41_buf[7];
+    uint16_t raw_co2  = ((uint16_t)scd41_buf[0] << 8) | scd41_buf[1];
+    uint16_t raw_temp = ((uint16_t)scd41_buf[3] << 8) | scd41_buf[4];
+    uint16_t raw_hum  = ((uint16_t)scd41_buf[6] << 8) | scd41_buf[7];
 
     last_scd41_co2  = (float)raw_co2;
     last_scd41_temp = -45.0f + 175.0f * (float)raw_temp / 65535.0f;
@@ -2306,7 +2328,7 @@ int8_t fetch_scd41_humidity(sensor_r_t *s, float *humidity) {
 
 void destroy_scd41(sensor_r_t *s) {
   if (scd4x_found) {
-    i2c_write_16bit_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_STOP_PERIODIC_MEASUREMENT);
+    scd41_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_STOP_PERIODIC_MEASUREMENT);
     scd4x_found = false;
     LOG("[SCD41] destroyed");
   }
