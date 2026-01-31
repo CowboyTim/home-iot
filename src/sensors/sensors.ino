@@ -2152,17 +2152,29 @@ int8_t fetch_bh1750_illuminance(sensor_r_t *s, float *illuminance){
       .destroy_function = destroy_scd41,\
     }
 
-#define SCD41_I2C_ADDRESS 0x62
-#define SCD41_CMD_START_PERIODIC_MEASUREMENT 0x21B1
-#define SCD41_CMD_READ_MEASUREMENT 0xEC05
-#define SCD41_CMD_STOP_PERIODIC_MEASUREMENT 0x3F86
-#define SCD41_CMD_GET_DATA_READY_STATUS 0xE4B8
+#define SCD41_I2C_ADDRESS                                  0x0062
+#define SCD41_CMD_START_PERIODIC_MEASUREMENT               0x21B1
+#define SCD41_CMD_READ_MEASUREMENT                         0xEC05
+#define SCD41_CMD_STOP_PERIODIC_MEASUREMENT                0x3F86
+#define SCD41_CMD_GET_DATA_READY_STATUS                    0xE4B8
+#define SCD41_CMD_SET_TEMPERATURE_OFFSET                   0x231D
+#define SCD41_CMD_GET_TEMPERATURE_OFFSET                   0x2318
+#define SCD41_CMD_SET_SENSOR_ALTITUDE                      0x2427
+#define SCD41_CMD_GET_SENSOR_ALTITUDE                      0x2322
+#define SCD41_CMD_SET_AMBIENT_PRESSURE                     0xE000
+#define SCD41_CMD_PERFORM_FORCED_RECALIBRATION             0x362F
+#define SCD41_CMD_SET_AUTOMATIC_SELF_CALIBRATION_ENABLED   0x2416
+#define SCD41_CMD_GET_AUTOMATIC_SELF_CALIBRATION_ENABLED   0x2313
+#define SCD41_CMD_GET_SERIAL_NUMBER                        0x3682
 
 RTC_DATA_ATTR bool scd4x_found = false;
+RTC_DATA_ATTR bool scd4x_have_data = false;
 RTC_DATA_ATTR float last_scd41_co2 = 0.0f;
 RTC_DATA_ATTR float last_scd41_temp = 0.0f;
 RTC_DATA_ATTR float last_scd41_hum = 0.0f;
 RTC_DATA_ATTR unsigned long last_scd41_read_time = 0;
+
+uint8_t scd41_buf[9] = {0};
 
 
 // Function to calculate CRC8 for Sensirion sensors
@@ -2190,53 +2202,87 @@ void init_scd41(sensor_r_t *s) {
   }
   scd4x_found = true;
 
+  if (i2c_read_16bit_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_GET_SERIAL_NUMBER, scd41_buf, 9) != 1){
+    LOG("[SCD41] failed to get serial number");
+  } else {
+    if (   sensirion_crc(&scd41_buf[0], 2) != scd41_buf[2]
+        || sensirion_crc(&scd41_buf[3], 2) != scd41_buf[5]
+        || sensirion_crc(&scd41_buf[6], 2) != scd41_buf[8]){
+      LOG("[SCD41] failed CRC for Serial number");
+    } else {
+      LOG("[SCD41] Serial number: %6X", &scd41_buf);
+    }
+  }
+
   // Stop periodic measurement in case it's already running
-  i2c_write_16bit_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_STOP_PERIODIC_MEASUREMENT);
-  delay(500);
+  if (i2c_write_16bit_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_STOP_PERIODIC_MEASUREMENT) != 1){
+    s->cfg->enabled = 0;
+    LOG("[SCD41] failed to send STOP");
+    return;
+  }
 
   // Start periodic measurement
-  i2c_write_16bit_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_START_PERIODIC_MEASUREMENT);
-  LOG("[SCD41] initialized");
+  if (i2c_write_16bit_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_START_PERIODIC_MEASUREMENT) != 1){
+    s->cfg->enabled = 0;
+    LOG("[SCD41] failed to send START");
+    return;
+  }
+  LOG("[SCD41] Initialized");
 }
 
 void pre_scd41(sensor_r_t *s) {
-    if (!scd4x_found) return;
+    if (!scd4x_found)
+        return;
+    scd4x_have_data = false;
 
-    if (millis() - last_scd41_read_time < 5000) { // Read every 5 seconds
+    if (i2c_read_16bit_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_GET_DATA_READY_STATUS, scd41_buf, 3) != 1){
+        LOG("[SCD41] Failed to check ready status");
+        return;
+    }
+    if (sensirion_crc(&scd41_buf[0], 2) != scd41_buf[2]){
+        LOG("[SCD41] Ready Statys CRC error");
+        return;
+    }
+    // check last 11 bits, if 0 => not ready and return, else, data is ok to be read
+    if (scd41_buf[1] == 0 && (scd41_buf[0] & 0x07) == 0){
         return;
     }
 
-    uint8_t data[9];
-    if (i2c_read_16bit_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_READ_MEASUREMENT, data, 9) != 1) {
+    if (i2c_read_16bit_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_READ_MEASUREMENT, scd41_buf, 9) != 1) {
         LOG("[SCD41] Failed to read data");
         return;
     }
 
-    if (sensirion_crc(&data[0], 2) != data[2]) {
+    scd4x_have_data = true;
+    D("[SCD41] got data");
+
+    if (sensirion_crc(&scd41_buf[0], 2) != scd41_buf[2]) {
         LOG("[SCD41] CO2 CRC error");
         return;
     }
-    if (sensirion_crc(&data[3], 2) != data[5]) {
+    if (sensirion_crc(&scd41_buf[3], 2) != scd41_buf[5]) {
         LOG("[SCD41] Temperature CRC error");
         return;
     }
-    if (sensirion_crc(&data[6], 2) != data[8]) {
+    if (sensirion_crc(&scd41_buf[6], 2) != scd41_buf[8]) {
         LOG("[SCD41] Humidity CRC error");
         return;
     }
 
-    uint16_t raw_co2 = (data[0] << 8) | data[1];
-    uint16_t raw_temp = (data[3] << 8) | data[4];
-    uint16_t raw_hum = (data[6] << 8) | data[7];
+    uint16_t raw_co2  = (scd41_buf[0] << 8) | scd41_buf[1];
+    uint16_t raw_temp = (scd41_buf[3] << 8) | scd41_buf[4];
+    uint16_t raw_hum  = (scd41_buf[6] << 8) | scd41_buf[7];
 
-    last_scd41_co2 = (float)raw_co2;
+    last_scd41_co2  = (float)raw_co2;
     last_scd41_temp = -45.0f + 175.0f * (float)raw_temp / 65535.0f;
-    last_scd41_hum = 100.0f * (float)raw_hum / 65535.0f;
+    last_scd41_hum  = 100.0f * (float)raw_hum / 65535.0f;
     last_scd41_read_time = millis();
+    LOG("[SCD41] CO2: %f, Temp: %f, Humidity: %f", last_scd41_co2, last_scd41_temp, last_scd41_hum);
 }
 
 int8_t fetch_scd41_co2(sensor_r_t *s, float *co2_ppm) {
     if (!scd4x_found || co2_ppm == NULL) return -1;
+    if (!scd4x_have_data) return 0;
     *co2_ppm = last_scd41_co2;
     D("[SCD41] CO2: %.0f ppm", *co2_ppm);
     return 1;
@@ -2244,6 +2290,7 @@ int8_t fetch_scd41_co2(sensor_r_t *s, float *co2_ppm) {
 
 int8_t fetch_scd41_temperature(sensor_r_t *s, float *temperature) {
     if (!scd4x_found || temperature == NULL) return -1;
+    if (!scd4x_have_data) return 0;
     *temperature = last_scd41_temp;
     D("[SCD41] Temperature: %.2f °C", *temperature);
     return 1;
@@ -2251,6 +2298,7 @@ int8_t fetch_scd41_temperature(sensor_r_t *s, float *temperature) {
 
 int8_t fetch_scd41_humidity(sensor_r_t *s, float *humidity) {
     if (!scd4x_found || humidity == NULL) return -1;
+    if (!scd4x_have_data) return 0;
     *humidity = last_scd41_hum;
     D("[SCD41] Humidity: %.0f %%", *humidity);
     return 1;
