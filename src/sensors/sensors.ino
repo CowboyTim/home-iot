@@ -44,7 +44,7 @@
 #define I2C_SDA     GPIO_NUM_6 // SDA: GPIO_NUM_8 -> same as LED
 #define I2C_SCL     GPIO_NUM_7 // SCL: GPIO_NUM_9
 #define I2C_BUS_NUM 0
-#define I2C_FREQ    400000L // 400kHz
+#define I2C_FREQ    100000L // 100kHz
 #define I2C_TIMEOUT 100     // 100ms
 #ifdef NO_GLOBAL_WIRE
 #include <Wire.h>
@@ -267,7 +267,7 @@ int8_t i2c_initialize(){
     return -1;
   }
   Wire.setTimeout(I2C_TIMEOUT);
-  LOG("[SENSORS] I2C initialized on SDA: %d, SCL: %d", I2C_SDA, I2C_SCL);
+  LOG("[SENSORS] I2C initialized on SDA: %d, SCL: %d, clock: %lu", I2C_SDA, I2C_SCL, I2C_FREQ);
   i2c_initialized = 1;
   return 1;
 }
@@ -409,8 +409,11 @@ int8_t i2c_write_bytes(uint8_t addr, uint8_t *bytes, uint16_t len){
   Wire.beginTransmission(addr);
   for(uint16_t i = 0; i < len; i++)
     Wire.write(bytes[i]);
-  if(Wire.endTransmission() != ESP_OK)
+  esp_err_t err = Wire.endTransmission();
+  if(err != ESP_OK){
+    LOG("[I2C] error %s", esp_err_to_name(err));
     return -1;
+  }
   return 1;
 }
 
