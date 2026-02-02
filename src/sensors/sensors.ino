@@ -3208,7 +3208,7 @@ const char* at_cmd_handler_sensors(const char* atcmdline){
       return AT_R("+ERROR: Failed to stop measurements");
     delay(500);
     // Start self-test
-    LOG("[SCD41] Running self-test (10s)...");
+    LOG("[SCD41] Running self-test (5500ms)...");
     if (scd41_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_PERFORM_SELF_TEST) != 1)
       return AT_R("+ERROR: Self-test command failed");
     // Wait 10 seconds with yielding to avoid watchdog timeout
