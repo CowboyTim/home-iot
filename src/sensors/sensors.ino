@@ -2176,16 +2176,27 @@ int8_t fetch_bh1750_illuminance(sensor_r_t *s, float *illuminance){
 #define SCD41_CMD_GET_SENSOR_ALTITUDE                      0x2322
 #define SCD41_CMD_SET_AMBIENT_PRESSURE                     0xE000
 #define SCD41_CMD_PERFORM_FORCED_RECALIBRATION             0x362F
+#define SCD41_CMD_PERFORM_FACTORY_RESET                    0x3632
 #define SCD41_CMD_SET_AUTOMATIC_SELF_CALIBRATION_ENABLED   0x2416
 #define SCD41_CMD_GET_AUTOMATIC_SELF_CALIBRATION_ENABLED   0x2313
+#define SCD41_CMD_PERFORM_SELF_TEST                        0x3639
+#define SCD41_CMD_REINIT                                   0x3646
 #define SCD41_CMD_GET_SERIAL_NUMBER                        0x3682
 
-RTC_DATA_ATTR bool scd4x_found = false;
-RTC_DATA_ATTR bool scd4x_have_data = false;
-RTC_DATA_ATTR float last_scd41_co2 = 0.0f;
-RTC_DATA_ATTR float last_scd41_temp = 0.0f;
-RTC_DATA_ATTR float last_scd41_hum = 0.0f;
-RTC_DATA_ATTR unsigned long last_scd41_read_time = 0;
+enum scd41_state_t {
+  SCD41_STATE_IDLE = 0,
+  SCD41_STATE_SELF_TEST_RUNNING = 1,
+  SCD41_STATE_READY = 2
+};
+
+bool scd4x_found = false;
+bool scd4x_have_data = false;
+scd41_state_t scd4x_state = SCD41_STATE_IDLE;
+unsigned long scd4x_selftest_start_time = 0;
+float last_scd41_co2 = 0.0f;
+float last_scd41_temp = 0.0f;
+float last_scd41_hum = 0.0f;
+unsigned long last_scd41_read_time = 0;
 
 uint8_t scd41_buf[9] = {0};
 
@@ -2210,8 +2221,19 @@ int8_t scd41_cmd(uint8_t addr, uint16_t cmd){
   uint8_t buf[3] = {0};
   buf[0] = highByte(cmd);
   buf[1] = lowByte(cmd);
-  buf[3] = sensirion_crc((const uint8_t *)&cmd, 2);
+  buf[2] = sensirion_crc((const uint8_t *)buf, 2);
   return i2c_write_bytes(addr, buf, 3);
+}
+
+NOINLINE
+int8_t scd41_cmd_with_param(uint8_t addr, uint16_t cmd, uint16_t param){
+  uint8_t buf[5] = {0};
+  buf[0] = highByte(cmd);
+  buf[1] = lowByte(cmd);
+  buf[2] = highByte(param);
+  buf[3] = lowByte(param);
+  buf[4] = sensirion_crc(&buf[2], 2);
+  return i2c_write_bytes(addr, buf, 5);
 }
 
 void init_scd41(sensor_r_t *s) {
@@ -2235,11 +2257,6 @@ void init_scd41(sensor_r_t *s) {
       LOG("[SCD41] Serial number: %6X", &scd41_buf);
     }
   }
-  if(scd41_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_SET_AUTOMATIC_SELF_CALIBRATION_ENABLED) != 1){
-    LOG("[SCD41] Enabled ASC (Automatic Self Calibration)");
-  } else {
-    LOG("[SCD41] Failed enabling ASC (Automatic Self Calibration)");
-  }
 
   // Stop periodic measurement in case it's already running
   if (scd41_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_STOP_PERIODIC_MEASUREMENT) != 1){
@@ -2249,19 +2266,81 @@ void init_scd41(sensor_r_t *s) {
   }
   delay(500);
 
-  // Start periodic measurement
-  if (scd41_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_START_PERIODIC_MEASUREMENT) != 1){
-    s->cfg->enabled = 0;
-    LOG("[SCD41] failed to send START");
+  // Reinit sensor to ensure clean state
+  LOG("[SCD41] Reinitializing sensor...");
+  if (scd41_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_REINIT) != 1){
+    LOG("[SCD41] REINIT command failed, continuing anyway");
+  } else {
+    delay(20); // Reinit takes 20ms
+  }
+
+  // Start self-test (takes ~10 seconds, will check result in pre_scd41)
+  LOG("[SCD41] Starting self-test (async, ~10s)...");
+  if (scd41_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_PERFORM_SELF_TEST) != 1){
+    LOG("[SCD41] failed to send SELF_TEST command, skipping self-test");
+    // Don't fail, just skip self-test and start measurements
+    if (scd41_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_START_PERIODIC_MEASUREMENT) != 1){
+      s->cfg->enabled = 0;
+      LOG("[SCD41] failed to send START");
+      return;
+    }
+    scd4x_state = SCD41_STATE_READY;
+    LOG("[SCD41] Initialized without self-test, waiting for first measurement (5s)");
     return;
   }
-  LOG("[SCD41] Initialized");
+  scd4x_state = SCD41_STATE_SELF_TEST_RUNNING;
+  scd4x_selftest_start_time = millis();
+  LOG("[SCD41] Initialized, self-test running");
 }
 
 void pre_scd41(sensor_r_t *s) {
     if (!scd4x_found)
         return;
     scd4x_have_data = false;
+
+    // Check if self-test is complete
+    if (scd4x_state == SCD41_STATE_SELF_TEST_RUNNING) {
+        if (millis() - scd4x_selftest_start_time < 10000) {
+            // Self-test still running, wait
+            return;
+        }
+        // Self-test should be complete, read result (plain read, no command)
+        if (i2c_initialize() == -1 || Wire.requestFrom(SCD41_I2C_ADDRESS, (uint8_t)3) != 3) {
+            LOG("[SCD41] failed to read self-test result");
+            s->cfg->enabled = 0;
+            scd4x_state = SCD41_STATE_IDLE;
+            return;
+        }
+        scd41_buf[0] = Wire.read();
+        scd41_buf[1] = Wire.read();
+        scd41_buf[2] = Wire.read();
+        if (sensirion_crc(&scd41_buf[0], 2) != scd41_buf[2]){
+            LOG("[SCD41] Self-test result CRC error");
+            s->cfg->enabled = 0;
+            scd4x_state = SCD41_STATE_IDLE;
+            return;
+        }
+        uint16_t test_result = ((uint16_t)scd41_buf[0] << 8) | scd41_buf[1];
+        if (test_result == 0x0000){
+            LOG("[SCD41] Self-test PASSED");
+        } else {
+            LOG("[SCD41] Self-test FAILED (0x%04X) - continuing anyway", test_result);
+        }
+        // Start periodic measurement regardless of self-test result
+        if (scd41_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_START_PERIODIC_MEASUREMENT) != 1){
+            s->cfg->enabled = 0;
+            LOG("[SCD41] failed to send START");
+            scd4x_state = SCD41_STATE_IDLE;
+            return;
+        }
+        LOG("[SCD41] Periodic measurement started, waiting for first data (5s)");
+        scd4x_state = SCD41_STATE_READY;
+        return;
+    }
+
+    // Only process data if sensor is ready
+    if (scd4x_state != SCD41_STATE_READY)
+        return;
 
     if (i2c_read_16bit_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_GET_DATA_READY_STATUS, scd41_buf, 3) != 1){
         LOG("[SCD41] Failed to check ready status");
@@ -3100,6 +3179,134 @@ const char* at_cmd_handler_sensors(const char* atcmdline){
   } else if(p = at_cmd_check("AT+S8_",atcmdline, cmd_len)){
     return atcmd_sensors_s8(atcmdline, cmd_len);
   #endif // SUPPORT_S8
+  #ifdef SUPPORT_SCD41
+  } else if(p = at_cmd_check("AT+SCD41_FACTORY_RESET",atcmdline, cmd_len)){
+    if (!scd4x_found)
+      return AT_R("+ERROR: SCD41 not found");
+    // Stop measurements first
+    scd4x_state = SCD41_STATE_IDLE;
+    if (scd41_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_STOP_PERIODIC_MEASUREMENT) != 1)
+      return AT_R("+ERROR: Failed to stop measurements");
+    delay(500);
+    // Perform factory reset
+    LOG("[SCD41] Performing factory reset...");
+    if (scd41_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_PERFORM_FACTORY_RESET) != 1)
+      return AT_R("+ERROR: Factory reset command failed");
+    delay(1200); // Factory reset takes 1200ms
+    LOG("[SCD41] Factory reset completed, restarting measurements");
+    // Restart measurements
+    if (scd41_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_START_PERIODIC_MEASUREMENT) != 1)
+      return AT_R("+ERROR: Failed to restart measurements");
+    scd4x_state = SCD41_STATE_READY;
+    return AT_R("+SCD41_FACTORY_RESET: OK - sensor will recalibrate over time");
+  } else if(p = at_cmd_check("AT+SCD41_SELF_TEST",atcmdline, cmd_len)){
+    if (!scd4x_found)
+      return AT_R("+ERROR: SCD41 not found");
+    // Stop measurements first
+    scd4x_state = SCD41_STATE_IDLE;
+    if (scd41_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_STOP_PERIODIC_MEASUREMENT) != 1)
+      return AT_R("+ERROR: Failed to stop measurements");
+    delay(500);
+    // Start self-test
+    LOG("[SCD41] Running self-test (10s)...");
+    if (scd41_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_PERFORM_SELF_TEST) != 1)
+      return AT_R("+ERROR: Self-test command failed");
+    // Wait 10 seconds with yielding to avoid watchdog timeout
+    unsigned long start_time = millis();
+    while (millis() - start_time < 5500) {
+      doYIELD;
+      delay(100); // Yield every 100ms
+    }
+    // Read self-test result
+    if (i2c_initialize() == -1 || Wire.requestFrom(SCD41_I2C_ADDRESS, (uint8_t)3) != 3)
+      return AT_R("+ERROR: Failed to read self-test result");
+    scd41_buf[0] = Wire.read();
+    scd41_buf[1] = Wire.read();
+    scd41_buf[2] = Wire.read();
+    if (sensirion_crc(&scd41_buf[0], 2) != scd41_buf[2])
+      return AT_R("+ERROR: Self-test result CRC error");
+    uint16_t test_result = ((uint16_t)scd41_buf[0] << 8) | scd41_buf[1];
+    // Restart measurements
+    if (scd41_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_START_PERIODIC_MEASUREMENT) != 1)
+      return AT_R("+ERROR: Failed to restart measurements");
+    scd4x_state = SCD41_STATE_READY;
+    if (test_result == 0x0000)
+      return AT_R("+SCD41_SELF_TEST: PASSED");
+    ALIGN(4) static char result_buf[64];
+    snprintf(result_buf, sizeof(result_buf), "+SCD41_SELF_TEST: FAILED (0x%04X)", test_result);
+    return AT_R(result_buf);
+  } else if(p = at_cmd_check("AT+SCD41_ASC=",atcmdline, cmd_len)){
+    if (!scd4x_found)
+      return AT_R("+ERROR: SCD41 not found");
+    char *r = NULL;
+    unsigned long val = strtoul(p, &r, 10);
+    if(errno != 0 || (val != 0 && val != 1) || (r == p))
+      return AT_R("+ERROR: ASC must be 0 or 1");
+    // Stop measurements first
+    if (scd41_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_STOP_PERIODIC_MEASUREMENT) != 1)
+      return AT_R("+ERROR: Failed to stop measurements");
+    delay(500);
+    // Set ASC (persists in sensor EEPROM)
+    if (scd41_cmd_with_param(SCD41_I2C_ADDRESS, SCD41_CMD_SET_AUTOMATIC_SELF_CALIBRATION_ENABLED, val ? 0x0001 : 0x0000) != 1)
+      return AT_R("+ERROR: Failed to set ASC");
+    delay(1); // Small delay for EEPROM write
+    // Restart measurements
+    if (scd41_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_START_PERIODIC_MEASUREMENT) != 1)
+      return AT_R("+ERROR: Failed to restart measurements");
+    LOG("[SCD41] ASC %s (persisted to sensor)", val ? "enabled" : "disabled");
+    return AT_R_OK;
+  } else if(p = at_cmd_check("AT+SCD41_ASC?",atcmdline, cmd_len)){
+    if (!scd4x_found)
+      return AT_R("+ERROR: SCD41 not found");
+    // Stop measurements first
+    if (scd41_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_STOP_PERIODIC_MEASUREMENT) != 1)
+      return AT_R("+ERROR: Failed to stop measurements");
+    delay(500);
+    // Get ASC status from sensor
+    if (i2c_read_16bit_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_GET_AUTOMATIC_SELF_CALIBRATION_ENABLED, scd41_buf, 3) != 1)
+      return AT_R("+ERROR: Failed to read ASC status");
+    if (sensirion_crc(&scd41_buf[0], 2) != scd41_buf[2])
+      return AT_R("+ERROR: ASC status CRC error");
+    uint16_t asc_enabled = ((uint16_t)scd41_buf[0] << 8) | scd41_buf[1];
+    // Restart measurements
+    if (scd41_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_START_PERIODIC_MEASUREMENT) != 1)
+      return AT_R("+ERROR: Failed to restart measurements");
+    return AT_R_INT(asc_enabled ? 1 : 0);
+  } else if(p = at_cmd_check("AT+SCD41_FRC=",atcmdline, cmd_len)){
+    if (!scd4x_found)
+      return AT_R("+ERROR: SCD41 not found");
+    char *r = NULL;
+    unsigned long co2_ppm = strtoul(p, &r, 10);
+    if(errno != 0 || co2_ppm < 400 || co2_ppm > 2000 || (r == p))
+      return AT_R("+ERROR: FRC value must be 400-2000 ppm");
+    // Stop measurements first
+    if (scd41_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_STOP_PERIODIC_MEASUREMENT) != 1)
+      return AT_R("+ERROR: Failed to stop measurements");
+    delay(500);
+    // Perform forced recalibration (persists in sensor EEPROM)
+    if (scd41_cmd_with_param(SCD41_I2C_ADDRESS, SCD41_CMD_PERFORM_FORCED_RECALIBRATION, (uint16_t)co2_ppm) != 1)
+      return AT_R("+ERROR: Failed to send FRC command");
+    delay(400); // FRC takes 400ms
+    // Read FRC correction value
+    if (i2c_initialize() == -1 || Wire.requestFrom(SCD41_I2C_ADDRESS, (uint8_t)3) != 3)
+      return AT_R("+ERROR: Failed to read FRC result");
+    scd41_buf[0] = Wire.read();
+    scd41_buf[1] = Wire.read();
+    scd41_buf[2] = Wire.read();
+    if (sensirion_crc(&scd41_buf[0], 2) != scd41_buf[2])
+      return AT_R("+ERROR: FRC result CRC error");
+    int16_t frc_correction = ((int16_t)scd41_buf[0] << 8) | scd41_buf[1];
+    // Check if correction is 0xFFFF (error)
+    if (frc_correction == -1)
+      return AT_R("+ERROR: FRC failed - sensor needs to be measuring for 3+ minutes first");
+    // Restart measurements
+    if (scd41_cmd(SCD41_I2C_ADDRESS, SCD41_CMD_START_PERIODIC_MEASUREMENT) != 1)
+      return AT_R("+ERROR: Failed to restart measurements");
+    ALIGN(4) static char frc_buf[64];
+    snprintf(frc_buf, sizeof(frc_buf), "+SCD41_FRC: OK (correction: %d ppm, persisted to sensor)", frc_correction);
+    LOG("[SCD41] FRC completed: reference=%lu ppm, correction=%d ppm", co2_ppm, frc_correction);
+    return AT_R(frc_buf);
+  #endif // SUPPORT_SCD41
   } else if(p = at_cmd_check("AT+LOG_INTERVAL_", atcmdline, cmd_len)){
     return at_cmd_handler_sensor(atcmdline, cmd_len);
   } else if(p = at_cmd_check("AT+ENABLE_", atcmdline, cmd_len)){
